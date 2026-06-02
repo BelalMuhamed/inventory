@@ -1,0 +1,11 @@
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\DomainLayer\bin\Debug\net8.0\DomainLayer.deps.json
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\DomainLayer\bin\Debug\net8.0\DomainLayer.dll
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\DomainLayer\bin\Debug\net8.0\DomainLayer.pdb
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\DomainLayer\obj\Debug\net8.0\DomainLayer.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\DomainLayer\obj\Debug\net8.0\DomainLayer.AssemblyInfoInputs.cache
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\DomainLayer\obj\Debug\net8.0\DomainLayer.AssemblyInfo.cs
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\DomainLayer\obj\Debug\net8.0\DomainLayer.csproj.CoreCompileInputs.cache
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\DomainLayer\obj\Debug\net8.0\DomainLayer.dll
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\DomainLayer\obj\Debug\net8.0\refint\DomainLayer.dll
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\DomainLayer\obj\Debug\net8.0\DomainLayer.pdb
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\DomainLayer\obj\Debug\net8.0\ref\DomainLayer.dll
