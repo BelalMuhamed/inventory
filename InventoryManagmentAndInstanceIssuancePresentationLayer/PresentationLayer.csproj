@@ -18,6 +18,8 @@
 
   <ItemGroup>
     <Folder Include="Controllers\" />
+    <Folder Include="Common\" />
+    <Folder Include="MiddleWares\" />
   </ItemGroup>
 
   <ItemGroup>
