@@ -5,11 +5,20 @@ namespace ApplicationLayer.Contracts
 {
     /// <summary>
     /// Coordinates the work of one or more repositories and commits it as a single transaction.
-    /// Repository interfaces are exposed here as they are introduced; for now it owns the
-    /// commit boundary so services never call <c>SaveChanges</c> directly.
+    /// Repositories are exposed as properties and share the same change tracker, so services
+    /// never call <c>SaveChanges</c> directly and never open ad-hoc transactions.
     /// </summary>
     public interface IUnitOfWork
     {
+        /// <summary>Repository for tenant accounts (the authentication identity).</summary>
+        ITenantRepo Tenants { get; }
+
+        /// <summary>Repository for the bootstrap system-administrator account.</summary>
+        ISystemAdminRepo SystemAdmins { get; }
+
+        /// <summary>Repository for persisted refresh tokens.</summary>
+        IRefreshTokenRepo RefreshTokens { get; }
+
         /// <summary>
         /// Persists all changes tracked in the current unit of work.
         /// </summary>

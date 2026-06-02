@@ -1,9 +1,10 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>5b61bc15-d7e5-4f7d-a58a-6a803a8dceb7</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,6 +21,7 @@
     <Folder Include="Controllers\" />
     <Folder Include="Common\" />
     <Folder Include="MiddleWares\" />
+    <Folder Include="Security\" />
   </ItemGroup>
 
   <ItemGroup>
