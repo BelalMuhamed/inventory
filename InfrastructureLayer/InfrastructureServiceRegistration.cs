@@ -8,7 +8,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-
 namespace InfrastructureLayer
 {
     /// <summary>
@@ -26,7 +25,10 @@ namespace InfrastructureLayer
         {
             services.AddDbContext<AppDbContext>(options =>
                 options.UseSqlServer(configuration.GetConnectionString("DefaultConnection")));
-
+                    services.AddOptions<JwtOptions>()
+            .Bind(configuration.GetSection(JwtOptions.SectionName))
+            .Validate(o => !string.IsNullOrWhiteSpace(o.SigningKey), "JWT SigningKey is required.")
+            .ValidateOnStart();
             services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
             services.AddScoped<IUnitOfWork, UnitOfWork>();
             services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
