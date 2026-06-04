@@ -13,8 +13,7 @@ namespace DomainLayer.Entities
         /// <summary>Primary key (BIGINT IDENTITY).</summary>
         public long Id { get; set; }
 
-        /// <summary>Display name of the tenant.</summary>
-        public string Name { get; set; } = string.Empty;
+
 
         /// <summary>Unique, URL-safe slug. Unique across all tenants.</summary>
         public string Code { get; set; } = string.Empty;

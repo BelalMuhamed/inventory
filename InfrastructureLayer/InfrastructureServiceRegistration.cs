@@ -30,15 +30,21 @@ namespace InfrastructureLayer
             .Validate(o => !string.IsNullOrWhiteSpace(o.SigningKey), "JWT SigningKey is required.")
             .ValidateOnStart();
             services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
+            // InfrastructureLayer/InfrastructureServiceRegistration.cs  (modified registrations only)
+            //   ... existing registrations unchanged ...
             services.AddScoped<IUnitOfWork, UnitOfWork>();
             services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
             services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
 
             services.AddScoped<IAuthService, AuthService>();
+            services.AddScoped<ITenantService, TenantService>();          // <-- added
             services.AddScoped<IServiceManager, ServiceManager>();
             services.AddScoped<System.Func<IAuthService>>(sp => sp.GetRequiredService<IAuthService>);
+            services.AddScoped<System.Func<ITenantService>>(sp => sp.GetRequiredService<ITenantService>);  // <-- added
 
             return services;
+
+           
         }
     }
 }

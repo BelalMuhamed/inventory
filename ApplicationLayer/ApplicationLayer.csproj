@@ -9,7 +9,6 @@
   <ItemGroup>
     <Folder Include="common\" />
     <Folder Include="DTOs\Auth\" />
-    <Folder Include="ServicesContracts\" />
     <Folder Include="Options\" />
   </ItemGroup>
 

@@ -76,6 +76,7 @@ namespace InfrastructureLayer.Data
             }
         }
 
+        // InfrastructureLayer/Data/AppDbContext.cs  (ConfigureTenant body — replace)
         private static void ConfigureTenant(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<Tenant>(entity =>
@@ -83,19 +84,17 @@ namespace InfrastructureLayer.Data
                 entity.ToTable("Tenants");
                 entity.HasKey(t => t.Id);
 
-                entity.Property(t => t.Name).IsRequired().HasMaxLength(200);
                 entity.Property(t => t.Code).IsRequired().HasMaxLength(50);
                 entity.Property(t => t.Username).IsRequired().HasMaxLength(100);
                 entity.Property(t => t.PasswordHash).IsRequired().HasMaxLength(256);
                 entity.Property(t => t.IsActive).HasDefaultValue(true);
 
-                // ERD §1.1: UNIQUE (Code); UNIQUE (Username) filtered on IsDeleted = 0; (IsDeleted) filtered.
+                // Code and Username are unique across ALL tenants (including soft-deleted), so a
+                // deleted tenant's identifiers stay reserved. IsDeleted is indexed (filtered) to
+                // keep the common "active only" queries cheap.
                 entity.HasIndex(t => t.Code).IsUnique();
-                entity.HasIndex(t => t.Username)
-                      .IsUnique()
-                      .HasFilter("[IsDeleted] = 0");
-                entity.HasIndex(t => t.IsDeleted)
-                      .HasFilter("[IsDeleted] = 0");
+                entity.HasIndex(t => t.Username).IsUnique();
+                entity.HasIndex(t => t.IsDeleted).HasFilter("[IsDeleted] = 0");
 
                 entity.HasQueryFilter(t => !t.IsDeleted);
             });

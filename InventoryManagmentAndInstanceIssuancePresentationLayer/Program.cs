@@ -3,6 +3,7 @@ using InfrastructureLayer;
 using InfrastructureLayer.Data;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Common;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Middleware;
+using InventoryManagmentAndInstanceIssuancePresentationLayer.Security;
 using Microsoft.AspNetCore.Mvc;
 
 namespace InventoryManagmentAndInstanceIssuancePresentationLayer
@@ -32,7 +33,8 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
             // Onion composition: inner layers are wired before the presentation concerns that depend on them.
             builder.Services.AddInfrastructure(builder.Configuration);
             builder.Services.AddPresentation(builder.Configuration);
-
+            // In Program.cs, where services are configured:
+            builder.Services.AddAuthorization(AuthorizationPolicies.Register);
             var app = builder.Build();
 
             // Apply migrations and seed the bootstrap system admin on startup (idempotent).

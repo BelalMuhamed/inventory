@@ -25,5 +25,12 @@ namespace DomainLayer.Common
 
         /// <summary>True when the row has been soft-deleted and must be hidden from normal queries.</summary>
         public bool IsDeleted { get; set; }
+        /// <summary>
+        /// Identity of the principal that soft-deleted the row (the system admin's id, or a
+        /// tenant's id where a tenant performs the deletion), or <c>null</c> while active.
+        /// Disambiguated by the caller's <c>isSystemAdmin</c> claim; stored without a foreign key
+        /// because the deleter may belong to either the Tenants or SystemAdmins table.
+        /// </summary>
+        public long? DeletedBy { get; set; }
     }
 }

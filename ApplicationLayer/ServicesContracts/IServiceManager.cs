@@ -9,5 +9,7 @@ namespace ApplicationLayer.ServicesContracts
     {
         /// <summary>Authentication use cases (login, refresh, logout).</summary>
         IAuthService Auth { get; }
+        /// <summary>Tenant management use cases (list, detail, create, update, password, delete, restore).</summary>
+        ITenantService Tenants { get; }
     }
 }

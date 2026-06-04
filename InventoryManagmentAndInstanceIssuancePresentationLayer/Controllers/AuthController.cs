@@ -70,6 +70,7 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
             [FromBody] LogoutRequest request, CancellationToken cancellationToken)
             => (await _services.Auth.LogoutAsync(request, cancellationToken)).ToHttpResponse();
 
+        // InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/AuthController.cs  (Me() only)
         /// <summary>
         /// Returns the current principal (tenant id, username, admin flag) to bootstrap UI state.
         /// </summary>
@@ -81,8 +82,10 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
                 ?? User.FindFirstValue("sub")
                 ?? string.Empty;
 
-            var profile = new CurrentPrincipalResponse(
-                _currentTenant.TenantId, username, _currentTenant.IsSystemAdmin);
+            // The 'me' contract reports TenantId only for tenants; a system admin has no tenant.
+            long? tenantId = _currentTenant.IsSystemAdmin ? null : _currentTenant.UserId;
+
+            var profile = new CurrentPrincipalResponse(tenantId, username, _currentTenant.IsSystemAdmin);
 
             return Ok(profile);
         }
