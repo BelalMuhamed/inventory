@@ -75,15 +75,15 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// <param name="id">Tenant id.</param>
         /// <param name="cancellationToken">Request cancellation token.</param>
         [HttpDelete("{id:long}")]
+        [HttpDelete("{id:long}")]
         public async Task<IActionResult> SoftDelete(long id, CancellationToken cancellationToken)
         {
-            // Guaranteed non-null behind the SystemAdminOnly policy; guard defensively regardless.
-            if (_currentTenant.UserId is not long deletedBy)
+            if (string.IsNullOrEmpty(_currentTenant.Username))
             {
                 return Unauthorized();
             }
 
-            return (await _services.Tenants.SoftDeleteAsync(id, deletedBy, cancellationToken)).ToHttpResponse();
+            return (await _services.Tenants.SoftDeleteAsync(id, _currentTenant.Username, cancellationToken)).ToHttpResponse();
         }
 
         /// <summary>Restores a soft-deleted tenant.</summary>

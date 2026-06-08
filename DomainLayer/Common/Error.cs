@@ -31,6 +31,12 @@ namespace DomainLayer.Common
 
         /// <summary>Classification used to map this error to an HTTP status code.</summary>
         public ErrorCategory Category { get; }
+        // DomainLayer/Common/Error.cs — add an optional argument carried alongside the error
+        /// <summary>Optional value substituted into the localized message's {0} placeholder.</summary>
+        public string? MessageArg { get; private init; }
+
+        /// <summary>Returns a copy of this error tagged with a message argument for localization.</summary>
+        public Error WithArg(string arg) => this with { MessageArg = arg };
 
         /// <summary>Creates a <see cref="ErrorCategory.Validation"/> error (→ HTTP 422).</summary>
         public static Error Validation(string code, string message) => new(code, message, ErrorCategory.Validation);

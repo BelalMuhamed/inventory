@@ -132,8 +132,7 @@ namespace InfrastructureLayer.Services
             return Result.Success();
         }
 
-        /// <inheritdoc />
-        public async Task<Result> SoftDeleteAsync(long id, long deletedBy, CancellationToken cancellationToken = default)
+        public async Task<Result> SoftDeleteAsync(long id, string actorUsername, CancellationToken cancellationToken = default)
         {
             Tenant? tenant = await _unitOfWork.Tenants.GetByIdIncludingDeletedAsync(id, cancellationToken);
             if (tenant is null)
@@ -146,13 +145,19 @@ namespace InfrastructureLayer.Services
                 return Result.Failure(TenantErrors.AlreadyDeleted(id));
             }
 
+            // The delete endpoint is system-admin-only, so the actor is resolved from the SystemAdmins table.
+            SystemAdmin? actor = await _unitOfWork.SystemAdmins.GetActiveByUsernameAsync(actorUsername, cancellationToken);
+            if (actor is null)
+            {
+                return Result.Failure(TenantErrors.ActorNotResolved());
+            }
+
             tenant.IsDeleted = true;
             tenant.DeletedAt = System.DateTime.UtcNow;
-            tenant.DeletedBy = deletedBy;
+            tenant.DeletedBy = actor.Id;
 
             _unitOfWork.Tenants.Update(tenant);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
-
             return Result.Success();
         }
 

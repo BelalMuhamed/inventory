@@ -46,15 +46,16 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Common
 
         private static IActionResult BuildFailure<T>(Error error, string traceId)
         {
+            // PresentationLayer/Common/ResultExtensions.cs — in BuildFailure, copy the arg across
             var body = ApiResponse<T>.Fail(
                 new ApiError
                 {
                     Code = error.Code,
-                    Message = error.Message,
-                    Category = error.Category.ToString()
+                    Message = error.Message,      // English fallback
+                    Category = error.Category.ToString(),
+                    MessageArg = error.MessageArg
                 },
                 traceId);
-
             return new ObjectResult(body) { StatusCode = MapStatusCode(error.Category) };
         }
 

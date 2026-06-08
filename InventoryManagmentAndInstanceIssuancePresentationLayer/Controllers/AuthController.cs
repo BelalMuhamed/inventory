@@ -74,19 +74,12 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// <summary>
         /// Returns the current principal (tenant id, username, admin flag) to bootstrap UI state.
         /// </summary>
+        // AuthController.Me()
         [HttpGet("me")]
         [Authorize]
         public IActionResult Me()
         {
-            string username = User.FindFirstValue(ClaimTypes.Name)
-                ?? User.FindFirstValue("sub")
-                ?? string.Empty;
-
-            // The 'me' contract reports TenantId only for tenants; a system admin has no tenant.
-            long? tenantId = _currentTenant.IsSystemAdmin ? null : _currentTenant.UserId;
-
-            var profile = new CurrentPrincipalResponse(tenantId, username, _currentTenant.IsSystemAdmin);
-
+            var profile = new CurrentPrincipalResponse(_currentTenant.Username, _currentTenant.IsSystemAdmin);
             return Ok(profile);
         }
     }

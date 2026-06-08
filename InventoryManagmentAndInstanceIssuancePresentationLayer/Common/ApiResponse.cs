@@ -21,6 +21,10 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Common
 
         /// <summary>Correlation identifier for this request, echoed in logs and the response header.</summary>
         public string TraceId { get; init; } = string.Empty;
+        // PresentationLayer/Common/ApiError.cs — add a settable-or-replaceable message + the arg
+        /// <summary>Optional localization argument for the {0} placeholder.</summary>
+        public string? MessageArg { get; init; }
+
 
         /// <summary>Builds a successful envelope wrapping <paramref name="data"/>.</summary>
         public static ApiResponse<T> Ok(T data, string traceId) => new()
@@ -37,7 +41,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Common
             Success = false,
             Data = default,
             Error = error,
-            TraceId = traceId
+            TraceId = traceId,
+            MessageArg = error.Message
+
         };
+
+
     }
 }

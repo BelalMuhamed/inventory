@@ -23,24 +23,9 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Security
         }
 
         /// <inheritdoc />
-        public long? UserId
-        {
-            get
-            {
-                ClaimsPrincipal? user = _accessor.HttpContext?.User;
-                if (user is null)
-                {
-                    return null;
-                }
-
-                // Admin id lives in 'sub'; tenant id lives in the dedicated tenantId claim.
-                string? raw = IsSystemAdmin
-                    ? user.FindFirstValue(JwtRegisteredClaimNamesSub)
-                    : user.FindFirstValue(JwtTokenGenerator.TenantIdClaim);
-
-                return long.TryParse(raw, out long id) ? id : null;
-            }
-        }
+      // <inheritdoc />
+        public string? Username =>
+            _accessor.HttpContext?.User?.FindFirst(JwtTokenGenerator.UsernameClaim)?.Value;
 
         /// <inheritdoc />
         public bool IsSystemAdmin

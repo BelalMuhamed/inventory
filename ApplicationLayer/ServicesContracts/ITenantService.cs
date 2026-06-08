@@ -64,14 +64,13 @@ namespace ApplicationLayer.ServicesContracts
             long id, ChangeTenantPasswordRequest request, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Soft-deletes a tenant, stamping <c>IsDeleted</c>, <c>DeletedAt</c>, and <c>DeletedBy</c>
-        /// with the acting principal's id. Fails with <see cref="ErrorCategory.NotFound"/> when the
-        /// tenant does not exist, or <see cref="ErrorCategory.Conflict"/> when it is already deleted.
+        /// Soft-deletes a tenant. The acting principal is identified by <paramref name="actorUsername"/>
+        /// (from the token); the service resolves their id and records it in <c>DeletedBy</c>.
         /// </summary>
         /// <param name="id">Tenant primary key.</param>
-        /// <param name="deletedBy">Id of the acting principal, recorded as the deleter.</param>
+        /// <param name="actorUsername">Authenticated username of the system admin performing the delete.</param>
         /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
-        Task<Result> SoftDeleteAsync(long id, long deletedBy, CancellationToken cancellationToken = default);
+        Task<Result> SoftDeleteAsync(long id, string actorUsername, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Restores a soft-deleted tenant, clearing its soft-delete fields. Fails with

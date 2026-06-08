@@ -17,11 +17,11 @@ namespace ApplicationLayer.Contracts
         /// <summary>Creates an access token for an authenticated tenant.</summary>
         /// <param name="tenantId">The authenticated tenant's id (becomes the <c>tenantId</c> claim).</param>
         /// <returns>The signed token and its expiry.</returns>
-        AccessToken CreateForTenant(long tenantId);
+        AccessToken CreateForTenant(string username);
 
         /// <summary>Creates an access token for the bootstrap system admin.</summary>
         /// <param name="systemAdminId">The administrator's id (used as the <c>sub</c> subject).</param>
         /// <returns>The signed token and its expiry.</returns>
-        AccessToken CreateForSystemAdmin(long systemAdminId);
+        AccessToken CreateForSystemAdmin(string username);
     }
 }

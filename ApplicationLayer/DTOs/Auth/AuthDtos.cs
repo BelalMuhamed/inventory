@@ -30,7 +30,7 @@ namespace ApplicationLayer.DTOs.Auth
     /// <param name="RefreshTokenExpiresAt">UTC expiry of the refresh token.</param>
     public sealed record AuthResponse(
         string AccessToken,
-        DateTime AccessTokenExpiresAt,
+        DateTime AccessTokenExpiresAt, 
         string RefreshToken,
         DateTime RefreshTokenExpiresAt);
 
@@ -41,5 +41,5 @@ namespace ApplicationLayer.DTOs.Auth
     /// <param name="TenantId">Authenticated tenant id, or <c>null</c> for a system admin.</param>
     /// <param name="Username">Login username of the authenticated principal.</param>
     /// <param name="IsSystemAdmin">True when the caller is the bootstrap system admin.</param>
-    public sealed record CurrentPrincipalResponse(long? TenantId, string Username, bool IsSystemAdmin);
+    public sealed record CurrentPrincipalResponse( string Username, bool IsSystemAdmin);
 }

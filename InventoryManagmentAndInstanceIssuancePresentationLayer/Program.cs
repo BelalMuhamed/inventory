@@ -2,6 +2,7 @@ using ApplicationLayer.Options;
 using InfrastructureLayer;
 using InfrastructureLayer.Data;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Common;
+using InventoryManagmentAndInstanceIssuancePresentationLayer.Filters;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Middleware;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Security;
 using Microsoft.AspNetCore.Mvc;
@@ -16,8 +17,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
 
             // Add services to the container.
 
-            builder.Services.AddControllers();
-            // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+            // Program.cs — replace builder.Services.AddControllers();
+            builder.Services.AddControllers(options =>
+            {
+                options.Filters.Add<LocalizeErrorResultFilter>();
+            });            // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
             // Replace the default [ApiController] 400 model-validation response with our 422 envelope.
             builder.Services.Configure<ApiBehaviorOptions>(options =>
             {
@@ -56,7 +60,8 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
             app.UseAuthentication();
             app.UseAuthorization();
 
-
+            // Program.cs — add the middleware BEFORE app.MapControllers() (and before auth is fine too)
+            app.UseRequestLocalization();
             app.MapControllers();
 
             await app.RunAsync();

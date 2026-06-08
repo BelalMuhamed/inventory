@@ -12,11 +12,8 @@ namespace ApplicationLayer.Contracts
     /// </summary>
     public interface ICurrentTenant
     {
-        /// <summary>
-        /// Authenticated principal's id: the tenant id for a tenant token, the system-admin id for
-        /// an admin token, or <c>null</c> when unauthenticated.
-        /// </summary>
-        long? UserId { get; }
+        /// <summary>Authenticated principal's username, or <c>null</c> when unauthenticated.</summary>
+        string? Username { get; }
 
         /// <summary>True when the caller presented a system-admin token (bypasses tenant filters).</summary>
         bool IsSystemAdmin { get; }
