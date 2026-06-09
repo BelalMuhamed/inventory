@@ -1,6 +1,6 @@
 ﻿// PresentationLayer/Filters/LocalizeErrorResultFilter.cs
 using System.Threading.Tasks;
-using ApplicationLayer.Localization;
+using ApplicationLayer.Resources.Localization;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Common;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;

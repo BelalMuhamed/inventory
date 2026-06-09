@@ -7,10 +7,11 @@ namespace DomainLayer.Entities
     /// <c>/api/auth/logout</c> endpoints (API Spec §4.1). Only a hash of the token value is
     /// stored; the raw token is returned to the client once and never persisted.
     /// <para>
-    /// A token belongs to exactly one principal: either a tenant (<see cref="TenantId"/> set)
-    /// or the system admin (<see cref="SystemAdminId"/> set). On refresh the current token is
-    /// revoked and a successor is issued, with <see cref="ReplacedByTokenHash"/> linking the two
-    /// for audit and reuse-detection.
+    /// A token belongs to exactly one principal, identified by <see cref="userName"/>.
+    /// <see cref="IsSystemAdmin"/> records whether that principal is the bootstrap system admin
+    /// (<c>true</c>) or a tenant (<c>false</c>), captured at issue time so rotation re-issues a
+    /// token of the same kind. On refresh the current token is revoked and a successor is issued,
+    /// with <see cref="ReplacedByTokenHash"/> linking the two for audit and reuse-detection.
     /// </para>
     /// <para>
     /// <b>Schema note:</b> not present in the original ERD; added to support refresh/logout
@@ -22,7 +23,14 @@ namespace DomainLayer.Entities
         /// <summary>Primary key (BIGINT IDENTITY).</summary>
         public long Id { get; set; }
 
+        /// <summary>Login username of the principal this token was issued to (tenant or system admin).</summary>
         public string userName { get; set; }
+
+        /// <summary>
+        /// True when this token was issued to the bootstrap system admin. Captured at issue time so
+        /// rotation re-mints an admin access token rather than silently downgrading to a tenant token.
+        /// </summary>
+        public bool IsSystemAdmin { get; set; }
 
         /// <summary>Hash of the opaque refresh-token value. The raw value is never stored.</summary>
         public string TokenHash { get; set; } = string.Empty;

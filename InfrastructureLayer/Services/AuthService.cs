@@ -58,7 +58,7 @@ namespace InfrastructureLayer.Services
 
             AccessToken access = _tokenGenerator.CreateForTenant(tenant.Username);
             AuthResponse response = await IssueWithRefreshAsync(
-                access, request.Username, cancellationToken);
+                 access, request.Username, isSystemAdmin: false, cancellationToken);
             await _auditLogger.LogLoginAsync(tenant.Username, isSystemAdmin: false, tenantId: tenant.Id, cancellationToken);
 
             // Audit hook (Login) is raised by the SaveChanges interceptor / service hook in the
@@ -80,7 +80,7 @@ namespace InfrastructureLayer.Services
 
             AccessToken access = _tokenGenerator.CreateForSystemAdmin(admin.Username);
             AuthResponse response = await IssueWithRefreshAsync(
-                access, request.Username, cancellationToken);
+                 access, request.Username, isSystemAdmin: true, cancellationToken);
             await _auditLogger.LogLoginAsync(admin.Username, isSystemAdmin: true, tenantId: null, cancellationToken);
 
 
@@ -101,14 +101,15 @@ namespace InfrastructureLayer.Services
             }
 
             // Rotate: revoke the presented token, then mint a fresh access/refresh pair for the
-            // same principal. Both writes commit together in one unit of work.
-            AccessToken access = stored.userName is not null
-                ? _tokenGenerator.CreateForTenant(stored.userName)
-                : _tokenGenerator.CreateForSystemAdmin(stored.userName!);
-            //var cuurentTenant= await _unitOfWork.Tenants.GetActiveByUsernameAsync(stored.userName, cancellationToken);
-            //var currentUserAdmin = await _unitOfWork.SystemAdmins.GetActiveByUsernameAsync(stored.userName, cancellationToken);
+            // SAME principal. The principal kind is read from the stored token (captured at issue
+            // time), so a token minted for the system admin stays an admin token across rotation.
+            // Both writes commit together in one unit of work.
+            AccessToken access = stored.IsSystemAdmin
+                ? _tokenGenerator.CreateForSystemAdmin(stored.userName)
+                : _tokenGenerator.CreateForTenant(stored.userName);
+
             (RefreshToken successor, string rawRefresh, DateTime refreshExpiry) =
-                BuildRefreshToken(stored.userName!);
+                BuildRefreshToken(stored.userName, stored.IsSystemAdmin);
 
             stored.RevokedAt = DateTime.UtcNow;
             stored.ReplacedByTokenHash = successor.TokenHash;
@@ -140,10 +141,10 @@ namespace InfrastructureLayer.Services
         }
 
         private async Task<AuthResponse> IssueWithRefreshAsync(
-            AccessToken access,string userName, CancellationToken cancellationToken)
+            AccessToken access, string userName, bool isSystemAdmin, CancellationToken cancellationToken)
         {
             (RefreshToken token, string rawRefresh, DateTime refreshExpiry) =
-                BuildRefreshToken(userName);
+                BuildRefreshToken(userName, isSystemAdmin);
 
             await _unitOfWork.RefreshTokens.AddAsync(token, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -152,7 +153,7 @@ namespace InfrastructureLayer.Services
         }
 
         private (RefreshToken Entity, string Raw, DateTime ExpiresAt) BuildRefreshToken(
-           string userName)
+             string userName, bool isSystemAdmin)
         {
             string raw = GenerateOpaqueToken();
             DateTime now = DateTime.UtcNow;
@@ -161,7 +162,7 @@ namespace InfrastructureLayer.Services
             var entity = new RefreshToken
             {
                 userName = userName,
-               
+                IsSystemAdmin = isSystemAdmin,
                 TokenHash = HashToken(raw),
                 CreatedAt = now,
                 ExpiresAt = expiresAt

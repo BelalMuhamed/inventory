@@ -153,12 +153,10 @@ namespace InfrastructureLayer.Data
 
                 entity.Property(r => r.TokenHash).IsRequired().HasMaxLength(128);
                 entity.Property(r => r.ReplacedByTokenHash).HasMaxLength(128);
+                entity.Property(r => r.IsSystemAdmin).HasDefaultValue(false);
 
                 entity.HasIndex(r => r.TokenHash).IsUnique();
                 entity.HasIndex(r => r.userName);
-
-               
-
             });
         }
     }
