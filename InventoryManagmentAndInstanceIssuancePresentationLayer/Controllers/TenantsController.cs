@@ -17,6 +17,7 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
     /// </summary>
     [ApiController]
     [Route("api/tenants")]
+  
     [Authorize(Policy = AuthorizationPolicies.SystemAdminOnly)]
     public sealed class TenantsController : ControllerBase
     {
@@ -75,7 +76,7 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// <param name="id">Tenant id.</param>
         /// <param name="cancellationToken">Request cancellation token.</param>
         [HttpDelete("{id:long}")]
-        [HttpDelete("{id:long}")]
+       
         public async Task<IActionResult> SoftDelete(long id, CancellationToken cancellationToken)
         {
             if (string.IsNullOrEmpty(_currentTenant.Username))

@@ -1,11 +1,18 @@
 using ApplicationLayer.Options;
 using InfrastructureLayer;
 using InfrastructureLayer.Data;
+using InfrastructureLayer.Logging;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Common;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Filters;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Middleware;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Security;
+using InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
+using Microsoft.OpenApi.Models;
+using Serilog;
+using Serilog.Events;
+using Serilog.Formatting.Compact;
 
 namespace InventoryManagmentAndInstanceIssuancePresentationLayer
 {
@@ -14,6 +21,36 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
         public static async Task Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
+            // Build the encryptor from secrets (fail fast if the password is missing, like the JWT key).
+            LogEncryptionOptions logOpts =
+                builder.Configuration.GetSection(LogEncryptionOptions.SectionName).Get<LogEncryptionOptions>()
+                ?? new LogEncryptionOptions();
+            if (string.IsNullOrWhiteSpace(logOpts.Password) || string.IsNullOrWhiteSpace(logOpts.Salt))
+            {
+                throw new InvalidOperationException(
+                    $"Encrypted logging requires '{LogEncryptionOptions.SectionName}:Password' and ':Salt' " +
+                    "via user-secrets (development) or environment variables (production).");
+            }
+
+            var encryptor = new LogEncryptor(logOpts.Password, Convert.FromBase64String(logOpts.Salt));
+            string logDir = Path.Combine(builder.Environment.ContentRootPath, logOpts.Directory);
+            var formatter = new CompactJsonFormatter();
+
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Information()
+                .Enrich.FromLogContext()
+                .WriteTo.Console()
+                // Exception file: anything carrying an exception.
+                .WriteTo.Logger(lc => lc
+                    .Filter.ByIncludingOnly(e => e.Exception is not null)
+                    .WriteTo.Sink(new EncryptedFileSink(Path.Combine(logDir, logOpts.ExceptionFileName), encryptor, formatter)))
+                // Error file: Warning+ with no exception.
+                .WriteTo.Logger(lc => lc
+                    .Filter.ByIncludingOnly(e => e.Exception is null && e.Level >= LogEventLevel.Warning)
+                    .WriteTo.Sink(new EncryptedFileSink(Path.Combine(logDir, logOpts.ErrorFileName), encryptor, formatter)))
+                .CreateLogger();
+
+            builder.Host.UseSerilog();
 
             // Add services to the container.
 
@@ -28,7 +65,37 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
                 options.InvalidModelStateResponseFactory = ValidationResponseFactory.Build;
             });
             builder.Services.AddEndpointsApiExplorer();
-            builder.Services.AddSwaggerGen();
+            builder.Services.AddSwaggerGen(op =>
+            {
+                // PresentationServiceRegistration.AddPresentation — inside services.AddSwaggerGen(options => { ... })
+                op.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+                {
+                    Name = "Authorization",
+                    Type = SecuritySchemeType.Http,   // paste the raw token; Swagger adds the "Bearer " prefix
+                    Scheme = "bearer",
+                    BearerFormat = "JWT",
+                    In = ParameterLocation.Header,
+                    Description = "Paste your JWT access token below (without the 'Bearer ' prefix)."
+                });
+
+                op.AddSecurityRequirement(new OpenApiSecurityRequirement
+{
+    {
+        new OpenApiSecurityScheme
+        {
+            Reference = new OpenApiReference
+            {
+                Type = ReferenceType.SecurityScheme,
+                Id = "Bearer"
+            }
+        },
+        Array.Empty<string>()
+    }
+});
+
+                // PresentationServiceRegistration.AddPresentation — inside services.AddSwaggerGen(options => { ... })
+                op.OperationFilter<AcceptLanguageHeaderOperationFilter>();
+            });
 
             // Fail fast if the JWT signing key is missing: a misconfigured secret should surface
             // as a clear startup error, not as confusing 401s at request time.

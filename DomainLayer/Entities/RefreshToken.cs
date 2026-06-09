@@ -22,11 +22,7 @@ namespace DomainLayer.Entities
         /// <summary>Primary key (BIGINT IDENTITY).</summary>
         public long Id { get; set; }
 
-        /// <summary>Owning tenant, or <c>null</c> when the token belongs to the system admin.</summary>
-        public long? TenantId { get; set; }
-
-        /// <summary>Owning system admin, or <c>null</c> when the token belongs to a tenant.</summary>
-        public long? SystemAdminId { get; set; }
+        public string userName { get; set; }
 
         /// <summary>Hash of the opaque refresh-token value. The raw value is never stored.</summary>
         public string TokenHash { get; set; } = string.Empty;

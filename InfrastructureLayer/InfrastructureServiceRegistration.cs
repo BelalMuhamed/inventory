@@ -2,12 +2,15 @@ using ApplicationLayer.Contracts;
 using ApplicationLayer.Options;
 using ApplicationLayer.ServicesContracts;
 using InfrastructureLayer.Data;
+using InfrastructureLayer.Data.Interceptors;
 using InfrastructureLayer.Security;
 using InfrastructureLayer.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.Http;
+
 namespace InfrastructureLayer
 {
     /// <summary>
@@ -23,9 +26,15 @@ namespace InfrastructureLayer
         public static IServiceCollection AddInfrastructure(
             this IServiceCollection services, IConfiguration configuration)
         {
-            services.AddDbContext<AppDbContext>(options =>
-                options.UseSqlServer(configuration.GetConnectionString("DefaultConnection")));
-                    services.AddOptions<JwtOptions>()
+            services.AddHttpContextAccessor();
+            services.AddScoped<AuditSaveChangesInterceptor>();
+           
+            services.AddDbContext<AppDbContext>((sp, options) =>
+            {
+                options.UseSqlServer(configuration.GetConnectionString("DefaultConnection"));
+                options.AddInterceptors(sp.GetRequiredService<AuditSaveChangesInterceptor>());
+            });
+            services.AddOptions<JwtOptions>()
             .Bind(configuration.GetSection(JwtOptions.SectionName))
             .Validate(o => !string.IsNullOrWhiteSpace(o.SigningKey), "JWT SigningKey is required.")
             .ValidateOnStart();
@@ -35,7 +44,7 @@ namespace InfrastructureLayer
             services.AddScoped<IUnitOfWork, UnitOfWork>();
             services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
             services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
-
+            services.AddScoped<IAuditLogger, AuditLogger>();
             services.AddScoped<IAuthService, AuthService>();
             services.AddScoped<ITenantService, TenantService>();          // <-- added
             services.AddScoped<IServiceManager, ServiceManager>();

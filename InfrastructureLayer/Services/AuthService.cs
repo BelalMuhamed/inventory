@@ -1,15 +1,16 @@
-using System;
-using System.Security.Cryptography;
-using System.Threading;
-using System.Threading.Tasks;
 using ApplicationLayer.Contracts;
 using ApplicationLayer.DTOs.Auth;
+using ApplicationLayer.Errors;
 using ApplicationLayer.Options;
 using ApplicationLayer.ServicesContracts;
 using DomainLayer.Common;
 using DomainLayer.Entities;
 using Microsoft.Extensions.Localization;
 using Microsoft.Extensions.Options;
+using System;
+using System.Security.Cryptography;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace InfrastructureLayer.Services
 {
@@ -24,21 +25,22 @@ namespace InfrastructureLayer.Services
         private readonly IUnitOfWork _unitOfWork;
         private readonly IPasswordHasher _passwordHasher;
         private readonly IJwtTokenGenerator _tokenGenerator;
-        private readonly IStringLocalizer<AuthService> _localizer;
+        private readonly IAuditLogger _auditLogger;
         private readonly JwtOptions _jwtOptions;
 
         /// <summary>Creates the service with its collaborators (constructor injection only).</summary>
         public AuthService(
             IUnitOfWork unitOfWork,
             IPasswordHasher passwordHasher,
-            IJwtTokenGenerator tokenGenerator,
-            IStringLocalizer<AuthService> localizer,
-            IOptions<JwtOptions> jwtOptions)
+            IJwtTokenGenerator tokenGenerator
+          ,
+            IOptions<JwtOptions> jwtOptions,IAuditLogger auditLogger)
         {
             _unitOfWork = unitOfWork;
             _passwordHasher = passwordHasher;
             _tokenGenerator = tokenGenerator;
-            _localizer = localizer;
+           
+            _auditLogger = auditLogger;
             _jwtOptions = jwtOptions.Value;
         }
 
@@ -51,12 +53,13 @@ namespace InfrastructureLayer.Services
 
             if (tenant is null || !_passwordHasher.Verify(tenant.PasswordHash, request.Password))
             {
-                return Result.Failure<AuthResponse>(InvalidCredentials());
+                return Result.Failure<AuthResponse>(AuthErrors.InvalidCredentials());
             }
 
-            AccessToken access = _tokenGenerator.CreateForTenant(tenant.Id);
+            AccessToken access = _tokenGenerator.CreateForTenant(tenant.Username);
             AuthResponse response = await IssueWithRefreshAsync(
-                access, tenantId: tenant.Id, systemAdminId: null, cancellationToken);
+                access, request.Username, cancellationToken);
+            await _auditLogger.LogLoginAsync(tenant.Username, isSystemAdmin: false, tenantId: tenant.Id, cancellationToken);
 
             // Audit hook (Login) is raised by the SaveChanges interceptor / service hook in the
             // cross-cutting milestone; the refresh-token insert above provides its commit point.
@@ -72,12 +75,14 @@ namespace InfrastructureLayer.Services
 
             if (admin is null || !_passwordHasher.Verify(admin.PasswordHash, request.Password))
             {
-                return Result.Failure<AuthResponse>(InvalidCredentials());
+                return Result.Failure<AuthResponse>(AuthErrors.InvalidCredentials());
             }
 
-            AccessToken access = _tokenGenerator.CreateForSystemAdmin(admin.Id);
+            AccessToken access = _tokenGenerator.CreateForSystemAdmin(admin.Username);
             AuthResponse response = await IssueWithRefreshAsync(
-                access, tenantId: null, systemAdminId: admin.Id, cancellationToken);
+                access, request.Username, cancellationToken);
+            await _auditLogger.LogLoginAsync(admin.Username, isSystemAdmin: true, tenantId: null, cancellationToken);
+
 
             return response;
         }
@@ -92,17 +97,18 @@ namespace InfrastructureLayer.Services
 
             if (stored is null || !stored.IsActive(DateTime.UtcNow))
             {
-                return Result.Failure<AuthResponse>(InvalidRefreshToken());
+                return Result.Failure<AuthResponse>(AuthErrors.InvalidRefreshToken());
             }
 
             // Rotate: revoke the presented token, then mint a fresh access/refresh pair for the
             // same principal. Both writes commit together in one unit of work.
-            AccessToken access = stored.TenantId is not null
-                ? _tokenGenerator.CreateForTenant(stored.TenantId.Value)
-                : _tokenGenerator.CreateForSystemAdmin(stored.SystemAdminId!.Value);
-
+            AccessToken access = stored.userName is not null
+                ? _tokenGenerator.CreateForTenant(stored.userName)
+                : _tokenGenerator.CreateForSystemAdmin(stored.userName!);
+            //var cuurentTenant= await _unitOfWork.Tenants.GetActiveByUsernameAsync(stored.userName, cancellationToken);
+            //var currentUserAdmin = await _unitOfWork.SystemAdmins.GetActiveByUsernameAsync(stored.userName, cancellationToken);
             (RefreshToken successor, string rawRefresh, DateTime refreshExpiry) =
-                BuildRefreshToken(stored.TenantId, stored.SystemAdminId);
+                BuildRefreshToken(stored.userName!);
 
             stored.RevokedAt = DateTime.UtcNow;
             stored.ReplacedByTokenHash = successor.TokenHash;
@@ -134,10 +140,10 @@ namespace InfrastructureLayer.Services
         }
 
         private async Task<AuthResponse> IssueWithRefreshAsync(
-            AccessToken access, long? tenantId, long? systemAdminId, CancellationToken cancellationToken)
+            AccessToken access,string userName, CancellationToken cancellationToken)
         {
             (RefreshToken token, string rawRefresh, DateTime refreshExpiry) =
-                BuildRefreshToken(tenantId, systemAdminId);
+                BuildRefreshToken(userName);
 
             await _unitOfWork.RefreshTokens.AddAsync(token, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -146,7 +152,7 @@ namespace InfrastructureLayer.Services
         }
 
         private (RefreshToken Entity, string Raw, DateTime ExpiresAt) BuildRefreshToken(
-            long? tenantId, long? systemAdminId)
+           string userName)
         {
             string raw = GenerateOpaqueToken();
             DateTime now = DateTime.UtcNow;
@@ -154,8 +160,8 @@ namespace InfrastructureLayer.Services
 
             var entity = new RefreshToken
             {
-                TenantId = tenantId,
-                SystemAdminId = systemAdminId,
+                userName = userName,
+               
                 TokenHash = HashToken(raw),
                 CreatedAt = now,
                 ExpiresAt = expiresAt
@@ -176,10 +182,6 @@ namespace InfrastructureLayer.Services
             return Convert.ToHexString(hash);
         }
 
-        private Error InvalidCredentials() =>
-            Error.Unauthorized("Auth.InvalidCredentials", _localizer["Auth.InvalidCredentials"]);
-
-        private Error InvalidRefreshToken() =>
-            Error.Unauthorized("Auth.InvalidRefreshToken", _localizer["Auth.InvalidRefreshToken"]);
+      
     }
 }

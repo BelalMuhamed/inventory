@@ -12,14 +12,19 @@ namespace InfrastructureLayer.Security
 {
     public sealed class JwtTokenGenerator : IJwtTokenGenerator
     {
+        private readonly JwtOptions _jwtOptions;
+
+        public JwtTokenGenerator(IOptions<JwtOptions> jwtOptions)
+        {
+            _jwtOptions = jwtOptions?.Value ?? throw new ArgumentNullException(nameof(jwtOptions));
+        }
+
         /// <summary>Claim carrying the principal's username (tenant or system admin).</summary>
         public const string UsernameClaim = "username";
 
         /// <summary>Claim flagging a system-admin token.</summary>
         public const string IsSystemAdminClaim = "isSystemAdmin";
-
-        // ... ctor with IOptions<JwtOptions> as before ...
-
+        
         /// <inheritdoc />
         public AccessToken CreateForTenant(string username) =>
             CreateToken(username, isSystemAdmin: false);
@@ -52,7 +57,5 @@ namespace InfrastructureLayer.Security
             string jwt = new JwtSecurityTokenHandler().WriteToken(token);
             return new AccessToken(jwt, expiresAt);
         }
-
-        
     }
 }

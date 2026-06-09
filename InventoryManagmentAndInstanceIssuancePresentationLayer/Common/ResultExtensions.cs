@@ -51,9 +51,9 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Common
                 new ApiError
                 {
                     Code = error.Code,
-                    Message = error.Message,      // English fallback
+                  
                     Category = error.Category.ToString(),
-                    MessageArg = error.MessageArg
+                    Message = error.MessageArg
                 },
                 traceId);
             return new ObjectResult(body) { StatusCode = MapStatusCode(error.Category) };

@@ -40,6 +40,9 @@ namespace InfrastructureLayer.Data
 
         /// <summary>Persisted refresh tokens.</summary>
         public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+        /// <summary>Persisted Audit log.</summary>
+        public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+
 
         /// <inheritdoc />
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -79,6 +82,7 @@ namespace InfrastructureLayer.Data
         // InfrastructureLayer/Data/AppDbContext.cs  (ConfigureTenant body — replace)
         private static void ConfigureTenant(ModelBuilder modelBuilder)
         {
+            #region tenant scoping filter
             modelBuilder.Entity<Tenant>(entity =>
             {
                 entity.ToTable("Tenants");
@@ -98,6 +102,27 @@ namespace InfrastructureLayer.Data
 
                 entity.HasQueryFilter(t => !t.IsDeleted);
             });
+            #endregion
+
+            #region audit log 
+            modelBuilder.Entity<AuditLog>(entity =>
+            {
+                entity.ToTable("AuditLogs");
+                entity.HasKey(a => a.Id);
+
+                entity.Property(a => a.ActorUsername).IsRequired().HasMaxLength(100);
+                entity.Property(a => a.Action).IsRequired().HasMaxLength(50);
+                entity.Property(a => a.EntityName).IsRequired().HasMaxLength(100);
+                entity.Property(a => a.EntityId).IsRequired().HasMaxLength(50);
+                entity.Property(a => a.IpAddress).HasMaxLength(45);
+
+                entity.HasIndex(a => new { a.TenantId, a.Timestamp });
+                entity.HasIndex(a => new { a.EntityName, a.EntityId });
+                entity.HasIndex(a => new { a.ActorTenantId, a.Timestamp });
+                // No soft-delete filter, no DeletedBy: audit rows are immutable.
+            });
+            #endregion
+
         }
 
         private static void ConfigureSystemAdmin(ModelBuilder modelBuilder)
@@ -130,23 +155,10 @@ namespace InfrastructureLayer.Data
                 entity.Property(r => r.ReplacedByTokenHash).HasMaxLength(128);
 
                 entity.HasIndex(r => r.TokenHash).IsUnique();
-                entity.HasIndex(r => r.TenantId);
-                entity.HasIndex(r => r.SystemAdminId);
+                entity.HasIndex(r => r.userName);
 
-                entity.HasOne<Tenant>()
-                      .WithMany()
-                      .HasForeignKey(r => r.TenantId)
-                      .OnDelete(DeleteBehavior.NoAction);
+               
 
-                entity.HasOne<SystemAdmin>()
-                      .WithMany()
-                      .HasForeignKey(r => r.SystemAdminId)
-                      .OnDelete(DeleteBehavior.NoAction);
-
-                // Exactly one owner: either a tenant or a system admin, never both, never neither.
-                entity.ToTable(t => t.HasCheckConstraint(
-                    "CK_RefreshTokens_SingleOwner",
-                    "([TenantId] IS NOT NULL AND [SystemAdminId] IS NULL) OR ([TenantId] IS NULL AND [SystemAdminId] IS NOT NULL)"));
             });
         }
     }
