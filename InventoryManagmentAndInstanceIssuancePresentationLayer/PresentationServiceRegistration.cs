@@ -14,7 +14,7 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
 {
     /// <summary>
     /// Registers presentation-layer concerns: JWT bearer authentication bound to
-    /// <see cref="JwtOptions"/>, request localization, and the current-principal accessor.
+    /// <see cref="JwtOptions"/>, request localization (en/ar), and the current-principal accessor.
     /// </summary>
     public static class PresentationServiceRegistration
     {
@@ -26,21 +26,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
         {
             services.AddHttpContextAccessor();
             services.AddScoped<ICurrentTenant, CurrentTenant>();
-            services.AddLocalization(options => options.ResourcesPath = "Resources");
-            // PresentationServiceRegistration.AddPresentation — after AddLocalization(...)
-            services.Configure<RequestLocalizationOptions>(options =>
-            {
-                var supported = new[] { new CultureInfo("en"), new CultureInfo("ar") };
-                options.DefaultRequestCulture = new RequestCulture("en");
-                options.SupportedCultures = supported;
-                options.SupportedUICultures = supported;
-                options.RequestCultureProviders = new IRequestCultureProvider[]
-                {
-        new QueryStringRequestCultureProvider(),         // ?culture=ar wins
-        new AcceptLanguageHeaderRequestCultureProvider() // then Accept-Language
-                };
-            });
-            // PresentationServiceRegistration.AddPresentation — add after AddLocalization(...)
+
+            // Resource files live in Resources/Localization, so the localizer must look there:
+            // IStringLocalizer<Messages> then resolves Messages.resx / Messages.ar.resx by error code.
+            services.AddLocalization(options => options.ResourcesPath = "Resources/Localization");
+
             services.Configure<RequestLocalizationOptions>(options =>
             {
                 var supported = new[] { new CultureInfo("en"), new CultureInfo("ar") };
@@ -50,8 +40,8 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
                 // Order: explicit ?culture= wins, then the Accept-Language header.
                 options.RequestCultureProviders = new IRequestCultureProvider[]
                 {
-        new QueryStringRequestCultureProvider(),
-        new AcceptLanguageHeaderRequestCultureProvider()
+                    new QueryStringRequestCultureProvider(),
+                    new AcceptLanguageHeaderRequestCultureProvider()
                 };
             });
 
@@ -71,12 +61,10 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
                         ValidIssuer = jwt.Issuer,
                         ValidAudience = jwt.Audience,
                         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SigningKey)),
-                        // ... existing validation params ...
                         NameClaimType = JwtTokenGenerator.UsernameClaim // User.Identity.Name resolves to username
                     };
                 });
 
-            services.AddAuthorization();
             return services;
         }
     }

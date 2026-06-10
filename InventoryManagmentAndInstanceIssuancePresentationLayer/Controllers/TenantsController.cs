@@ -3,7 +3,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using ApplicationLayer.Contracts;
 using ApplicationLayer.DTOs.Tenants;
+using ApplicationLayer.Errors;
 using ApplicationLayer.ServicesContracts;
+using DomainLayer.Common;
+using InventoryManagmentAndInstanceIssuancePresentationLayer.Common;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -17,7 +20,6 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
     /// </summary>
     [ApiController]
     [Route("api/tenants")]
-  
     [Authorize(Policy = AuthorizationPolicies.SystemAdminOnly)]
     public sealed class TenantsController : ControllerBase
     {
@@ -37,14 +39,14 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll(
             [FromQuery] TenantListFilter filter, CancellationToken cancellationToken)
-            => (await _services.Tenants.GetAllAsync(filter, cancellationToken)).ToHttpResponse();
+            => (await _services.Tenants.GetAllAsync(filter, cancellationToken)).ToActionResult(this);
 
         /// <summary>Gets a single tenant by id, including soft-deleted tenants.</summary>
         /// <param name="id">Tenant id.</param>
         /// <param name="cancellationToken">Request cancellation token.</param>
         [HttpGet("{id:long}")]
         public async Task<IActionResult> GetById(long id, CancellationToken cancellationToken)
-            => (await _services.Tenants.GetByIdAsync(id, cancellationToken)).ToHttpResponse();
+            => (await _services.Tenants.GetByIdAsync(id, cancellationToken)).ToActionResult(this);
 
         /// <summary>Creates a new tenant.</summary>
         /// <param name="request">Creation payload.</param>
@@ -52,7 +54,7 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(
             [FromBody] CreateTenantRequest request, CancellationToken cancellationToken)
-            => (await _services.Tenants.CreateAsync(request, cancellationToken)).ToHttpResponse();
+            => (await _services.Tenants.CreateAsync(request, cancellationToken)).ToActionResult(this);
 
         /// <summary>Updates a tenant's username, code, and active state.</summary>
         /// <param name="id">Tenant id.</param>
@@ -61,7 +63,7 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         [HttpPut("{id:long}")]
         public async Task<IActionResult> Update(
             long id, [FromBody] UpdateTenantRequest request, CancellationToken cancellationToken)
-            => (await _services.Tenants.UpdateAsync(id, request, cancellationToken)).ToHttpResponse();
+            => (await _services.Tenants.UpdateAsync(id, request, cancellationToken)).ToActionResult(this);
 
         /// <summary>Changes a tenant's password.</summary>
         /// <param name="id">Tenant id.</param>
@@ -70,21 +72,21 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         [HttpPut("{id:long}/password")]
         public async Task<IActionResult> ChangePassword(
             long id, [FromBody] ChangeTenantPasswordRequest request, CancellationToken cancellationToken)
-            => (await _services.Tenants.ChangePasswordAsync(id, request, cancellationToken)).ToHttpResponse();
+            => (await _services.Tenants.ChangePasswordAsync(id, request, cancellationToken)).ToActionResult(this);
 
         /// <summary>Soft-deletes a tenant, recording the acting admin as the deleter.</summary>
         /// <param name="id">Tenant id.</param>
         /// <param name="cancellationToken">Request cancellation token.</param>
         [HttpDelete("{id:long}")]
-       
         public async Task<IActionResult> SoftDelete(long id, CancellationToken cancellationToken)
         {
             if (string.IsNullOrEmpty(_currentTenant.Username))
             {
-                return Unauthorized();
+                return Result.Failure(TenantErrors.ActorNotResolved()).ToActionResult(this);
             }
 
-            return (await _services.Tenants.SoftDeleteAsync(id, _currentTenant.Username, cancellationToken)).ToHttpResponse();
+            return (await _services.Tenants.SoftDeleteAsync(id, _currentTenant.Username, cancellationToken))
+                .ToActionResult(this);
         }
 
         /// <summary>Restores a soft-deleted tenant.</summary>
@@ -92,6 +94,6 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// <param name="cancellationToken">Request cancellation token.</param>
         [HttpPost("{id:long}/restore")]
         public async Task<IActionResult> Restore(long id, CancellationToken cancellationToken)
-            => (await _services.Tenants.RestoreAsync(id, cancellationToken)).ToHttpResponse();
+            => (await _services.Tenants.RestoreAsync(id, cancellationToken)).ToActionResult(this);
     }
 }

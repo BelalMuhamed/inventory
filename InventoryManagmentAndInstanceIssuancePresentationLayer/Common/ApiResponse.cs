@@ -3,12 +3,13 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Common
     /// <summary>
     /// Uniform response envelope returned by every endpoint, on both success and failure.
     /// Clients branch on <see cref="Success"/>: when true, <see cref="Data"/> holds the payload
-    /// (a resource or a <c>PaginatedResponse</c>) and <see cref="Error"/> is null; when false,
-    /// <see cref="Error"/> describes the failure and <see cref="Data"/> is null.
-    /// <see cref="TraceId"/> is present on every response to correlate client reports with logs.
+    /// and <see cref="Error"/> is null; when false, <see cref="Error"/> describes the failure and
+    /// <see cref="Data"/> is null. <see cref="TraceId"/> correlates client reports with logs.
+    /// Implements <see cref="ILocalizableApiResponse"/> so the central error-localization filter
+    /// can replace the message without knowing the payload type <typeparamref name="T"/>.
     /// </summary>
     /// <typeparam name="T">Type of the success payload.</typeparam>
-    public sealed class ApiResponse<T>
+    public sealed class ApiResponse<T> : ILocalizableApiResponse
     {
         /// <summary>True when the operation succeeded.</summary>
         public bool Success { get; init; }
@@ -19,12 +20,7 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Common
         /// <summary>The failure detail on error; null on success.</summary>
         public ApiError? Error { get; init; }
 
-        /// <summary>Correlation identifier for this request, echoed in logs and the response header.</summary>
-        public string TraceId { get; init; } = string.Empty;
-        // PresentationLayer/Common/ApiError.cs — add a settable-or-replaceable message + the arg
-        /// <summary>Optional localization argument for the {0} placeholder.</summary>
-        public string? MessageArg { get; init; }
-
+       
 
         /// <summary>Builds a successful envelope wrapping <paramref name="data"/>.</summary>
         public static ApiResponse<T> Ok(T data, string traceId) => new()
@@ -32,7 +28,7 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Common
             Success = true,
             Data = data,
             Error = null,
-            TraceId = traceId
+          
         };
 
         /// <summary>Builds a failed envelope carrying <paramref name="error"/>.</summary>
@@ -41,11 +37,16 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Common
             Success = false,
             Data = default,
             Error = error,
-            TraceId = traceId,
-            MessageArg = error.Message
-
+          
         };
 
-
+        /// <inheritdoc />
+        public void ReplaceErrorMessage(string localizedMessage)
+        {
+            if (Error is not null)
+            {
+                Error.Message = localizedMessage;
+            }
+        }
     }
 }

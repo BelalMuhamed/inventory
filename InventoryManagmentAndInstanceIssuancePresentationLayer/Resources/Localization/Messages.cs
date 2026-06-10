@@ -1,5 +1,5 @@
 ﻿// ApplicationLayer/Localization/Messages.cs
-namespace ApplicationLayer.Localization
+namespace ApplicationLayer.Resources.Localization
 {
     /// <summary>
     /// Marker type that anchors the shared message resources (<c>Messages_en.resx</c>,

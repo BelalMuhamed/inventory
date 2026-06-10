@@ -13,6 +13,7 @@ using Microsoft.OpenApi.Models;
 using Serilog;
 using Serilog.Events;
 using Serilog.Formatting.Compact;
+using System.Reflection;
 
 namespace InventoryManagmentAndInstanceIssuancePresentationLayer
 {
@@ -95,6 +96,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
 
                 // PresentationServiceRegistration.AddPresentation — inside services.AddSwaggerGen(options => { ... })
                 op.OperationFilter<AcceptLanguageHeaderOperationFilter>();
+                //op.SwaggerDoc("v1", new OpenApiInfo { Title = "My API", Version = "v1" });
+
+               
+                
+
             });
 
             // Fail fast if the JWT signing key is missing: a misconfigured secret should surface

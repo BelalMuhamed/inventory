@@ -4,7 +4,9 @@ using System.Threading.Tasks;
 using ApplicationLayer.Contracts;
 using ApplicationLayer.DTOs.Auth;
 using ApplicationLayer.ServicesContracts;
+using DomainLayer.Common;
 using InfrastructureLayer.Security;
+using InventoryManagmentAndInstanceIssuancePresentationLayer.Common;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -38,7 +40,7 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         [AllowAnonymous]
         public async Task<IActionResult> LoginTenant(
             [FromBody] TenantLoginRequest request, CancellationToken cancellationToken)
-            => (await _services.Auth.LoginTenantAsync(request, cancellationToken)).ToHttpResponse();
+            => (await _services.Auth.LoginTenantAsync(request, cancellationToken)).ToActionResult(this);
 
         /// <summary>
         /// Authenticates the bootstrap system admin and returns a JWT (with <c>isSystemAdmin</c>)
@@ -50,7 +52,7 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         [AllowAnonymous]
         public async Task<IActionResult> LoginAdmin(
             [FromBody] AdminLoginRequest request, CancellationToken cancellationToken)
-            => (await _services.Auth.LoginSystemAdminAsync(request, cancellationToken)).ToHttpResponse();
+            => (await _services.Auth.LoginSystemAdminAsync(request, cancellationToken)).ToActionResult(this);
 
         /// <summary>Exchanges a valid refresh token for a new token pair, rotating the old token.</summary>
         /// <param name="request">The current refresh token.</param>
@@ -59,7 +61,7 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         [AllowAnonymous]
         public async Task<IActionResult> Refresh(
             [FromBody] RefreshRequest request, CancellationToken cancellationToken)
-            => (await _services.Auth.RefreshAsync(request, cancellationToken)).ToHttpResponse();
+            => (await _services.Auth.RefreshAsync(request, cancellationToken)).ToActionResult(this);
 
         /// <summary>Revokes the caller's refresh token.</summary>
         /// <param name="request">The refresh token to revoke.</param>
@@ -68,19 +70,17 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         [Authorize]
         public async Task<IActionResult> Logout(
             [FromBody] LogoutRequest request, CancellationToken cancellationToken)
-            => (await _services.Auth.LogoutAsync(request, cancellationToken)).ToHttpResponse();
+            => (await _services.Auth.LogoutAsync(request, cancellationToken)).ToActionResult(this);
 
-        // InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/AuthController.cs  (Me() only)
         /// <summary>
-        /// Returns the current principal (tenant id, username, admin flag) to bootstrap UI state.
+        /// Returns the current principal (username, admin flag) to bootstrap UI state.
         /// </summary>
-        // AuthController.Me()
         [HttpGet("me")]
         [Authorize]
         public IActionResult Me()
         {
             var profile = new CurrentPrincipalResponse(_currentTenant.Username, _currentTenant.IsSystemAdmin);
-            return Ok(profile);
+            return Result.Success(profile).ToActionResult(this);
         }
     }
 }
