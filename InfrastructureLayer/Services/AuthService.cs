@@ -56,9 +56,10 @@ namespace InfrastructureLayer.Services
                 return Result.Failure<AuthResponse>(AuthErrors.InvalidCredentials());
             }
 
-            AccessToken access = _tokenGenerator.CreateForTenant(tenant.Username);
+          
+            AccessToken access = _tokenGenerator.CreateForTenant(tenant.Username, tenant.Id);
             AuthResponse response = await IssueWithRefreshAsync(
-                 access, request.Username, isSystemAdmin: false, cancellationToken);
+                access, request.Username, isSystemAdmin: false, tenantId: tenant.Id, cancellationToken);
             await _auditLogger.LogLoginAsync(tenant.Username, isSystemAdmin: false, tenantId: tenant.Id, cancellationToken);
 
             // Audit hook (Login) is raised by the SaveChanges interceptor / service hook in the
@@ -80,7 +81,8 @@ namespace InfrastructureLayer.Services
 
             AccessToken access = _tokenGenerator.CreateForSystemAdmin(admin.Username);
             AuthResponse response = await IssueWithRefreshAsync(
-                 access, request.Username, isSystemAdmin: true, cancellationToken);
+     access, request.Username, isSystemAdmin: true, tenantId: null, cancellationToken);
+
             await _auditLogger.LogLoginAsync(admin.Username, isSystemAdmin: true, tenantId: null, cancellationToken);
 
 
@@ -100,16 +102,19 @@ namespace InfrastructureLayer.Services
                 return Result.Failure<AuthResponse>(AuthErrors.InvalidRefreshToken());
             }
 
-            // Rotate: revoke the presented token, then mint a fresh access/refresh pair for the
-            // SAME principal. The principal kind is read from the stored token (captured at issue
-            // time), so a token minted for the system admin stays an admin token across rotation.
-            // Both writes commit together in one unit of work.
+            // A tenant token minted before this column existed has no TenantId; force a fresh login
+            // rather than mint a token without the tenantId claim (same posture as the IsSystemAdmin fix).
+            if (!stored.IsSystemAdmin && stored.TenantId is null)
+            {
+                return Result.Failure<AuthResponse>(AuthErrors.InvalidRefreshToken());
+            }
+
             AccessToken access = stored.IsSystemAdmin
                 ? _tokenGenerator.CreateForSystemAdmin(stored.userName)
-                : _tokenGenerator.CreateForTenant(stored.userName);
+                : _tokenGenerator.CreateForTenant(stored.userName, stored.TenantId!.Value);
 
             (RefreshToken successor, string rawRefresh, DateTime refreshExpiry) =
-                BuildRefreshToken(stored.userName, stored.IsSystemAdmin);
+                BuildRefreshToken(stored.userName, stored.IsSystemAdmin, stored.TenantId);
 
             stored.RevokedAt = DateTime.UtcNow;
             stored.ReplacedByTokenHash = successor.TokenHash;
@@ -141,19 +146,18 @@ namespace InfrastructureLayer.Services
         }
 
         private async Task<AuthResponse> IssueWithRefreshAsync(
-            AccessToken access, string userName, bool isSystemAdmin, CancellationToken cancellationToken)
+      AccessToken access, string userName, bool isSystemAdmin, long? tenantId, CancellationToken cancellationToken)
         {
             (RefreshToken token, string rawRefresh, DateTime refreshExpiry) =
-                BuildRefreshToken(userName, isSystemAdmin);
+                BuildRefreshToken(userName, isSystemAdmin, tenantId);
 
             await _unitOfWork.RefreshTokens.AddAsync(token, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
-
             return new AuthResponse(access.Token, access.ExpiresAt, rawRefresh, refreshExpiry);
         }
 
         private (RefreshToken Entity, string Raw, DateTime ExpiresAt) BuildRefreshToken(
-             string userName, bool isSystemAdmin)
+     string userName, bool isSystemAdmin, long? tenantId)
         {
             string raw = GenerateOpaqueToken();
             DateTime now = DateTime.UtcNow;
@@ -163,11 +167,11 @@ namespace InfrastructureLayer.Services
             {
                 userName = userName,
                 IsSystemAdmin = isSystemAdmin,
+                TenantId = tenantId,
                 TokenHash = HashToken(raw),
                 CreatedAt = now,
                 ExpiresAt = expiresAt
             };
-
             return (entity, raw, expiresAt);
         }
 

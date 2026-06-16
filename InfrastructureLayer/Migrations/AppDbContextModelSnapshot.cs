@@ -106,6 +106,9 @@ namespace InfrastructureLayer.Migrations
                     b.Property<DateTime?>("RevokedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<long?>("TenantId")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("TokenHash")
                         .IsRequired()
                         .HasMaxLength(128)

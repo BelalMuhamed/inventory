@@ -37,7 +37,15 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Security
                 return bool.TryParse(raw, out bool isAdmin) && isAdmin;
             }
         }
-
+        /// <inheritdoc />
+        public long? TenantId
+        {
+            get
+            {
+                string? raw = _accessor.HttpContext?.User?.FindFirst(JwtTokenGenerator.TenantIdClaim)?.Value;
+                return long.TryParse(raw, out long id) ? id : null;
+            }
+        }
         // JwtSecurityTokenHandler maps the "sub" claim onto ClaimTypes.NameIdentifier by default,
         // but the generator writes it as "sub"; reading the raw type keeps this robust either way.
         private const string JwtRegisteredClaimNamesSub = "sub";

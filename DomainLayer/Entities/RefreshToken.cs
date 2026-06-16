@@ -50,5 +50,10 @@ namespace DomainLayer.Entities
         /// <summary>True when the token has neither been revoked nor expired at <paramref name="utcNow"/>.</summary>
         /// <param name="utcNow">The current UTC instant to evaluate against.</param>
         public bool IsActive(DateTime utcNow) => RevokedAt is null && utcNow < ExpiresAt;
+        /// <summary>
+        /// Owning tenant's id when this token was issued to a tenant; <c>null</c> for a system-admin token.
+        /// Captured at issue time so rotation can re-mint the <c>tenantId</c> claim without a DB lookup.
+        /// </summary>
+        public long? TenantId { get; set; }
     }
 }

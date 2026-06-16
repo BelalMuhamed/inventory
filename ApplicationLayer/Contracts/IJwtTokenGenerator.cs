@@ -12,16 +12,20 @@ namespace ApplicationLayer.Contracts
     /// <c>sub</c> and <c>tenantId</c>; the system-admin token additionally carries
     /// <c>isSystemAdmin = true</c>. No role, permissions, or branch claims are ever emitted.
     /// </summary>
+    /// <summary>
+    /// Issues signed JWT access tokens. A tenant token carries <c>username</c>, <c>tenantId</c>,
+    /// and <c>isSystemAdmin = false</c>; the system-admin token carries <c>username</c> and
+    /// <c>isSystemAdmin = true</c> (no <c>tenantId</c>). No role, permissions, or branch claims are emitted.
+    /// </summary>
     public interface IJwtTokenGenerator
     {
         /// <summary>Creates an access token for an authenticated tenant.</summary>
-        /// <param name="tenantId">The authenticated tenant's id (becomes the <c>tenantId</c> claim).</param>
-        /// <returns>The signed token and its expiry.</returns>
-        AccessToken CreateForTenant(string username);
+        /// <param name="username">The tenant's login username (becomes the <c>username</c> claim).</param>
+        /// <param name="tenantId">The tenant's id (becomes the <c>tenantId</c> claim).</param>
+        AccessToken CreateForTenant(string username, long tenantId);
 
-        /// <summary>Creates an access token for the bootstrap system admin.</summary>
-        /// <param name="systemAdminId">The administrator's id (used as the <c>sub</c> subject).</param>
-        /// <returns>The signed token and its expiry.</returns>
+        /// <summary>Creates an access token for the bootstrap system admin (no <c>tenantId</c> claim).</summary>
+        /// <param name="username">The administrator's login username.</param>
         AccessToken CreateForSystemAdmin(string username);
     }
 }

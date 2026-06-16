@@ -12,8 +12,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace InfrastructureLayer.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260602114721_authlayer")]
-    partial class authlayer
+    [Migration("20260616094005_lsdk")]
+    partial class lsdk
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -24,6 +24,64 @@ namespace InfrastructureLayer.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
+
+            modelBuilder.Entity("DomainLayer.Entities.AuditLog", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<long?>("ActorTenantId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ActorUsername")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("EntityId")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("EntityName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(45)
+                        .HasColumnType("nvarchar(45)");
+
+                    b.Property<string>("NewValue")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("OldValue")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<long?>("TenantId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("Timestamp")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorTenantId", "Timestamp");
+
+                    b.HasIndex("EntityName", "EntityId");
+
+                    b.HasIndex("TenantId", "Timestamp");
+
+                    b.ToTable("AuditLogs", (string)null);
+                });
 
             modelBuilder.Entity("DomainLayer.Entities.RefreshToken", b =>
                 {
@@ -39,15 +97,17 @@ namespace InfrastructureLayer.Migrations
                     b.Property<DateTime>("ExpiresAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<bool>("IsSystemAdmin")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("ReplacedByTokenHash")
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
 
                     b.Property<DateTime?>("RevokedAt")
                         .HasColumnType("datetime2");
-
-                    b.Property<long?>("SystemAdminId")
-                        .HasColumnType("bigint");
 
                     b.Property<long?>("TenantId")
                         .HasColumnType("bigint");
@@ -57,19 +117,18 @@ namespace InfrastructureLayer.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
 
+                    b.Property<string>("userName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
                     b.HasKey("Id");
-
-                    b.HasIndex("SystemAdminId");
-
-                    b.HasIndex("TenantId");
 
                     b.HasIndex("TokenHash")
                         .IsUnique();
 
-                    b.ToTable("RefreshTokens", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_RefreshTokens_SingleOwner", "([TenantId] IS NOT NULL AND [SystemAdminId] IS NULL) OR ([TenantId] IS NULL AND [SystemAdminId] IS NOT NULL)");
-                        });
+                    b.HasIndex("userName");
+
+                    b.ToTable("RefreshTokens", (string)null);
                 });
 
             modelBuilder.Entity("DomainLayer.Entities.SystemAdmin", b =>
@@ -85,6 +144,9 @@ namespace InfrastructureLayer.Migrations
 
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<long?>("DeletedBy")
+                        .HasColumnType("bigint");
 
                     b.Property<bool>("IsActive")
                         .ValueGeneratedOnAdd()
@@ -135,6 +197,9 @@ namespace InfrastructureLayer.Migrations
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<long?>("DeletedBy")
+                        .HasColumnType("bigint");
+
                     b.Property<bool>("IsActive")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bit")
@@ -142,11 +207,6 @@ namespace InfrastructureLayer.Migrations
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
@@ -170,23 +230,9 @@ namespace InfrastructureLayer.Migrations
                         .HasFilter("[IsDeleted] = 0");
 
                     b.HasIndex("Username")
-                        .IsUnique()
-                        .HasFilter("[IsDeleted] = 0");
+                        .IsUnique();
 
                     b.ToTable("Tenants", (string)null);
-                });
-
-            modelBuilder.Entity("DomainLayer.Entities.RefreshToken", b =>
-                {
-                    b.HasOne("DomainLayer.Entities.SystemAdmin", null)
-                        .WithMany()
-                        .HasForeignKey("SystemAdminId")
-                        .OnDelete(DeleteBehavior.NoAction);
-
-                    b.HasOne("DomainLayer.Entities.Tenant", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.NoAction);
                 });
 #pragma warning restore 612, 618
         }

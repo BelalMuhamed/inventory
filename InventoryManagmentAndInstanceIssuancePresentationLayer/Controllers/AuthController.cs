@@ -9,6 +9,7 @@ using InfrastructureLayer.Security;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Common;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Security;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
@@ -19,6 +20,8 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
     /// </summary>
     [ApiController]
     [Route("api/auth")]
+    [Produces("application/json")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
     public sealed class AuthController : ControllerBase
     {
         private readonly IServiceManager _services;
@@ -36,8 +39,14 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// </summary>
         /// <param name="request">Tenant credentials.</param>
         /// <param name="cancellationToken">Request cancellation token.</param>
+        /// <response code="200">Authentication succeeded; returns the access/refresh token pair.</response>
+        /// <response code="401">The username or password is incorrect, or the tenant is inactive.</response>
+        /// <response code="422">The request body failed validation.</response>
         [HttpPost("tenant")]
         [AllowAnonymous]
+        [ProducesResponseType(typeof(ApiResponse<AuthResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
         public async Task<IActionResult> LoginTenant(
             [FromBody] TenantLoginRequest request, CancellationToken cancellationToken)
             => (await _services.Auth.LoginTenantAsync(request, cancellationToken)).ToActionResult(this);
@@ -48,8 +57,14 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// </summary>
         /// <param name="request">Administrator credentials.</param>
         /// <param name="cancellationToken">Request cancellation token.</param>
+        /// <response code="200">Authentication succeeded; returns the access/refresh token pair.</response>
+        /// <response code="401">The username or password is incorrect, or the admin is inactive.</response>
+        /// <response code="422">The request body failed validation.</response>
         [HttpPost("admin")]
         [AllowAnonymous]
+        [ProducesResponseType(typeof(ApiResponse<AuthResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
         public async Task<IActionResult> LoginAdmin(
             [FromBody] AdminLoginRequest request, CancellationToken cancellationToken)
             => (await _services.Auth.LoginSystemAdminAsync(request, cancellationToken)).ToActionResult(this);
@@ -57,8 +72,14 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// <summary>Exchanges a valid refresh token for a new token pair, rotating the old token.</summary>
         /// <param name="request">The current refresh token.</param>
         /// <param name="cancellationToken">Request cancellation token.</param>
+        /// <response code="200">Refresh succeeded; returns a new access/refresh token pair.</response>
+        /// <response code="401">The refresh token is unknown, expired, or revoked.</response>
+        /// <response code="422">The request body failed validation.</response>
         [HttpPost("refresh")]
         [AllowAnonymous]
+        [ProducesResponseType(typeof(ApiResponse<AuthResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
         public async Task<IActionResult> Refresh(
             [FromBody] RefreshRequest request, CancellationToken cancellationToken)
             => (await _services.Auth.RefreshAsync(request, cancellationToken)).ToActionResult(this);
@@ -66,8 +87,14 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// <summary>Revokes the caller's refresh token.</summary>
         /// <param name="request">The refresh token to revoke.</param>
         /// <param name="cancellationToken">Request cancellation token.</param>
+        /// <response code="200">Logout succeeded (idempotent); the payload is null.</response>
+        /// <response code="401">No valid bearer token was supplied.</response>
+        /// <response code="422">The request body failed validation.</response>
         [HttpPost("logout")]
         [Authorize]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
         public async Task<IActionResult> Logout(
             [FromBody] LogoutRequest request, CancellationToken cancellationToken)
             => (await _services.Auth.LogoutAsync(request, cancellationToken)).ToActionResult(this);
@@ -75,8 +102,12 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// <summary>
         /// Returns the current principal (username, admin flag) to bootstrap UI state.
         /// </summary>
+        /// <response code="200">The authenticated principal.</response>
+        /// <response code="401">No valid bearer token was supplied.</response>
         [HttpGet("me")]
         [Authorize]
+        [ProducesResponseType(typeof(ApiResponse<CurrentPrincipalResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
         public IActionResult Me()
         {
             var profile = new CurrentPrincipalResponse(_currentTenant.Username, _currentTenant.IsSystemAdmin);

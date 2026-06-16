@@ -68,6 +68,10 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddSwaggerGen(op =>
             {
+                
+
+                op.OperationFilter<AcceptLanguageHeaderOperationFilter>();
+
                 // PresentationServiceRegistration.AddPresentation — inside services.AddSwaggerGen(options => { ... })
                 op.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
                 {
@@ -95,8 +99,7 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
 });
 
                 // PresentationServiceRegistration.AddPresentation — inside services.AddSwaggerGen(options => { ... })
-                op.OperationFilter<AcceptLanguageHeaderOperationFilter>();
-                //op.SwaggerDoc("v1", new OpenApiInfo { Title = "My API", Version = "v1" });
+              
 
                
                 

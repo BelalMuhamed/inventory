@@ -17,5 +17,7 @@ namespace ApplicationLayer.Contracts
 
         /// <summary>True when the caller presented a system-admin token (bypasses tenant filters).</summary>
         bool IsSystemAdmin { get; }
+        /// <summary>Authenticated tenant's id, or <c>null</c> for a system admin (no tenant context).</summary>
+        long? TenantId { get; }
     }
 }
