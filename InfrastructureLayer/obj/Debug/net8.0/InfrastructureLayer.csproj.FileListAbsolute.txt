@@ -11,6 +11,7 @@ C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuan
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InfrastructureLayer\obj\Debug\net8.0\InfrastructureLayer.AssemblyInfoInputs.cache
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InfrastructureLayer\obj\Debug\net8.0\InfrastructureLayer.AssemblyInfo.cs
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InfrastructureLayer\obj\Debug\net8.0\InfrastructureLayer.csproj.CoreCompileInputs.cache
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InfrastructureLayer\obj\Debug\net8.0\InfrastructureLayer.sourcelink.json
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InfrastructureLayer\obj\Debug\net8.0\Infrastr.B5BC0072.Up2Date
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InfrastructureLayer\obj\Debug\net8.0\InfrastructureLayer.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InfrastructureLayer\obj\Debug\net8.0\refint\InfrastructureLayer.dll

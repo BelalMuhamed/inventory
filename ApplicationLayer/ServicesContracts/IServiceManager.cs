@@ -11,5 +11,7 @@ namespace ApplicationLayer.ServicesContracts
         IAuthService Auth { get; }
         /// <summary>Tenant management use cases (list, detail, create, update, password, delete, restore).</summary>
         ITenantService Tenants { get; }
+        /// <summary>Branch management service.</summary>
+        IBranchService Branches { get; }
     }
 }

@@ -23,6 +23,8 @@ namespace InfrastructureLayer
             Tenants = new TenantRepo(context);
             SystemAdmins = new SystemAdminRepo(context);
             RefreshTokens = new RefreshTokenRepo(context);
+            Branches = new BranchRepo(context);
+
         }
 
         /// <inheritdoc />
@@ -33,6 +35,9 @@ namespace InfrastructureLayer
 
         /// <inheritdoc />
         public IRefreshTokenRepo RefreshTokens { get; }
+
+        public IBranchRepo Branches { get; }
+
 
         /// <inheritdoc />
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)

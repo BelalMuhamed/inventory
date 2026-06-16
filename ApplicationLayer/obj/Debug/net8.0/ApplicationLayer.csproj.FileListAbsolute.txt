@@ -8,6 +8,7 @@ C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuan
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\ApplicationLayer\obj\Debug\net8.0\ApplicationLayer.AssemblyInfoInputs.cache
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\ApplicationLayer\obj\Debug\net8.0\ApplicationLayer.AssemblyInfo.cs
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\ApplicationLayer\obj\Debug\net8.0\ApplicationLayer.csproj.CoreCompileInputs.cache
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\ApplicationLayer\obj\Debug\net8.0\ApplicationLayer.sourcelink.json
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\ApplicationLayer\obj\Debug\net8.0\Applicat.033E422A.Up2Date
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\ApplicationLayer\obj\Debug\net8.0\ApplicationLayer.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\ApplicationLayer\obj\Debug\net8.0\refint\ApplicationLayer.dll

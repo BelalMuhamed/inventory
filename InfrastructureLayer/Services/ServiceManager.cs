@@ -11,14 +11,16 @@ namespace InfrastructureLayer.Services
     {
         private readonly Lazy<IAuthService> _auth;
         private readonly Lazy<ITenantService> _tenants;
+        private readonly Lazy<IBranchService> _branches;
 
         /// <summary>Creates the façade from lazily-resolved service factories.</summary>
         /// <param name="authFactory">Factory that produces the authentication service.</param>
         /// <param name="tenantFactory">Factory that produces the tenant management service.</param>
-        public ServiceManager(Func<IAuthService> authFactory, Func<ITenantService> tenantFactory)
+        public ServiceManager(Func<IAuthService> authFactory, Func<ITenantService> tenantFactory, IBranchService Branches)
         {
             _auth = new Lazy<IAuthService>(authFactory);
             _tenants = new Lazy<ITenantService>(tenantFactory);
+            _branches = new Lazy<IBranchService>(Branches);
         }
 
         /// <inheritdoc />
@@ -26,5 +28,7 @@ namespace InfrastructureLayer.Services
 
         /// <inheritdoc />
         public ITenantService Tenants => _tenants.Value;
+
+        public IBranchService Branches => _branches.Value;
     }
 }

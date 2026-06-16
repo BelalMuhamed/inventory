@@ -25,5 +25,7 @@ namespace ApplicationLayer.Contracts
         /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
         /// <returns>The number of state entries written to the underlying store.</returns>
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+        /// <summary>Repository for tenant branches.</summary>
+        IBranchRepo Branches { get; }
     }
 }

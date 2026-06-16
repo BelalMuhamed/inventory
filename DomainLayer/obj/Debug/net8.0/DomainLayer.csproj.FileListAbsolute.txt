@@ -5,6 +5,7 @@ C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuan
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\DomainLayer\obj\Debug\net8.0\DomainLayer.AssemblyInfoInputs.cache
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\DomainLayer\obj\Debug\net8.0\DomainLayer.AssemblyInfo.cs
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\DomainLayer\obj\Debug\net8.0\DomainLayer.csproj.CoreCompileInputs.cache
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\DomainLayer\obj\Debug\net8.0\DomainLayer.sourcelink.json
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\DomainLayer\obj\Debug\net8.0\DomainLayer.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\DomainLayer\obj\Debug\net8.0\refint\DomainLayer.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\DomainLayer\obj\Debug\net8.0\DomainLayer.pdb

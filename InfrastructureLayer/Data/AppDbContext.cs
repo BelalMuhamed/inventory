@@ -43,6 +43,7 @@ namespace InfrastructureLayer.Data
         /// <summary>Persisted Audit log.</summary>
         public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
+        public DbSet<Branch> Branches => Set<Branch>();
 
         /// <inheritdoc />
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -52,6 +53,8 @@ namespace InfrastructureLayer.Data
             ConfigureTenant(modelBuilder);
             ConfigureSystemAdmin(modelBuilder);
             ConfigureRefreshToken(modelBuilder);
+            ConfigureBranch(modelBuilder);
+
         }
 
         /// <inheritdoc />
@@ -157,6 +160,32 @@ namespace InfrastructureLayer.Data
 
                 entity.HasIndex(r => r.TokenHash).IsUnique();
                 entity.HasIndex(r => r.userName);
+            });
+        }
+
+        private static void ConfigureBranch(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<Branch>(entity =>
+            {
+                entity.ToTable("Branches");
+                entity.HasKey(b => b.Id);
+
+                entity.Property(b => b.Name).IsRequired().HasMaxLength(200);
+                entity.Property(b => b.Location).HasMaxLength(500);
+                entity.Property(b => b.IsActive).HasDefaultValue(true);
+
+                entity.HasOne<Tenant>()
+                      .WithMany()
+                      .HasForeignKey(b => b.TenantId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasIndex(b => b.TenantId);
+                // UNIQUE (TenantId, Name) among non-deleted rows (ERD §2.1).
+                entity.HasIndex(b => new { b.TenantId, b.Name })
+                      .IsUnique()
+                      .HasFilter("[IsDeleted] = 0");
+
+                entity.HasQueryFilter(b => !b.IsDeleted);
             });
         }
     }

@@ -46,10 +46,12 @@ namespace InfrastructureLayer
             services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
             services.AddScoped<IAuditLogger, AuditLogger>();
             services.AddScoped<IAuthService, AuthService>();
-            services.AddScoped<ITenantService, TenantService>();          // <-- added
+            services.AddScoped<ITenantService, TenantService>();         
             services.AddScoped<IServiceManager, ServiceManager>();
+            services.AddScoped<IBranchService, BranchService>();
+            services.AddScoped<System.Func<IBranchService>>(sp => sp.GetRequiredService<IBranchService>);
             services.AddScoped<System.Func<IAuthService>>(sp => sp.GetRequiredService<IAuthService>);
-            services.AddScoped<System.Func<ITenantService>>(sp => sp.GetRequiredService<ITenantService>);  // <-- added
+            services.AddScoped<System.Func<ITenantService>>(sp => sp.GetRequiredService<ITenantService>);  
 
             return services;
 
