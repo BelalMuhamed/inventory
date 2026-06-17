@@ -27,5 +27,7 @@ namespace ApplicationLayer.Contracts
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
         /// <summary>Repository for tenant branches.</summary>
         IBranchRepo Branches { get; }
+        /// <summary>Repository for tenant products (catalog).</summary>
+        IProductRepo Products { get; }
     }
 }

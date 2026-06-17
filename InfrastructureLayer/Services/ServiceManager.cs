@@ -1,5 +1,6 @@
-using System;
 using ApplicationLayer.ServicesContracts;
+using DomainLayer.Entities;
+using System;
 
 namespace InfrastructureLayer.Services
 {
@@ -12,6 +13,8 @@ namespace InfrastructureLayer.Services
         private readonly Lazy<IAuthService> _auth;
         private readonly Lazy<ITenantService> _tenants;
         private readonly Lazy<IBranchService> _branches;
+        private readonly Lazy<IProductService> _products;
+
 
         /// <summary>Creates the façade from lazily-resolved service factories.</summary>
         /// <param name="authFactory">Factory that produces the authentication service.</param>
@@ -21,6 +24,8 @@ namespace InfrastructureLayer.Services
             _auth = new Lazy<IAuthService>(authFactory);
             _tenants = new Lazy<ITenantService>(tenantFactory);
             _branches = new Lazy<IBranchService>(Branches);
+            _products = new Lazy<IProductService>(Products);     // in the ctor body
+
         }
 
         /// <inheritdoc />
@@ -30,5 +35,7 @@ namespace InfrastructureLayer.Services
         public ITenantService Tenants => _tenants.Value;
 
         public IBranchService Branches => _branches.Value;
+        public IProductService Products => _products.Value;  // property
+
     }
 }

@@ -13,5 +13,7 @@ namespace ApplicationLayer.ServicesContracts
         ITenantService Tenants { get; }
         /// <summary>Branch management service.</summary>
         IBranchService Branches { get; }
+        /// <summary>Product (catalog) management service.</summary>
+        IProductService Products { get; }
     }
 }

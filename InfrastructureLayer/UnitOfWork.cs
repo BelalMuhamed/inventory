@@ -1,8 +1,9 @@
-using System.Threading;
-using System.Threading.Tasks;
 using ApplicationLayer.Contracts;
+using DomainLayer.Entities;
 using InfrastructureLayer.Data;
 using InfrastructureLayer.Repositories;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace InfrastructureLayer
 {
@@ -24,6 +25,7 @@ namespace InfrastructureLayer
             SystemAdmins = new SystemAdminRepo(context);
             RefreshTokens = new RefreshTokenRepo(context);
             Branches = new BranchRepo(context);
+            Products = new ProductRepo(context);   // in the ctor, after Branches = ...
 
         }
 
@@ -37,7 +39,7 @@ namespace InfrastructureLayer
         public IRefreshTokenRepo RefreshTokens { get; }
 
         public IBranchRepo Branches { get; }
-
+        public IProductRepo Products { get; }  
 
         /// <inheritdoc />
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)

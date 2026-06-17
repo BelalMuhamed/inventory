@@ -34,6 +34,8 @@ namespace InfrastructureLayer.Data
 
         /// <summary>Tenant accounts (the authentication identity).</summary>
         public DbSet<Tenant> Tenants => Set<Tenant>();
+        public DbSet<Product> Products => Set<Product>();        // alongside Branches
+
 
         /// <summary>Bootstrap system-administrator accounts.</summary>
         public DbSet<SystemAdmin> SystemAdmins => Set<SystemAdmin>();
@@ -54,6 +56,8 @@ namespace InfrastructureLayer.Data
             ConfigureSystemAdmin(modelBuilder);
             ConfigureRefreshToken(modelBuilder);
             ConfigureBranch(modelBuilder);
+            ConfigureProduct(modelBuilder);
+
 
         }
 
@@ -186,6 +190,34 @@ namespace InfrastructureLayer.Data
                       .HasFilter("[IsDeleted] = 0");
 
                 entity.HasQueryFilter(b => !b.IsDeleted);
+            });
+        }
+
+        private static void ConfigureProduct(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<Product>(entity =>
+            {
+                entity.ToTable("Products");
+                entity.HasKey(p => p.Id);
+
+                entity.Property(p => p.Name).IsRequired().HasMaxLength(200);
+                entity.Property(p => p.ActivationStatus).HasConversion<byte>().IsRequired();
+                entity.Property(p => p.LowProductThreshold).IsRequired().HasDefaultValue(0);
+                entity.Property(p => p.ProductTransactionWay).HasConversion<byte>().IsRequired();
+                entity.Property(p => p.UsingPrinterType).HasConversion<byte>().IsRequired();
+
+                entity.HasOne<Tenant>()
+                      .WithMany()
+                      .HasForeignKey(p => p.TenantId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasIndex(p => p.TenantId);
+                // UNIQUE (TenantId, Name) among non-deleted rows (ERD §2.2).
+                entity.HasIndex(p => new { p.TenantId, p.Name })
+                      .IsUnique()
+                      .HasFilter("[IsDeleted] = 0");
+
+                entity.HasQueryFilter(p => !p.IsDeleted);
             });
         }
     }

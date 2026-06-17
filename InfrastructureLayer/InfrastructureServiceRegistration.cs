@@ -51,7 +51,9 @@ namespace InfrastructureLayer
             services.AddScoped<IBranchService, BranchService>();
             services.AddScoped<System.Func<IBranchService>>(sp => sp.GetRequiredService<IBranchService>);
             services.AddScoped<System.Func<IAuthService>>(sp => sp.GetRequiredService<IAuthService>);
-            services.AddScoped<System.Func<ITenantService>>(sp => sp.GetRequiredService<ITenantService>);  
+            services.AddScoped<System.Func<ITenantService>>(sp => sp.GetRequiredService<ITenantService>);
+            services.AddScoped<IProductService, ProductService>();
+            services.AddScoped<System.Func<IProductService>>(sp => sp.GetRequiredService<IProductService>);
 
             return services;
 

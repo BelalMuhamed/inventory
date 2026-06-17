@@ -131,6 +131,62 @@ namespace InfrastructureLayer.Migrations
                     b.ToTable("Branches", (string)null);
                 });
 
+            modelBuilder.Entity("DomainLayer.Entities.Product", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<byte>("ActivationStatus")
+                        .HasColumnType("tinyint");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long?>("DeletedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("LowProductThreshold")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<byte>("ProductTransactionWay")
+                        .HasColumnType("tinyint");
+
+                    b.Property<long>("TenantId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<byte>("UsingPrinterType")
+                        .HasColumnType("tinyint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Name")
+                        .IsUnique()
+                        .HasFilter("[IsDeleted] = 0");
+
+                    b.ToTable("Products", (string)null);
+                });
+
             modelBuilder.Entity("DomainLayer.Entities.RefreshToken", b =>
                 {
                     b.Property<long>("Id")
@@ -284,6 +340,15 @@ namespace InfrastructureLayer.Migrations
                 });
 
             modelBuilder.Entity("DomainLayer.Entities.Branch", b =>
+                {
+                    b.HasOne("DomainLayer.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("DomainLayer.Entities.Product", b =>
                 {
                     b.HasOne("DomainLayer.Entities.Tenant", null)
                         .WithMany()
