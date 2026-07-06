@@ -25,7 +25,8 @@ namespace InfrastructureLayer
             SystemAdmins = new SystemAdminRepo(context);
             RefreshTokens = new RefreshTokenRepo(context);
             Branches = new BranchRepo(context);
-            Products = new ProductRepo(context);   // in the ctor, after Branches = ...
+            Products = new ProductRepo(context);
+            Stocks = new StockRepo(context);
 
         }
 
@@ -39,7 +40,9 @@ namespace InfrastructureLayer
         public IRefreshTokenRepo RefreshTokens { get; }
 
         public IBranchRepo Branches { get; }
-        public IProductRepo Products { get; }  
+        public IProductRepo Products { get; }
+        public IStockRepo Stocks { get; }
+
 
         /// <inheritdoc />
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)

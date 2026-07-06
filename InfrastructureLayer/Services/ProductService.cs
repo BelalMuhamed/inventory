@@ -67,7 +67,7 @@ namespace InfrastructureLayer.Services
             }
             else
             {
-                if (_currentTenant.TenantId is not long callerTenant) return Result.Failure<ProductResponse>(ProductErrors.ActorNotResolved());
+                if (_currentTenant.TenantId is not long callerTenant) return Result.Failure<ProductResponse>(AuthErrors.ActorNotResolved());
                 targetTenantId = callerTenant;
             }
 
@@ -185,17 +185,17 @@ namespace InfrastructureLayer.Services
             error = null;
             if (_currentTenant.IsSystemAdmin) return null;
             if (_currentTenant.TenantId is long tenantId) return tenantId;
-            error = ProductErrors.ActorNotResolved();
+            error = AuthErrors.ActorNotResolved();
             return null;
         }
 
         private async Task<(long? ActorId, Error? Error)> ResolveActorIdAsync(CancellationToken cancellationToken)
         {
             if (!_currentTenant.IsSystemAdmin)
-                return (_currentTenant.TenantId, _currentTenant.TenantId is null ? ProductErrors.ActorNotResolved() : null);
+                return (_currentTenant.TenantId, _currentTenant.TenantId is null ? AuthErrors.ActorNotResolved() : null);
 
             SystemAdmin? admin = await _unitOfWork.SystemAdmins.GetActiveByUsernameAsync(_currentTenant.Username!, cancellationToken);
-            return admin is null ? (null, ProductErrors.ActorNotResolved()) : (admin.Id, null);
+            return admin is null ? (null, AuthErrors.ActorNotResolved()) : (admin.Id, null);
         }
 
         private static ProductResponse Map(Product p) => new(

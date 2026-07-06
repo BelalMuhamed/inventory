@@ -46,18 +46,25 @@ namespace InfrastructureLayer.Data
         public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
         public DbSet<Branch> Branches => Set<Branch>();
+        public DbSet<Stock> Stocks => Set<Stock>();
+        public DbSet<ProductItem> Cards => Set<ProductItem>();
+        public DbSet<Batch> Batches => Set<Batch>();
+
+
+
 
         /// <inheritdoc />
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
-
             ConfigureTenant(modelBuilder);
             ConfigureSystemAdmin(modelBuilder);
             ConfigureRefreshToken(modelBuilder);
             ConfigureBranch(modelBuilder);
             ConfigureProduct(modelBuilder);
-
+            ConfigureStock(modelBuilder);
+            ConfigureCards(modelBuilder);
+            ConfigureBatches(modelBuilder);
 
         }
 
@@ -218,6 +225,66 @@ namespace InfrastructureLayer.Data
                       .HasFilter("[IsDeleted] = 0");
 
                 entity.HasQueryFilter(p => !p.IsDeleted);
+            });
+        }
+        private static void ConfigureStock(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<Stock>(entity =>
+            {
+                // Composite primary key
+                entity.HasKey(e => new { e.TenantId, e.BranchId, e.ProductId });
+
+                // Relationships (if not already inferred)
+                entity.HasOne(e => e.Bank)
+                      .WithMany()
+                      .HasForeignKey(e => e.TenantId)
+                      .OnDelete(DeleteBehavior.Restrict); // choose appropriate
+
+                entity.HasOne(e => e.SettledBranch)
+                      .WithMany()
+                      .HasForeignKey(e => e.BranchId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(e => e.CardType)
+                      .WithMany()
+                      .HasForeignKey(e => e.ProductId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                // RowVersion is already configured via [Timestamp]
+                // Optionally set UpdatedAt default value in SQL
+                entity.Property(e => e.UpdatedAt)
+                      .HasDefaultValueSql("GETUTCDATE()");
+            
+        });
+        }
+        private static void ConfigureCards(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<ProductItem>(entity =>
+            {
+
+                entity.HasIndex(u => u.CardHolderName)
+            .HasDatabaseName("IX_card_holder_name")
+            ;
+
+                entity.HasIndex(u => u.Status)
+            .HasDatabaseName("IX_card_status_name")
+           ;
+
+            });
+        }
+        private static void ConfigureBatches(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<Batch>(entity =>
+            {
+
+                entity.HasIndex(u => u.Name)
+            .HasDatabaseName("IX_batch_name")
+           ;
+
+                entity.HasIndex(u => u.BatchStatus)
+            .HasDatabaseName("IX_batch_status")
+           ;
+
             });
         }
     }

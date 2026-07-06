@@ -25,9 +25,7 @@ namespace ApplicationLayer.Errors
         public static Error TargetTenantNotFound(long tenantId) =>
             Error.Validation("Product.TargetTenantNotFound", $"No tenant exists with id {tenantId}.").WithArg(tenantId.ToString());
 
-        /// <summary>The caller's principal could not be resolved (no tenant context / unknown admin) (→ 401).</summary>
-        public static Error ActorNotResolved() =>
-            Error.Unauthorized("Product.ActorNotResolved", "The acting principal could not be resolved.");
+       
 
         // NOTE (stock seam): when Stock/Transactions exist, add Product.HasStock / Product.HasOpenTransactions
         // (Conflict → 409) to enforce the API §4.6 delete-guard "blocked if open transactions or non-zero stock".

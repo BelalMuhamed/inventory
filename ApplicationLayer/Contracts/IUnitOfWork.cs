@@ -29,5 +29,7 @@ namespace ApplicationLayer.Contracts
         IBranchRepo Branches { get; }
         /// <summary>Repository for tenant products (catalog).</summary>
         IProductRepo Products { get; }
+        IStockRepo Stocks { get; }
+
     }
 }

@@ -80,6 +80,73 @@ namespace InfrastructureLayer.Migrations
                     b.ToTable("AuditLogs", (string)null);
                 });
 
+            modelBuilder.Entity("DomainLayer.Entities.Batch", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("BankId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("BatchCardAmount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("BatchStatus")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long?>("DeletedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<int>("ProcessedRowCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ProcessingError")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long>("UploadedByTenantId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("UploadedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("fileMac")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BankId");
+
+                    b.HasIndex("BatchStatus")
+                        .HasDatabaseName("IX_batch_status");
+
+                    b.HasIndex("Name")
+                        .HasDatabaseName("IX_batch_name");
+
+                    b.HasIndex("UploadedByTenantId");
+
+                    b.ToTable("Batches");
+                });
+
             modelBuilder.Entity("DomainLayer.Entities.Branch", b =>
                 {
                     b.Property<long>("Id")
@@ -187,6 +254,61 @@ namespace InfrastructureLayer.Migrations
                     b.ToTable("Products", (string)null);
                 });
 
+            modelBuilder.Entity("DomainLayer.Entities.ProductItem", b =>
+                {
+                    b.Property<string>("EncryptedPan")
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<long>("BatchId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("CardHolderName")
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long?>("DeletedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<long>("ProductId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<long>("TenantId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("EncryptedPan");
+
+                    b.HasIndex("BatchId");
+
+                    b.HasIndex("CardHolderName")
+                        .HasDatabaseName("IX_card_holder_name");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("IX_card_status_name");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("Cards");
+                });
+
             modelBuilder.Entity("DomainLayer.Entities.RefreshToken", b =>
                 {
                     b.Property<long>("Id")
@@ -233,6 +355,55 @@ namespace InfrastructureLayer.Migrations
                     b.HasIndex("userName");
 
                     b.ToTable("RefreshTokens", (string)null);
+                });
+
+            modelBuilder.Entity("DomainLayer.Entities.Stock", b =>
+                {
+                    b.Property<long>("TenantId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("BranchId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("ProductId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("AvailableQuantity")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long?>("DeletedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("HoldQuantity")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("GETUTCDATE()");
+
+                    b.HasKey("TenantId", "BranchId", "ProductId");
+
+                    b.HasIndex("BranchId");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("Stocks");
                 });
 
             modelBuilder.Entity("DomainLayer.Entities.SystemAdmin", b =>
@@ -339,6 +510,25 @@ namespace InfrastructureLayer.Migrations
                     b.ToTable("Tenants", (string)null);
                 });
 
+            modelBuilder.Entity("DomainLayer.Entities.Batch", b =>
+                {
+                    b.HasOne("DomainLayer.Entities.Tenant", "Bank")
+                        .WithMany()
+                        .HasForeignKey("BankId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("DomainLayer.Entities.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("UploadedByTenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Bank");
+
+                    b.Navigation("Tenant");
+                });
+
             modelBuilder.Entity("DomainLayer.Entities.Branch", b =>
                 {
                     b.HasOne("DomainLayer.Entities.Tenant", null)
@@ -355,6 +545,60 @@ namespace InfrastructureLayer.Migrations
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("DomainLayer.Entities.ProductItem", b =>
+                {
+                    b.HasOne("DomainLayer.Entities.Batch", "Batch")
+                        .WithMany()
+                        .HasForeignKey("BatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("DomainLayer.Entities.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("DomainLayer.Entities.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Batch");
+
+                    b.Navigation("Product");
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("DomainLayer.Entities.Stock", b =>
+                {
+                    b.HasOne("DomainLayer.Entities.Branch", "SettledBranch")
+                        .WithMany()
+                        .HasForeignKey("BranchId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("DomainLayer.Entities.Product", "CardType")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("DomainLayer.Entities.Tenant", "Bank")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Bank");
+
+                    b.Navigation("CardType");
+
+                    b.Navigation("SettledBranch");
                 });
 #pragma warning restore 612, 618
         }
