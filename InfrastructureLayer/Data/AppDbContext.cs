@@ -261,7 +261,6 @@ namespace InfrastructureLayer.Data
         {
             modelBuilder.Entity<ProductItem>(entity =>
             {
-
                 entity.HasIndex(u => u.CardHolderName)
             .HasDatabaseName("IX_card_holder_name")
             ;
@@ -269,6 +268,12 @@ namespace InfrastructureLayer.Data
                 entity.HasIndex(u => u.Status)
             .HasDatabaseName("IX_card_status_name")
            ;
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.EncryptedPan
+                })
+.IsUnique();
 
             });
         }

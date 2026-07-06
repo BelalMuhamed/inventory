@@ -1,5 +1,6 @@
 using DomainLayer.Common;
 using DomainLayer.Enums;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace DomainLayer.Entities
 {
@@ -29,6 +30,7 @@ namespace DomainLayer.Entities
         public int LowProductThreshold { get; set; }
 
         /// <summary>How the product's items are tracked across transactions (ERD §8).</summary>
+         
         public ProductTransactionWay ProductTransactionWay { get; set; }
 
         /// <summary>Printer family used to print this product (ERD §8).</summary>

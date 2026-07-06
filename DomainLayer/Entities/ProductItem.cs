@@ -13,6 +13,7 @@ namespace DomainLayer.Entities
     public class ProductItem:AuditableEntity
     {
         [Key]
+        public long ID { get; set; }
         public string EncryptedPan { get; set; }
         [ForeignKey(nameof(Tenant))]
         public long TenantId { get; set; }
@@ -26,6 +27,9 @@ namespace DomainLayer.Entities
         public string? CardHolderName { get; set; }
         public CardStatus Status { get; set; }
         public string? Notes { get; set; }
+        [ForeignKey(nameof(Branch))]
+        public long BranchID { get; set; }
+        public Branch Branch { get; set; }
 
     }
 }
