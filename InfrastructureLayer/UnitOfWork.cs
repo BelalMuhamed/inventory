@@ -1,5 +1,4 @@
 using ApplicationLayer.Contracts;
-using DomainLayer.Entities;
 using InfrastructureLayer.Data;
 using InfrastructureLayer.Repositories;
 using System.Threading;
@@ -16,8 +15,6 @@ namespace InfrastructureLayer
     {
         private readonly AppDbContext _context;
 
-        /// <summary>Creates the unit of work and its repositories over the shared context.</summary>
-        /// <param name="context">The scoped <see cref="AppDbContext"/>.</param>
         public UnitOfWork(AppDbContext context)
         {
             _context = context;
@@ -27,24 +24,17 @@ namespace InfrastructureLayer
             Branches = new BranchRepo(context);
             Products = new ProductRepo(context);
             Stocks = new StockRepo(context);
-
+            ProductItems = new ProductItemRepo(context);
         }
 
-        /// <inheritdoc />
         public ITenantRepo Tenants { get; }
-
-        /// <inheritdoc />
         public ISystemAdminRepo SystemAdmins { get; }
-
-        /// <inheritdoc />
         public IRefreshTokenRepo RefreshTokens { get; }
-
         public IBranchRepo Branches { get; }
         public IProductRepo Products { get; }
         public IStockRepo Stocks { get; }
+        public IProductItemRepo ProductItems { get; }
 
-
-        /// <inheritdoc />
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
             => _context.SaveChangesAsync(cancellationToken);
     }

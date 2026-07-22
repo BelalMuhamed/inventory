@@ -27,6 +27,7 @@ namespace DomainLayer.Entities
         [ForeignKey(nameof(Tenant))]
         public long UploadedByTenantId { get; set; }
         public Tenant Tenant { get; set; }
+        public  List<ProductItem>? CardsInBatch { get; set; } = new List<ProductItem>();
 
 
     }

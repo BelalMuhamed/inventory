@@ -15,5 +15,7 @@ namespace ApplicationLayer.ServicesContracts
         IBranchService Branches { get; }
         /// <summary>Product (catalog) management service.</summary>
         IProductService Products { get; }
+        IStockService Stocks { get; }
+        IProductItemService ProductItems { get; }
     }
 }

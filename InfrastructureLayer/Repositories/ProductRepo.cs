@@ -91,5 +91,10 @@ namespace InfrastructureLayer.Repositories
                             && !p.IsDeleted
                             && p.Name == name
                             && (excludeId == null || p.Id != excludeId), cancellationToken);
+
+        public async Task<Product?> GetByNameAsync(long tenantId, string name, CancellationToken cancellationToken = default)
+      => await _context.Set<Product>()
+          .IgnoreQueryFilters()
+          .FirstOrDefaultAsync(p => p.TenantId == tenantId && !p.IsDeleted && p.Name == name, cancellationToken);
     }
 }

@@ -1,134 +1,71 @@
-﻿using ApplicationLayer.Common;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using ApplicationLayer.Common;
 using ApplicationLayer.Contracts;
-using ApplicationLayer.DTOs.Products;
 using ApplicationLayer.DTOs.Stocks;
 using ApplicationLayer.Errors;
 using ApplicationLayer.ServicesContracts;
 using DomainLayer.Common;
 using DomainLayer.Entities;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace InfrastructureLayer.Services
 {
-    public class StockService : IStockService
+    /// <summary>
+    /// Stock read service (API Spec §4.7). A tenant principal is scoped to its own tenant; a system
+    /// admin bypasses scoping and may filter by tenant.
+    /// </summary>
+    public sealed class StockService : IStockService
     {
-        private readonly IUnitOfWork unitOfWork;
-        private readonly ICurrentTenant currentTenant;
+        private readonly IUnitOfWork _unitOfWork;
+        private readonly ICurrentTenant _currentTenant;
 
         public StockService(IUnitOfWork unitOfWork, ICurrentTenant currentTenant)
         {
-            this.unitOfWork = unitOfWork;
-            this.currentTenant = currentTenant;
+            _unitOfWork = unitOfWork;
+            _currentTenant = currentTenant;
         }
 
-        public async Task<Result<BranchStockResponse>> GetTenantBranchStockAsync(long tenantId, long branchId, CancellationToken cancellationToken = default)
+        public async Task<Result<PaginatedResponse<StockRowResponse>>> GetAllAsync(
+            StockListFilter filter, CancellationToken cancellationToken = default)
         {
             long? scope = ResolveScope(out Error? error);
-            if (error is not null) return Result.Failure<BranchStockResponse>(error);
+            if (error is not null) return Result.Failure<PaginatedResponse<StockRowResponse>>(error);
 
-            IReadOnlyList<Stock> items =
-                await unitOfWork.Stocks.GetTenantBranchStockAsync(tenantId, branchId, cancellationToken);
+            (IReadOnlyList<Stock> items, int total) =
+                await _unitOfWork.Stocks.GetPagedAsync(scope, filter, cancellationToken);
 
-            return items.ToBranchStockResponse();
+            IReadOnlyList<StockRowResponse> data = items.Select(Map).ToList();
+            return PaginatedResponse<StockRowResponse>.Create(data, filter.Page, filter.PageSize, total);
         }
 
-        public async Task<Result<BankStockResponse>> GetTenantStockAsync(long tenantId, CancellationToken cancellationToken = default)
-        {
-            long? scope = ResolveScope(out Error? error);
-            if (error is not null) return Result.Failure<BankStockResponse>(error);
-
-            IReadOnlyList<Stock> items =
-                await unitOfWork.Stocks.GetTenantStockAsync(tenantId, cancellationToken);
-
-            return items.MapToBankStockResponse();
-        }
-        private async Task<(long? ActorId, Error? Error)> ResolveActorIdAsync(CancellationToken cancellationToken)
-        {
-            if (!currentTenant.IsSystemAdmin)
-                return (currentTenant.TenantId, currentTenant.TenantId is null ? AuthErrors.ActorNotResolved() : null);
-
-            SystemAdmin? admin = await unitOfWork.SystemAdmins.GetActiveByUsernameAsync(currentTenant.Username!, cancellationToken);
-            return admin is null ? (null, AuthErrors.ActorNotResolved()) : (admin.Id, null);
-        }
+        public Task<Result<PaginatedResponse<StockRowResponse>>> GetBranchStockAsync(
+            long branchId, StockListFilter filter, CancellationToken cancellationToken = default)
+            => GetAllAsync(filter with { BranchId = branchId }, cancellationToken);
 
         // null scope => system admin (no restriction); otherwise the tenant caller's id.
         private long? ResolveScope(out Error? error)
         {
             error = null;
-            if (currentTenant.IsSystemAdmin) return null;
-            if (currentTenant.TenantId is long tenantId) return tenantId;
+            if (_currentTenant.IsSystemAdmin) return null;
+            if (_currentTenant.TenantId is long tenantId) return tenantId;
             error = AuthErrors.ActorNotResolved();
             return null;
         }
+
+        private static StockRowResponse Map(Stock s) => new(
+            s.TenantId,
+            s.BranchId,
+            s.SettledBranch?.Name ?? string.Empty,
+            s.ProductId,
+            s.CardType?.Name ?? string.Empty,
+            s.AvailableQuantity,
+            s.HoldQuantity,
+            s.CardType?.LowProductThreshold ?? 0,
+            s.AvailableQuantity <= (s.CardType?.LowProductThreshold ?? 0),
+            s.RowVersion is null ? string.Empty : Convert.ToBase64String(s.RowVersion),
+            s.UpdatedAt);
     }
-
-    // Move the extension method to a non-generic static class as required by CS1106
-    internal static class StockMappingExtensions
-    {
-        public static BankStockResponse MapToBankStockResponse(this IEnumerable<Stock> stocks)
-        {
-            var stockList = stocks.ToList();
-
-            // Assume all stocks belong to the same tenant (we take the first)
-            var first = stockList.First();
-            var tenantId = first.TenantId;
-            var tenantName = first.Bank?.Username ?? "Unknown"; // Ensure Tenant has a 'Name' property
-
-            var branchStocks = stockList
-                .GroupBy(s => new { s.BranchId, BranchName = s.SettledBranch?.Name ?? "Unknown" })
-                .Select(branchGroup => new BranchStockResponse(
-                    branchGroup.Key.BranchId,
-                    branchGroup.Key.BranchName,
-                    branchGroup
-                        .Select(s => new ProductStockResponse(
-                            s.ProductId,
-                            s.CardType?.Name ?? "Unknown",          // ProductName
-                            s.AvailableQuantity,
-                            s.HoldQuantity,
-                            s.RowVersion,
-                            s.UpdatedAt
-                        ))
-                        .ToList()
-                        .AsReadOnly()
-                ))
-                .ToList()
-                .AsReadOnly();
-
-            return new BankStockResponse(tenantId, tenantName, branchStocks);
-        }
-
-        public static BranchStockResponse ToBranchStockResponse(this IEnumerable<Stock> stocks)
-        {
-            if (stocks == null)
-                throw new ArgumentNullException(nameof(stocks));
-
-            var stockList = stocks.ToList();
-            if (stockList.Count == 0)
-                throw new ArgumentException("The collection cannot be empty.", nameof(stocks));
-
-            // Assume all stocks belong to the same branch; pick the first for branch info.
-            var first = stockList[0];
-            var branchId = first.BranchId;
-            var branchName = first.SettledBranch?.Name ?? "Unknown Branch";
-
-            var productStocks = stockList
-                .Select(s => new ProductStockResponse(
-                    s.ProductId,
-                    s.CardType?.Name ?? "Unknown Product",
-                    s.AvailableQuantity,
-                    s.HoldQuantity,
-                    s.RowVersion,
-                    s.UpdatedAt
-                ))
-                .ToList();
-
-            return new BranchStockResponse(branchId, branchName, productStocks);
-        }
-    }
-
-  
 }

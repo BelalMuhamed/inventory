@@ -22,8 +22,8 @@ namespace DomainLayer.Entities
         [ForeignKey(nameof(CardType))]
         public long ProductId { get; set; }
         public Product CardType { get; set; }
-        public int AvailableQuantity { get; set; }
-        public int HoldQuantity { get; set; }
+        public int AvailableQuantity { get; set; } = 0;
+        public int HoldQuantity { get; set; } = 0;
         [Timestamp]
         public byte[] RowVersion { get; set; }
         public DateTime UpdatedAt { get; set; }

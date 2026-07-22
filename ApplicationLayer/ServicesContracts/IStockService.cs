@@ -1,21 +1,20 @@
-﻿using ApplicationLayer.Common;
-using ApplicationLayer.DTOs.Branches;
+﻿using System.Threading;
+using System.Threading.Tasks;
+using ApplicationLayer.Common;
 using ApplicationLayer.DTOs.Stocks;
 using DomainLayer.Common;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace ApplicationLayer.ServicesContracts
 {
+    /// <summary>Stock read use cases (API Spec §4.7). Tenant callers see their own tenant only.</summary>
     public interface IStockService
     {
-        /// <summary>Returns a page of branches the caller may see.</summary>
-        Task<Result<BankStockResponse>> GetTenantStockAsync(long tenantId, CancellationToken cancellationToken = default);
+        /// <summary>Returns a page of stock rows (Product × Branch) the caller may see.</summary>
+        Task<Result<PaginatedResponse<StockRowResponse>>> GetAllAsync(
+            StockListFilter filter, CancellationToken cancellationToken = default);
 
-        /// <summary>Returns a page of branches the caller may see.</summary>
-        Task<Result<BranchStockResponse>> GetTenantBranchStockAsync(long tenantId,long branchId, CancellationToken cancellationToken = default);
+        /// <summary>Returns a page of stock rows for a single branch.</summary>
+        Task<Result<PaginatedResponse<StockRowResponse>>> GetBranchStockAsync(
+            long branchId, StockListFilter filter, CancellationToken cancellationToken = default);
     }
 }

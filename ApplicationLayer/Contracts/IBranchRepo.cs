@@ -29,5 +29,9 @@ namespace ApplicationLayer.Contracts
         /// UNIQUE (TenantId, Name) constraint — a soft-deleted name is free to reuse.
         /// </summary>
         Task<bool> NameExistsAsync(long tenantId, string name, long? excludeId, CancellationToken cancellationToken = default);
+        /// <summary>
+        ///get by branch name 
+        /// </summary>
+        Task<Branch?> GetByNameAsync(long tenantId, string name, CancellationToken cancellationToken = default);
     }
 }

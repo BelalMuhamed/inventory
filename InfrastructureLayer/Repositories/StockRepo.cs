@@ -1,5 +1,9 @@
-﻿using ApplicationLayer.Contracts;
-using ApplicationLayer.DTOs.Products;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using ApplicationLayer.Contracts;
 using ApplicationLayer.DTOs.Stocks;
 using DomainLayer.Entities;
 using InfrastructureLayer.Data;
@@ -7,63 +11,69 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InfrastructureLayer.Repositories
 {
-    public class StockRepo : GenericRepo<Stock, long>, IStockRepo
+    /// <summary>EF Core repository for the materialized <see cref="Stock"/> aggregate (ERD §3.1).</summary>
+    public sealed class StockRepo : GenericRepo<Stock, long>, IStockRepo
     {
-        private readonly AppDbContext _context;
+        public StockRepo(AppDbContext context) : base(context) { }
 
-        public StockRepo(AppDbContext context) : base(context)
+        public async Task<(IReadOnlyList<Stock> Items, int TotalCount)> GetPagedAsync(
+            long? tenantScopeId, StockListFilter filter, CancellationToken cancellationToken = default)
         {
-            _context = context;
-        }
-
-        public async Task<IReadOnlyList<Stock>> GetTenantBranchStockAsync(long tenantId, long branchId, CancellationToken cancellationToken = default)
-        {
-            // Ignore the global soft-delete filter so the tri-state IsDeleted can be applied explicitly.
-            IQueryable<Stock> query = _context.Set<Stock>()
+            // Stock has no soft-delete query filter, so rows are visible without IgnoreQueryFilters.
+            IQueryable<Stock> query = Set.AsNoTracking()
                 .Include(s => s.SettledBranch)
-                .Include(s => s.CardType)
-                .IgnoreQueryFilters()
-                .AsNoTracking();
+                .Include(s => s.CardType);
 
-            // Apply tenant filter if tenantId is not 0 (or another sentinel value as per your logic)
-            if (tenantId > 0)
+            if (tenantScopeId is long scope)
+                query = query.Where(s => s.TenantId == scope);          // tenant caller: forced scope
+            else if (filter.TenantId is long requested)
+                query = query.Where(s => s.TenantId == requested);      // admin caller: optional filter
+
+            if (filter.BranchId is long branch)
+                query = query.Where(s => s.BranchId == branch);
+
+            if (filter.ProductId is long product)
+                query = query.Where(s => s.ProductId == product);
+
+            if (filter.LowStockOnly is true)
+                query = query.Where(s => s.AvailableQuantity <= s.CardType.LowProductThreshold);
+
+            bool desc = string.Equals(filter.SortDir, "desc", StringComparison.OrdinalIgnoreCase);
+            query = (filter.SortBy?.ToLowerInvariant()) switch
             {
-                query = query.Where(p => p.TenantId == tenantId);
-            }
+                "available" => desc ? query.OrderByDescending(s => s.AvailableQuantity) : query.OrderBy(s => s.AvailableQuantity),
+                "hold" => desc ? query.OrderByDescending(s => s.HoldQuantity) : query.OrderBy(s => s.HoldQuantity),
+                "branchid" => desc ? query.OrderByDescending(s => s.BranchId) : query.OrderBy(s => s.BranchId),
+                "productid" => desc ? query.OrderByDescending(s => s.ProductId) : query.OrderBy(s => s.ProductId),
+                _ => desc ? query.OrderByDescending(s => s.UpdatedAt) : query.OrderBy(s => s.UpdatedAt),
+            };
 
-            // TODO (stock seam): apply filter.LowStockOnly once the Stock aggregate (ERD §3.1) exists —
-            // join Stock per (TenantId, ProductId) and keep products whose summed AvailableQuantity
-            // is at or below LowProductThreshold (API §4.6). Ignored until then.
+            int total = await query.CountAsync(cancellationToken);
+            int page = filter.Page < 1 ? 1 : filter.Page;
+            int size = filter.PageSize is < 1 or > 100 ? 20 : filter.PageSize;
 
-            List<Stock> items = await query.ToListAsync(cancellationToken);
+            List<Stock> items = await query
+                .Skip((page - 1) * size)
+                .Take(size)
+                .ToListAsync(cancellationToken);
 
-            return items;
+            return (items, total);
         }
-
-        public async Task<IReadOnlyList<Stock>> GetTenantStockAsync(long tenantId, CancellationToken cancellationToken = default)
-        {
-            // Ignore the global soft-delete filter so the tri-state IsDeleted can be applied explicitly.
-            IQueryable<Stock> query = _context.Set<Stock>()
-                .Include(s => s.SettledBranch)
-                .Include(s => s.CardType)
+        public async Task<Stock?> GetForUpdateAsync(
+            long tenantId, long branchId, long productId, CancellationToken cancellationToken = default)
+            => await Set.FindAsync(new object?[] { tenantId, branchId, productId }, cancellationToken);
+        public async Task<Stock?> GetByBranchAndProductNameAsync(
+            long tenantId, string branchName, string productName, CancellationToken cancellationToken = default)
+            => await Set
                 .IgnoreQueryFilters()
-                .AsNoTracking();
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s =>
+                    s.TenantId == tenantId &&
+                    s.SettledBranch.Name == branchName &&
+                    s.CardType.Name == productName,
+                    cancellationToken);
 
-            // Apply tenant filter if tenantId is not 0 (or another sentinel value as per your logic)
-            if (tenantId > 0)
-            {
-                query = query.Where(p => p.TenantId == tenantId);
-            }
-
-            // TODO (stock seam): apply filter.LowStockOnly once the Stock aggregate (ERD §3.1) exists —
-            // join Stock per (TenantId, ProductId) and keep products whose summed AvailableQuantity
-            // is at or below LowProductThreshold (API §4.6). Ignored until then.
-
-            List<Stock> items = await query.ToListAsync(cancellationToken);
-
-            return items;
-        }
-
-        
+        public async Task AddAsync(Stock stock, CancellationToken cancellationToken = default)
+            => await Set.AddAsync(stock, cancellationToken);
     }
 }

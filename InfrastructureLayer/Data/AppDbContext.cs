@@ -189,7 +189,8 @@ namespace InfrastructureLayer.Data
                       .WithMany()
                       .HasForeignKey(b => b.TenantId)
                       .OnDelete(DeleteBehavior.NoAction);
-
+                entity.HasIndex(x => x.Name)
+               .HasDatabaseName("IX_Category_Name");
                 entity.HasIndex(b => b.TenantId);
                 // UNIQUE (TenantId, Name) among non-deleted rows (ERD §2.1).
                 entity.HasIndex(b => new { b.TenantId, b.Name })
@@ -197,6 +198,12 @@ namespace InfrastructureLayer.Data
                       .HasFilter("[IsDeleted] = 0");
 
                 entity.HasQueryFilter(b => !b.IsDeleted);
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.Name
+                })
+              .HasDatabaseName("IX_Branch_TenantId_Name");
             });
         }
 
@@ -225,6 +232,12 @@ namespace InfrastructureLayer.Data
                       .HasFilter("[IsDeleted] = 0");
 
                 entity.HasQueryFilter(p => !p.IsDeleted);
+                entity.HasIndex(x => new
+                {
+                 x.TenantId,
+                 x.Name
+                })
+                .HasDatabaseName("IX_Product_TenantId_Name");
             });
         }
         private static void ConfigureStock(ModelBuilder modelBuilder)

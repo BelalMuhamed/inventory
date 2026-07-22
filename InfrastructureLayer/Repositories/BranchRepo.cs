@@ -73,5 +73,8 @@ namespace InfrastructureLayer.Repositories
             _context.Set<Branch>().AnyAsync(
                 b => b.TenantId == tenantId && b.Name == name && (excludeId == null || b.Id != excludeId),
                 cancellationToken);
+
+        public Task<Branch?> GetByNameAsync(long tenantId, string name, CancellationToken cancellationToken = default) =>
+      _context.Set<Branch>().FirstOrDefaultAsync(b => b.TenantId == tenantId && b.Name == name, cancellationToken);
     }
 }

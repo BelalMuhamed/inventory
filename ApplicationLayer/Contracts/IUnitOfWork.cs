@@ -30,6 +30,8 @@ namespace ApplicationLayer.Contracts
         /// <summary>Repository for tenant products (catalog).</summary>
         IProductRepo Products { get; }
         IStockRepo Stocks { get; }
+        IProductItemRepo ProductItems { get; }
+
 
     }
 }

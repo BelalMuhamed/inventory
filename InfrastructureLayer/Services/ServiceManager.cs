@@ -1,5 +1,4 @@
 using ApplicationLayer.ServicesContracts;
-using DomainLayer.Entities;
 using System;
 
 namespace InfrastructureLayer.Services
@@ -14,28 +13,30 @@ namespace InfrastructureLayer.Services
         private readonly Lazy<ITenantService> _tenants;
         private readonly Lazy<IBranchService> _branches;
         private readonly Lazy<IProductService> _products;
+        private readonly Lazy<IStockService> _stocks;
+        private readonly Lazy<IProductItemService> _productItems;
 
-
-        /// <summary>Creates the façade from lazily-resolved service factories.</summary>
-        /// <param name="authFactory">Factory that produces the authentication service.</param>
-        /// <param name="tenantFactory">Factory that produces the tenant management service.</param>
-        public ServiceManager(Func<IAuthService> authFactory, Func<ITenantService> tenantFactory, IBranchService Branches)
+        public ServiceManager(
+            Func<IAuthService> authFactory,
+            Func<ITenantService> tenantFactory,
+            Func<IBranchService> branchFactory,
+            Func<IProductService> productFactory,
+            Func<IStockService> stockFactory,
+            Func<IProductItemService> productItemFactory)
         {
             _auth = new Lazy<IAuthService>(authFactory);
             _tenants = new Lazy<ITenantService>(tenantFactory);
-            _branches = new Lazy<IBranchService>(Branches);
-            _products = new Lazy<IProductService>(Products);     // in the ctor body
-
+            _branches = new Lazy<IBranchService>(branchFactory);
+            _products = new Lazy<IProductService>(productFactory);
+            _stocks = new Lazy<IStockService>(stockFactory);
+            _productItems = new Lazy<IProductItemService>(productItemFactory);
         }
 
-        /// <inheritdoc />
         public IAuthService Auth => _auth.Value;
-
-        /// <inheritdoc />
         public ITenantService Tenants => _tenants.Value;
-
         public IBranchService Branches => _branches.Value;
-        public IProductService Products => _products.Value;  // property
-
+        public IProductService Products => _products.Value;
+        public IStockService Stocks => _stocks.Value;
+        public IProductItemService ProductItems => _productItems.Value;
     }
 }

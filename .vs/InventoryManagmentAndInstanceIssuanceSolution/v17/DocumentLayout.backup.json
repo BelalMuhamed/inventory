@@ -3,28 +3,144 @@
   "WorkspaceRootPath": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\",
   "Documents": [
     {
+      "AbsoluteMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\infrastructurelayer\\services\\branchservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|solutionrelative:infrastructurelayer\\services\\branchservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\applicationlayer\\contracts\\ibranchrepo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|solutionrelative:applicationlayer\\contracts\\ibranchrepo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
       "AbsoluteMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\infrastructurelayer\\data\\appdbcontext.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|solutionrelative:infrastructurelayer\\data\\appdbcontext.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{0DA6AE52-F73A-474A-84A2-F6109E2987AE}|DomainLayer\\DomainLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\domainlayer\\entities\\productitem.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{0DA6AE52-F73A-474A-84A2-F6109E2987AE}|DomainLayer\\DomainLayer.csproj|solutionrelative:domainlayer\\entities\\productitem.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\infrastructurelayer\\repositories\\productrepo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|solutionrelative:infrastructurelayer\\repositories\\productrepo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{0DA6AE52-F73A-474A-84A2-F6109E2987AE}|DomainLayer\\DomainLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\domainlayer\\entities\\product.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{0DA6AE52-F73A-474A-84A2-F6109E2987AE}|DomainLayer\\DomainLayer.csproj|solutionrelative:domainlayer\\entities\\product.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
+      "AbsoluteMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\applicationlayer\\contracts\\iproductrepo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|solutionrelative:applicationlayer\\contracts\\iproductrepo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\applicationlayer\\servicescontracts\\iproductservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|solutionrelative:applicationlayer\\servicescontracts\\iproductservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\infrastructurelayer\\services\\datfileresolverservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|solutionrelative:infrastructurelayer\\services\\datfileresolverservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\applicationlayer\\contracts\\iunitofwork.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|solutionrelative:applicationlayer\\contracts\\iunitofwork.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\infrastructurelayer\\repositories\\stockrepo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|solutionrelative:infrastructurelayer\\repositories\\stockrepo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\applicationlayer\\contracts\\istockrepo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|solutionrelative:applicationlayer\\contracts\\istockrepo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{0DA6AE52-F73A-474A-84A2-F6109E2987AE}|DomainLayer\\DomainLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\domainlayer\\entities\\stock.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{0DA6AE52-F73A-474A-84A2-F6109E2987AE}|DomainLayer\\DomainLayer.csproj|solutionrelative:domainlayer\\entities\\stock.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\applicationlayer\\servicescontracts\\idatfileresolverservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|solutionrelative:applicationlayer\\servicescontracts\\idatfileresolverservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\infrastructurelayer\\unitofwork.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|solutionrelative:infrastructurelayer\\unitofwork.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{F16A81A9-3E11-4D6B-B0F0-4C4F2397FF6F}|InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\inventorymanagmentandinstanceissuancepresentationlayer\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{F16A81A9-3E11-4D6B-B0F0-4C4F2397FF6F}|InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationLayer.csproj|solutionrelative:inventorymanagmentandinstanceissuancepresentationlayer\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\infrastructurelayer\\data\\dbseeder.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|solutionrelative:infrastructurelayer\\data\\dbseeder.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\infrastructurelayer\\repositories\\productitemrepo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|solutionrelative:infrastructurelayer\\repositories\\productitemrepo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{F16A81A9-3E11-4D6B-B0F0-4C4F2397FF6F}|InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\inventorymanagmentandinstanceissuancepresentationlayer\\controllers\\tenantscontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{F16A81A9-3E11-4D6B-B0F0-4C4F2397FF6F}|InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationLayer.csproj|solutionrelative:inventorymanagmentandinstanceissuancepresentationlayer\\controllers\\tenantscontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{F16A81A9-3E11-4D6B-B0F0-4C4F2397FF6F}|InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\inventorymanagmentandinstanceissuancepresentationlayer\\appsettings.development.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{F16A81A9-3E11-4D6B-B0F0-4C4F2397FF6F}|InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationLayer.csproj|solutionrelative:inventorymanagmentandinstanceissuancepresentationlayer\\appsettings.development.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\applicationlayer\\dtos\\productitemdtos\\productitemresponse.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|solutionrelative:applicationlayer\\dtos\\productitemdtos\\productitemresponse.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\applicationlayer\\contracts\\iproductitemrepo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|solutionrelative:applicationlayer\\contracts\\iproductitemrepo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\infrastructurelayer\\services\\productitemservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|solutionrelative:infrastructurelayer\\services\\productitemservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\applicationlayer\\servicescontracts\\iproductitemservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|solutionrelative:applicationlayer\\servicescontracts\\iproductitemservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{F16A81A9-3E11-4D6B-B0F0-4C4F2397FF6F}|InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\inventorymanagmentandinstanceissuancepresentationlayer\\controllers\\productitemscontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{F16A81A9-3E11-4D6B-B0F0-4C4F2397FF6F}|InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationLayer.csproj|solutionrelative:inventorymanagmentandinstanceissuancepresentationlayer\\controllers\\productitemscontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
       "AbsoluteMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\applicationlayer\\dtos\\stocks\\stockdtos.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|solutionrelative:applicationlayer\\dtos\\stocks\\stockdtos.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{F16A81A9-3E11-4D6B-B0F0-4C4F2397FF6F}|InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\inventorymanagmentandinstanceissuancepresentationlayer\\controllers\\stockcontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{F16A81A9-3E11-4D6B-B0F0-4C4F2397FF6F}|InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationLayer.csproj|solutionrelative:inventorymanagmentandinstanceissuancepresentationlayer\\controllers\\stockcontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\infrastructurelayer\\infrastructureserviceregistration.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|solutionrelative:infrastructurelayer\\infrastructureserviceregistration.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\infrastructurelayer\\services\\servicemanager.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|solutionrelative:infrastructurelayer\\services\\servicemanager.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\infrastructurelayer\\services\\stockservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|solutionrelative:infrastructurelayer\\services\\stockservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
+      "AbsoluteMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\applicationlayer\\errors\\productitemerrors.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|solutionrelative:applicationlayer\\errors\\productitemerrors.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\applicationlayer\\errors\\stockerrors.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|solutionrelative:applicationlayer\\errors\\stockerrors.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\applicationlayer\\servicescontracts\\iservicemanager.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|solutionrelative:applicationlayer\\servicescontracts\\iservicemanager.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
       "AbsoluteMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\applicationlayer\\servicescontracts\\istockservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{95E53FDF-DD8C-4EEE-9C42-64A4838E77D5}|ApplicationLayer\\ApplicationLayer.csproj|solutionrelative:applicationlayer\\servicescontracts\\istockservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{0DA6AE52-F73A-474A-84A2-F6109E2987AE}|DomainLayer\\DomainLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\domainlayer\\entities\\productitem.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{0DA6AE52-F73A-474A-84A2-F6109E2987AE}|DomainLayer\\DomainLayer.csproj|solutionrelative:domainlayer\\entities\\productitem.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\infrastructurelayer\\migrations\\20260706104915_update-cards-table.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|solutionrelative:infrastructurelayer\\migrations\\20260706104915_update-cards-table.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     }
   ],
   "DocumentGroupContainers": [
@@ -47,19 +163,403 @@
             {
               "$type": "Document",
               "DocumentIndex": 0,
-              "Title": "AppDbContext.cs",
-              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Data\\AppDbContext.cs",
-              "RelativeDocumentMoniker": "InfrastructureLayer\\Data\\AppDbContext.cs",
-              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Data\\AppDbContext.cs",
-              "RelativeToolTip": "InfrastructureLayer\\Data\\AppDbContext.cs",
-              "ViewState": "AgIAAPUAAAAAAAAAAAAqwAcBAAAAAAAAAAAAAA==",
+              "Title": "BranchService.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\BranchService.cs",
+              "RelativeDocumentMoniker": "InfrastructureLayer\\Services\\BranchService.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\BranchService.cs",
+              "RelativeToolTip": "InfrastructureLayer\\Services\\BranchService.cs",
+              "ViewState": "AgIAABIAAAAAAAAAAAAAACAAAABTAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-07-06T10:32:44.339Z",
+              "WhenOpened": "2026-07-21T12:03:23.011Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
               "DocumentIndex": 1,
+              "Title": "IBranchRepo.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Contracts\\IBranchRepo.cs",
+              "RelativeDocumentMoniker": "ApplicationLayer\\Contracts\\IBranchRepo.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Contracts\\IBranchRepo.cs",
+              "RelativeToolTip": "ApplicationLayer\\Contracts\\IBranchRepo.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAACIAAABBAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-21T11:59:02.061Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "ProductRepo.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Repositories\\ProductRepo.cs",
+              "RelativeDocumentMoniker": "InfrastructureLayer\\Repositories\\ProductRepo.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Repositories\\ProductRepo.cs",
+              "RelativeToolTip": "InfrastructureLayer\\Repositories\\ProductRepo.cs",
+              "ViewState": "AgIAAAwAAAAAAAAAAAAAAGMAAAA/AAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-21T11:51:07.984Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "IProductRepo.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Contracts\\IProductRepo.cs",
+              "RelativeDocumentMoniker": "ApplicationLayer\\Contracts\\IProductRepo.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Contracts\\IProductRepo.cs",
+              "RelativeToolTip": "ApplicationLayer\\Contracts\\IProductRepo.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAACMAAAAHAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-21T11:49:01.553Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "IProductService.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\ServicesContracts\\IProductService.cs",
+              "RelativeDocumentMoniker": "ApplicationLayer\\ServicesContracts\\IProductService.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\ServicesContracts\\IProductService.cs",
+              "RelativeToolTip": "ApplicationLayer\\ServicesContracts\\IProductService.cs",
+              "ViewState": "AgIAAAYAAAAAAAAAAAAAACcAAABuAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-21T11:47:16.797Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 11,
+              "Title": "Stock.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Entities\\Stock.cs",
+              "RelativeDocumentMoniker": "DomainLayer\\Entities\\Stock.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Entities\\Stock.cs",
+              "RelativeToolTip": "DomainLayer\\Entities\\Stock.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAuwBkAAAAyAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-21T09:36:04.493Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "DatFileResolverService.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\DatFileResolverService.cs",
+              "RelativeDocumentMoniker": "InfrastructureLayer\\Services\\DatFileResolverService.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\DatFileResolverService.cs",
+              "RelativeToolTip": "InfrastructureLayer\\Services\\DatFileResolverService.cs",
+              "ViewState": "AgIAAIkAAAAAAAAAAAAUwKQAAAAjAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-21T08:26:21.334Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 12,
+              "Title": "IDatFileResolverService.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\ServicesContracts\\IDatFileResolverService.cs",
+              "RelativeDocumentMoniker": "ApplicationLayer\\ServicesContracts\\IDatFileResolverService.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\ServicesContracts\\IDatFileResolverService.cs",
+              "RelativeToolTip": "ApplicationLayer\\ServicesContracts\\IDatFileResolverService.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAoAAAAsAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-15T07:42:56.912Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 9,
+              "Title": "StockRepo.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Repositories\\StockRepo.cs",
+              "RelativeDocumentMoniker": "InfrastructureLayer\\Repositories\\StockRepo.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Repositories\\StockRepo.cs",
+              "RelativeToolTip": "InfrastructureLayer\\Repositories\\StockRepo.cs",
+              "ViewState": "AgIAAAkAAAAAAAAAAAAWwFAAAAAiAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-06T11:57:50.871Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "AppDbContext.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Data\\AppDbContext.cs",
+              "RelativeDocumentMoniker": "InfrastructureLayer\\Data\\AppDbContext.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Data\\AppDbContext.cs",
+              "RelativeToolTip": "InfrastructureLayer\\Data\\AppDbContext.cs",
+              "ViewState": "AgIAAIwAAAAAAAAAAAASwM0AAAApAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-06T10:32:44.339Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 13,
+              "Title": "UnitOfWork.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\UnitOfWork.cs",
+              "RelativeDocumentMoniker": "InfrastructureLayer\\UnitOfWork.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\UnitOfWork.cs",
+              "RelativeToolTip": "InfrastructureLayer\\UnitOfWork.cs",
+              "ViewState": "AgIAAAUAAAAAAAAAAAAqwBkAAAAeAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-06T11:58:38.31Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "Product.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Entities\\Product.cs",
+              "RelativeDocumentMoniker": "DomainLayer\\Entities\\Product.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Entities\\Product.cs",
+              "RelativeToolTip": "DomainLayer\\Entities\\Product.cs",
+              "ViewState": "AgIAAAYAAAAAAAAAAAAAABQAAAA4AAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-06T10:18:10.097Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 14,
+              "Title": "appsettings.json",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\appsettings.json",
+              "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\appsettings.json",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\appsettings.json",
+              "RelativeToolTip": "InventoryManagmentAndInstanceIssuancePresentationLayer\\appsettings.json",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2026-07-15T06:52:16.999Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 15,
+              "Title": "DbSeeder.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Data\\DbSeeder.cs",
+              "RelativeDocumentMoniker": "InfrastructureLayer\\Data\\DbSeeder.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Data\\DbSeeder.cs",
+              "RelativeToolTip": "InfrastructureLayer\\Data\\DbSeeder.cs",
+              "ViewState": "AgIAAB8AAAAAAAAAAAAkwFcAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-15T06:53:24.735Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 10,
+              "Title": "IStockRepo.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Contracts\\IStockRepo.cs",
+              "RelativeDocumentMoniker": "ApplicationLayer\\Contracts\\IStockRepo.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Contracts\\IStockRepo.cs",
+              "RelativeToolTip": "ApplicationLayer\\Contracts\\IStockRepo.cs",
+              "ViewState": "AgIAAA0AAAAAAAAAAAAwwCAAAAAVAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-06T11:48:10.881Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": "IUnitOfWork.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Contracts\\IUnitOfWork.cs",
+              "RelativeDocumentMoniker": "ApplicationLayer\\Contracts\\IUnitOfWork.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Contracts\\IUnitOfWork.cs",
+              "RelativeToolTip": "ApplicationLayer\\Contracts\\IUnitOfWork.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAACEAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-06T11:51:32.633Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 16,
+              "Title": "ProductItemRepo.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Repositories\\ProductItemRepo.cs",
+              "RelativeDocumentMoniker": "InfrastructureLayer\\Repositories\\ProductItemRepo.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Repositories\\ProductItemRepo.cs",
+              "RelativeToolTip": "InfrastructureLayer\\Repositories\\ProductItemRepo.cs",
+              "ViewState": "AgIAAA8AAAAAAAAAAADgvycAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-06T11:58:10.238Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 18,
+              "Title": "appsettings.Development.json",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\appsettings.Development.json",
+              "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\appsettings.Development.json",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\appsettings.Development.json",
+              "RelativeToolTip": "InventoryManagmentAndInstanceIssuancePresentationLayer\\appsettings.Development.json",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2026-07-15T06:54:00.197Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 17,
+              "Title": "TenantsController.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\TenantsController.cs",
+              "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\TenantsController.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\TenantsController.cs",
+              "RelativeToolTip": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\TenantsController.cs",
+              "ViewState": "AgIAAFIAAAAAAAAAAAAkwGIAAAAvAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-15T07:27:43.902Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 23,
+              "Title": "ProductItemsController.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\ProductItemsController.cs",
+              "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\ProductItemsController.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\ProductItemsController.cs",
+              "RelativeToolTip": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\ProductItemsController.cs",
+              "ViewState": "AgIAAA8AAAAAAAAAAAAqwCAAAAAxAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-06T12:05:31.728Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 25,
+              "Title": "StockController.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\StockController.cs",
+              "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\StockController.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\StockController.cs",
+              "RelativeToolTip": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\StockController.cs",
+              "ViewState": "AgIAAA8AAAAAAAAAAAAqwCkAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-06T12:05:10.601Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 21,
+              "Title": "ProductItemService.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\ProductItemService.cs",
+              "RelativeDocumentMoniker": "InfrastructureLayer\\Services\\ProductItemService.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\ProductItemService.cs",
+              "RelativeToolTip": "InfrastructureLayer\\Services\\ProductItemService.cs",
+              "ViewState": "AgIAABQAAAAAAAAAAADgvycAAAA1AAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-06T12:00:47.897Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 24,
+              "Title": "StockDtos.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\DTOs\\Stocks\\StockDtos.cs",
+              "RelativeDocumentMoniker": "ApplicationLayer\\DTOs\\Stocks\\StockDtos.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\DTOs\\Stocks\\StockDtos.cs",
+              "RelativeToolTip": "ApplicationLayer\\DTOs\\Stocks\\StockDtos.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAkAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-06-25T07:30:56.664Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 22,
+              "Title": "IProductItemService.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\ServicesContracts\\IProductItemService.cs",
+              "RelativeDocumentMoniker": "ApplicationLayer\\ServicesContracts\\IProductItemService.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\ServicesContracts\\IProductItemService.cs",
+              "RelativeToolTip": "ApplicationLayer\\ServicesContracts\\IProductItemService.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAuwAwAAAA9AAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-06T11:52:22.011Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 20,
+              "Title": "IProductItemRepo.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Contracts\\IProductItemRepo.cs",
+              "RelativeDocumentMoniker": "ApplicationLayer\\Contracts\\IProductItemRepo.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Contracts\\IProductItemRepo.cs",
+              "RelativeToolTip": "ApplicationLayer\\Contracts\\IProductItemRepo.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAuwAwAAABBAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-06T11:51:07.556Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 19,
+              "Title": "ProductItemResponse.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\DTOs\\ProductItemDtos\\ProductItemResponse.cs",
+              "RelativeDocumentMoniker": "ApplicationLayer\\DTOs\\ProductItemDtos\\ProductItemResponse.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\DTOs\\ProductItemDtos\\ProductItemResponse.cs",
+              "RelativeToolTip": "ApplicationLayer\\DTOs\\ProductItemDtos\\ProductItemResponse.cs",
+              "ViewState": "AgIAAB0AAAAAAAAAAAA8wC4AAAAZAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-06T11:47:27.184Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 26,
+              "Title": "InfrastructureServiceRegistration.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\InfrastructureServiceRegistration.cs",
+              "RelativeDocumentMoniker": "InfrastructureLayer\\InfrastructureServiceRegistration.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\InfrastructureServiceRegistration.cs",
+              "RelativeToolTip": "InfrastructureLayer\\InfrastructureServiceRegistration.cs",
+              "ViewState": "AgIAABwAAAAAAAAAAAAQwDwAAABzAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-06T12:04:09.239Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 27,
+              "Title": "ServiceManager.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\ServiceManager.cs",
+              "RelativeDocumentMoniker": "InfrastructureLayer\\Services\\ServiceManager.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\ServiceManager.cs",
+              "RelativeToolTip": "InfrastructureLayer\\Services\\ServiceManager.cs",
+              "ViewState": "AgIAAAYAAAAAAAAAAAAqwCkAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-06T12:03:41.532Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 29,
+              "Title": "ProductItemErrors.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Errors\\ProductItemErrors.cs",
+              "RelativeDocumentMoniker": "ApplicationLayer\\Errors\\ProductItemErrors.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Errors\\ProductItemErrors.cs",
+              "RelativeToolTip": "ApplicationLayer\\Errors\\ProductItemErrors.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAwAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-06T11:57:03.632Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 30,
+              "Title": "StockErrors.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Errors\\StockErrors.cs",
+              "RelativeDocumentMoniker": "ApplicationLayer\\Errors\\StockErrors.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Errors\\StockErrors.cs",
+              "RelativeToolTip": "ApplicationLayer\\Errors\\StockErrors.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABYAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-06T11:56:30.257Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 31,
+              "Title": "IServiceManager.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\ServicesContracts\\IServiceManager.cs",
+              "RelativeDocumentMoniker": "ApplicationLayer\\ServicesContracts\\IServiceManager.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\ServicesContracts\\IServiceManager.cs",
+              "RelativeToolTip": "ApplicationLayer\\ServicesContracts\\IServiceManager.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABIAAAAxAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-06T11:53:30.409Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 28,
+              "Title": "StockService.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\StockService.cs",
+              "RelativeDocumentMoniker": "InfrastructureLayer\\Services\\StockService.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\StockService.cs",
+              "RelativeToolTip": "InfrastructureLayer\\Services\\StockService.cs",
+              "ViewState": "AgIAAAUAAAAAAAAAAAAcwEYAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-06-25T07:27:38.447Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 34,
+              "Title": "20260706104915_update-cards-table.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260706104915_update-cards-table.cs",
+              "RelativeDocumentMoniker": "InfrastructureLayer\\Migrations\\20260706104915_update-cards-table.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260706104915_update-cards-table.cs",
+              "RelativeToolTip": "InfrastructureLayer\\Migrations\\20260706104915_update-cards-table.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-07-06T10:49:15.74Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 33,
               "Title": "ProductItem.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Entities\\ProductItem.cs",
               "RelativeDocumentMoniker": "DomainLayer\\Entities\\ProductItem.cs",
@@ -67,56 +567,17 @@
               "RelativeToolTip": "DomainLayer\\Entities\\ProductItem.cs",
               "ViewState": "AgIAAAMAAAAAAAAAAAAAAAsAAAABAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-07-06T10:31:16.433Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-07-06T10:31:16.433Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 2,
-              "Title": "Product.cs",
-              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Entities\\Product.cs",
-              "RelativeDocumentMoniker": "DomainLayer\\Entities\\Product.cs",
-              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Entities\\Product.cs",
-              "RelativeToolTip": "DomainLayer\\Entities\\Product.cs",
-              "ViewState": "AgIAAA4AAAAAAAAAAAAzwCAAAAAJAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-07-06T10:18:10.097Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 3,
-              "Title": "StockDtos.cs",
-              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\DTOs\\Stocks\\StockDtos.cs",
-              "RelativeDocumentMoniker": "ApplicationLayer\\DTOs\\Stocks\\StockDtos.cs",
-              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\DTOs\\Stocks\\StockDtos.cs",
-              "RelativeToolTip": "ApplicationLayer\\DTOs\\Stocks\\StockDtos.cs",
-              "ViewState": "AgIAAAgAAAAAAAAAAAAqwBkAAACiAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-06-25T07:30:56.664Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 4,
-              "Title": "StockService.cs",
-              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\StockService.cs",
-              "RelativeDocumentMoniker": "InfrastructureLayer\\Services\\StockService.cs",
-              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\StockService.cs",
-              "RelativeToolTip": "InfrastructureLayer\\Services\\StockService.cs",
-              "ViewState": "AgIAABUAAAAAAAAAAAAUwBsAAACdAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-06-25T07:27:38.447Z"
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 5,
+              "DocumentIndex": 32,
               "Title": "IStockService.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\ServicesContracts\\IStockService.cs",
               "RelativeDocumentMoniker": "ApplicationLayer\\ServicesContracts\\IStockService.cs",
               "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\ServicesContracts\\IStockService.cs",
               "RelativeToolTip": "ApplicationLayer\\ServicesContracts\\IStockService.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABMAAAABAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2026-06-25T07:27:33.948Z"
             }
