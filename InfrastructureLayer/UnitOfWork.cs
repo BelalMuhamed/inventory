@@ -25,6 +25,7 @@ namespace InfrastructureLayer
             Products = new ProductRepo(context);
             Stocks = new StockRepo(context);
             ProductItems = new ProductItemRepo(context);
+            BatchRepo= new BatchRepo(context);
         }
 
         public ITenantRepo Tenants { get; }
@@ -34,6 +35,8 @@ namespace InfrastructureLayer
         public IProductRepo Products { get; }
         public IStockRepo Stocks { get; }
         public IProductItemRepo ProductItems { get; }
+        public IBatchRepo BatchRepo { get; }
+
 
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
             => _context.SaveChangesAsync(cancellationToken);

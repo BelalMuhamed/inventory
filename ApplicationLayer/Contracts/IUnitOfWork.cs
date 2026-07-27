@@ -31,6 +31,7 @@ namespace ApplicationLayer.Contracts
         IProductRepo Products { get; }
         IStockRepo Stocks { get; }
         IProductItemRepo ProductItems { get; }
+        IBatchRepo BatchRepo { get; }
 
 
     }

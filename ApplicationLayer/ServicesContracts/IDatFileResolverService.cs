@@ -13,10 +13,7 @@ namespace ApplicationLayer.ServicesContracts
     {
         Task<byte[]> GetFileContentFromFormFile(IFormFile file);
         Task<string> WriteFile(IFormFile file);
-        Task<bool> WriteBatchInDb(List<string> fileRecords, string fileName, string fileMAC);
-        Task<List<ProductItem>> ParseLinesToCard(List<string> lines);
-        Task<bool> CheckProductExisted(List<string> lines);
-        Task<Result> EnsureBranchStockCreatedAsync(
-        string branchName, string productName, long tenantId, CancellationToken cancellationToken = default);
+        Task<bool> WriteBatchInDb(List<string> fileRecords, string fileName, string fileMAC, long tenantId, CancellationToken token);     
+        Task<List<ProductItem>> ParseLinesToCard(List<string> lines, long tenantId, CancellationToken token);
     }
 }
