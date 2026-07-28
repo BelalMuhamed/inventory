@@ -138,4 +138,19 @@
   <data name="Tenant.UsernameAlreadyExists" xml:space="preserve">
     <value>في مستخدم باسم المستخدم '{0}' موجود قبل كده.</value>
   </data>
+  <data name="Batch.FileEmpty" xml:space="preserve">
+    <value>الملف اللي اترفع فاضي.</value>
+  </data>
+  <data name="Batch.DecryptionFailed" xml:space="preserve">
+    <value>مقدرناش نفك تشفير الملف. يمكن يكون تالف أو المفتاح غلط.</value>
+  </data>
+  <data name="Batch.DuplicateFile" xml:space="preserve">
+    <value>الملف ده اتترفع قبل كده بالظبط.</value>
+  </data>
+  <data name="Batch.ExpectedRowCountMismatch" xml:space="preserve">
+    <value>عدد الصفوف مش زي المتوقع: {0}.</value>
+  </data>
+  <data name="Batch.ProcessingFailed" xml:space="preserve">
+    <value>حصل خطأ غير متوقع أثناء معالجة الدفعة. ابعت الـ trace id لو هتبلغ عن المشكلة.</value>
+  </data>
 </root>

@@ -138,4 +138,19 @@
   <data name="Tenant.UsernameAlreadyExists" xml:space="preserve">
     <value>A tenant with username '{0}' already exists.</value>
   </data>
+  <data name="Batch.FileEmpty" xml:space="preserve">
+    <value>The uploaded file is empty.</value>
+  </data>
+  <data name="Batch.DecryptionFailed" xml:space="preserve">
+    <value>The file could not be decrypted. It may be corrupted or encrypted with the wrong key.</value>
+  </data>
+  <data name="Batch.DuplicateFile" xml:space="preserve">
+    <value>This exact file has already been uploaded.</value>
+  </data>
+  <data name="Batch.ExpectedRowCountMismatch" xml:space="preserve">
+    <value>Expected/actual row count mismatch: {0}.</value>
+  </data>
+  <data name="Batch.ProcessingFailed" xml:space="preserve">
+    <value>An unexpected error occurred while processing the batch. Reference the trace id when reporting this.</value>
+  </data>
 </root>

@@ -1,0 +1,575 @@
+diff --git a/ApplicationLayer/Contracts/IBatchFileCipher.cs b/ApplicationLayer/Contracts/IBatchFileCipher.cs
+new file mode 100644
+index 0000000..521fbef
+--- /dev/null
++++ b/ApplicationLayer/Contracts/IBatchFileCipher.cs
+@@ -0,0 +1,28 @@
++﻿using DomainLayer.Common;
++
++namespace ApplicationLayer.Contracts
++{
++    /// <summary>
++    /// Decrypts an uploaded batch file (AES-256-GCM). The per-tenant key is derived at call time
++    /// from <c>BatchCipherOptions</c> and is never persisted (Batch Upload Phased Plan, Phase 2).
++    /// A bad key or a tampered/corrupted file is a clean <see cref="Result{TValue}"/> failure,
++    /// not a thrown exception — the GCM authentication tag check does the tamper detection.
++    /// </summary>
++    public interface IBatchFileCipher
++    {
++        /// <summary>
++        /// Decrypts <paramref name="ciphertext"/> for <paramref name="tenantId"/> and returns the
++        /// plaintext file content as UTF-8 text.
++        /// </summary>
++        /// <param name="tenantId">Tenant the file was uploaded for; selects the derived key.</param>
++        /// <param name="ciphertext">
++        /// Raw encrypted file bytes, laid out as [12-byte nonce][16-byte GCM tag][ciphertext] —
++        /// the same convention as <c>InfrastructureLayer.Logging.LogEncryptor</c>.
++        /// </param>
++        /// <returns>
++        /// The decrypted plaintext on success, or <c>BatchErrors.DecryptionFailed()</c> on a bad
++        /// key, tampered ciphertext, or malformed input.
++        /// </returns>
++        Result<string> Decrypt(long tenantId, byte[] ciphertext);
++    }
++}
+diff --git a/ApplicationLayer/Errors/BatchErrors.cs b/ApplicationLayer/Errors/BatchErrors.cs
+new file mode 100644
+index 0000000..1758a7a
+--- /dev/null
++++ b/ApplicationLayer/Errors/BatchErrors.cs
+@@ -0,0 +1,48 @@
++﻿using DomainLayer.Common;
++
++namespace ApplicationLayer.Errors
++{
++    /// <summary>
++    /// Stable, localizable <see cref="Error"/> catalogue for the batch-upload module (Batch
++    /// Upload Phased Plan, Phase 2). Mirrors <see cref="StockErrors"/>'s pattern.
++    /// </summary>
++    public static class BatchErrors
++    {
++        /// <summary>The decrypted upload file has no rows to process (→ 422).</summary>
++        public static Error FileEmpty() =>
++            Error.Validation("Batch.FileEmpty", "The uploaded file is empty.");
++
++        /// <summary>
++        /// The file could not be authenticated/decrypted (wrong key or tampered/corrupted
++        /// ciphertext — AES-GCM tag check failed). Whole-file failure, not a per-row one (→ 422).
++        /// </summary>
++        public static Error DecryptionFailed() =>
++            Error.Validation(
++                "Batch.DecryptionFailed",
++                "The file could not be decrypted. It may be corrupted or encrypted with the wrong key.");
++
++        /// <summary>
++        /// A file with this exact fingerprint (FileMac) was already uploaded for this tenant.
++        /// No rows are written when this fires (→ 409).
++        /// </summary>
++        public static Error DuplicateFile() =>
++            Error.Conflict("Batch.DuplicateFile", "This exact file has already been uploaded.");
++
++        /// <summary>The caller-declared expected row count does not match the file's actual row count (→ 422).</summary>
++        public static Error ExpectedRowCountMismatch(int expected, int actual) =>
++            Error.Validation(
++                "Batch.ExpectedRowCountMismatch",
++                $"Expected {expected} rows but the file contains {actual}.")
++                .WithArg($"{expected}/{actual}");
++
++        /// <summary>
++        /// An unexpected exception was caught at the orchestration boundary (Phase 6). Logged via
++        /// Serilog with tenant/trace/batch context at the point it occurred; the client only ever
++        /// sees this opaque message (→ 500).
++        /// </summary>
++        public static Error ProcessingFailed() =>
++            Error.Internal(
++                "Batch.ProcessingFailed",
++                "An unexpected error occurred while processing the batch. Reference the trace id when reporting this.");
++    }
++}
+diff --git a/ApplicationLayer/Options/BatchCipherOptions.cs b/ApplicationLayer/Options/BatchCipherOptions.cs
+new file mode 100644
+index 0000000..f047d23
+--- /dev/null
++++ b/ApplicationLayer/Options/BatchCipherOptions.cs
+@@ -0,0 +1,25 @@
++﻿namespace ApplicationLayer.Options
++{
++    /// <summary>
++    /// Settings for batch-file decryption (AES-256-GCM), bound from the <c>"BatchCipher"</c>
++    /// section. A single master secret is supplied via user-secrets/environment — never
++    /// committed, never persisted — and <see cref="BatchFileCipher"/> derives a distinct
++    /// per-tenant key from it at call time (Batch Upload Phased Plan, Phase 2: "key from a
++    /// per-tenant secret ... never persisted").
++    /// </summary>
++    public sealed class BatchCipherOptions
++    {
++        /// <summary>Configuration section name.</summary>
++        public const string SectionName = "BatchCipher";
++
++        /// <summary>Master secret every tenant's derived key is built from (PBKDF2). Supplied via secrets.</summary>
++        public string MasterSecret { get; set; } = string.Empty;
++
++        /// <summary>
++        /// Base64 salt for key derivation, combined with the tenant id so each tenant gets a
++        /// distinct key from the same master secret. Supplied via secrets; must stay stable, or
++        /// previously-uploaded files become undecryptable.
++        /// </summary>
++        public string Salt { get; set; } = string.Empty;
++    }
++}
+diff --git a/ApplicationLayer/Security/PanMasker.cs b/ApplicationLayer/Security/PanMasker.cs
+new file mode 100644
+index 0000000..35169a8
+--- /dev/null
++++ b/ApplicationLayer/Security/PanMasker.cs
+@@ -0,0 +1,34 @@
++﻿namespace ApplicationLayer.Security
++{
++    /// <summary>
++    /// Stateless PAN masking (Batch Upload Phased Plan §Q1 / Phase 2). Always computed from the
++    /// plaintext PAN, never from <c>EncryptedPan</c> ciphertext — that was the old bug this
++    /// replaces. No key, no options: pure functions, safe to call from anywhere without DI.
++    /// </summary>
++    public static class PanMasker
++    {
++        private const int VisibleDigits = 6;
++        private const string MaskPrefix = "**********"; // ten mask characters (Q1)
++
++        /// <summary>
++        /// Masks <paramref name="pan"/> as ten mask characters followed by its last six digits.
++        /// Safe to call on malformed/short input (batch rows may fail PAN validation but still
++        /// need "mask what is present" per the Phase 6 per-row rules) — never throws.
++        /// </summary>
++        public static string Mask(string? pan) => MaskPrefix + Last6(pan);
++
++        /// <summary>
++        /// Returns the last six characters of <paramref name="pan"/>, or the whole string if it
++        /// has six characters or fewer, or an empty string if null/empty. Never throws.
++        /// </summary>
++        public static string Last6(string? pan)
++        {
++            if (string.IsNullOrEmpty(pan))
++            {
++                return string.Empty;
++            }
++
++            return pan.Length <= VisibleDigits ? pan : pan[^VisibleDigits..];
++        }
++    }
++}
+diff --git a/DomainLayer/Common/Error.cs b/DomainLayer/Common/Error.cs
+index 29f333b..80b0f09 100644
+--- a/DomainLayer/Common/Error.cs
++++ b/DomainLayer/Common/Error.cs
+@@ -52,5 +52,8 @@ namespace DomainLayer.Common
+ 
+         /// <summary>Creates a <see cref="ErrorCategory.Forbidden"/> error (→ HTTP 403).</summary>
+         public static Error Forbidden(string code, string message) => new(code, message, ErrorCategory.Forbidden);
++
++        /// <summary>Creates an <see cref="ErrorCategory.Internal"/> error (→ HTTP 500).</summary>
++        public static Error Internal(string code, string message) => new(code, message, ErrorCategory.Internal);
+     }
+ }
+diff --git a/DomainLayer/Common/ErrorCategory.cs b/DomainLayer/Common/ErrorCategory.cs
+index db1b3b5..d826d26 100644
+--- a/DomainLayer/Common/ErrorCategory.cs
++++ b/DomainLayer/Common/ErrorCategory.cs
+@@ -30,6 +30,15 @@ namespace DomainLayer.Common
+         Unauthorized = 4,
+ 
+         /// <summary>Caller is authenticated but lacks access to the resource. Maps to HTTP 403.</summary>
+-        Forbidden = 5
++        Forbidden = 5,
++
++        /// <summary>
++        /// An unexpected failure caught and logged with rich context by the caller (rather than
++        /// left to the generic unhandled-exception middleware), then surfaced as an opaque
++        /// message. Maps to HTTP 500. Introduced for the batch-upload pipeline's own boundary
++        /// catch (Batch Upload Phased Plan, Phase 6) — Serilog logging happens where the failure
++        /// occurs, with tenant/trace/batch context, not generically in the middleware.
++        /// </summary>
++        Internal = 6
+     }
+ }
+diff --git a/InfrastructureLayer/Migrations/20260728120000_BatchUploadHardening.cs b/InfrastructureLayer/Migrations/20260728120000_BatchUploadHardening.cs
+deleted file mode 100644
+index 7cf2fcb..0000000
+--- a/InfrastructureLayer/Migrations/20260728120000_BatchUploadHardening.cs
++++ /dev/null
+@@ -1,226 +0,0 @@
+-﻿using System;
+-using Microsoft.EntityFrameworkCore.Migrations;
+-
+-#nullable disable
+-
+-namespace InfrastructureLayer.Migrations
+-{
+-    /// <inheritdoc />
+-    public partial class BatchUploadHardening : Migration
+-    {
+-        /// <inheritdoc />
+-        protected override void Up(MigrationBuilder migrationBuilder)
+-        {
+-            // ---- Batches --------------------------------------------------------------
+-
+-            migrationBuilder.RenameColumn(
+-                name: "fileMac",
+-                table: "Batches",
+-                newName: "FileMac");
+-
+-            migrationBuilder.AlterColumn<string>(
+-                name: "FileMac",
+-                table: "Batches",
+-                type: "nvarchar(128)",
+-                maxLength: 128,
+-                nullable: false,
+-                oldClrType: typeof(string),
+-                oldType: "nvarchar(max)");
+-
+-            migrationBuilder.AlterColumn<string>(
+-                name: "Name",
+-                table: "Batches",
+-                type: "nvarchar(200)",
+-                maxLength: 200,
+-                nullable: false,
+-                oldClrType: typeof(string),
+-                oldType: "nvarchar(450)");
+-
+-            migrationBuilder.AlterColumn<string>(
+-                name: "ProcessingError",
+-                table: "Batches",
+-                type: "nvarchar(max)",
+-                nullable: true,
+-                oldClrType: typeof(int));
+-
+-            // UploadStatus no longer has Pending/Processing (0=Succeeded, 1=PartialSuccess,
+-            // 2=Failed). Fail-safe default is Failed (2), never a silent false-positive success.
+-            migrationBuilder.AlterColumn<int>(
+-                name: "BatchStatus",
+-                table: "Batches",
+-                type: "int",
+-                nullable: false,
+-                defaultValue: 2,
+-                oldClrType: typeof(int),
+-                oldType: "int");
+-
+-            migrationBuilder.AddColumn<string>(
+-                name: "OriginalFileName",
+-                table: "Batches",
+-                type: "nvarchar(300)",
+-                maxLength: 300,
+-                nullable: false,
+-                defaultValue: string.Empty);
+-
+-            migrationBuilder.CreateIndex(
+-                name: "IX_Batches_UploadedByTenantId_FileMac",
+-                table: "Batches",
+-                columns: new[] { "UploadedByTenantId", "FileMac" },
+-                unique: true,
+-                filter: "[IsDeleted] = 0");
+-
+-            migrationBuilder.CreateIndex(
+-                name: "IX_Batches_UploadedByTenantId_UploadedTime",
+-                table: "Batches",
+-                columns: new[] { "UploadedByTenantId", "UploadedTime" });
+-
+-            // ---- Cards (ProductItem) ---------------------------------------------------
+-            // BatchId stays required. FK behavior changes from Cascade->Cascade in effect, but
+-            // we drop/recreate it explicitly to also drop the old unfiltered unique PAN index.
+-
+-            migrationBuilder.DropForeignKey(
+-                name: "FK_Cards_Batches_BatchId",
+-                table: "Cards");
+-
+-            migrationBuilder.DropIndex(
+-                name: "IX_Cards_TenantId_EncryptedPan",
+-                table: "Cards");
+-
+-            migrationBuilder.AddColumn<string>(
+-                name: "MaskedPan",
+-                table: "Cards",
+-                type: "nvarchar(32)",
+-                maxLength: 32,
+-                nullable: false,
+-                defaultValue: string.Empty);
+-
+-            migrationBuilder.CreateIndex(
+-                name: "IX_Cards_TenantId_EncryptedPan",
+-                table: "Cards",
+-                columns: new[] { "TenantId", "EncryptedPan" },
+-                unique: true,
+-                filter: "[IsDeleted] = 0");
+-
+-            migrationBuilder.CreateIndex(
+-                name: "IX_Cards_TenantId_ProductId_BranchId_EncryptedPan",
+-                table: "Cards",
+-                columns: new[] { "TenantId", "ProductId", "BranchID", "EncryptedPan" });
+-
+-            migrationBuilder.AddForeignKey(
+-                name: "FK_Cards_Batches_BatchId",
+-                table: "Cards",
+-                column: "BatchId",
+-                principalTable: "Batches",
+-                principalColumn: "Id",
+-                onDelete: ReferentialAction.Cascade);
+-
+-            // ---- Stocks -----------------------------------------------------------------
+-
+-            migrationBuilder.CreateIndex(
+-                name: "IX_Stocks_TenantId_ProductId",
+-                table: "Stocks",
+-                columns: new[] { "TenantId", "ProductId" });
+-
+-            migrationBuilder.AddCheckConstraint(
+-                name: "CK_Stocks_AvailableQuantity_NonNegative",
+-                table: "Stocks",
+-                sql: "[AvailableQuantity] >= 0");
+-
+-            migrationBuilder.AddCheckConstraint(
+-                name: "CK_Stocks_HoldQuantity_NonNegative",
+-                table: "Stocks",
+-                sql: "[HoldQuantity] >= 0");
+-        }
+-
+-        /// <inheritdoc />
+-        protected override void Down(MigrationBuilder migrationBuilder)
+-        {
+-            migrationBuilder.DropCheckConstraint(
+-                name: "CK_Stocks_AvailableQuantity_NonNegative",
+-                table: "Stocks");
+-
+-            migrationBuilder.DropCheckConstraint(
+-                name: "CK_Stocks_HoldQuantity_NonNegative",
+-                table: "Stocks");
+-
+-            migrationBuilder.DropIndex(
+-                name: "IX_Stocks_TenantId_ProductId",
+-                table: "Stocks");
+-
+-            migrationBuilder.DropForeignKey(
+-                name: "FK_Cards_Batches_BatchId",
+-                table: "Cards");
+-
+-            migrationBuilder.DropIndex(
+-                name: "IX_Cards_TenantId_EncryptedPan",
+-                table: "Cards");
+-
+-            migrationBuilder.DropIndex(
+-                name: "IX_Cards_TenantId_ProductId_BranchId_EncryptedPan",
+-                table: "Cards");
+-
+-            migrationBuilder.DropColumn(
+-                name: "MaskedPan",
+-                table: "Cards");
+-
+-            migrationBuilder.CreateIndex(
+-                name: "IX_Cards_TenantId_EncryptedPan",
+-                table: "Cards",
+-                columns: new[] { "TenantId", "EncryptedPan" },
+-                unique: true);
+-
+-            migrationBuilder.AddForeignKey(
+-                name: "FK_Cards_Batches_BatchId",
+-                table: "Cards",
+-                column: "BatchId",
+-                principalTable: "Batches",
+-                principalColumn: "Id",
+-                onDelete: ReferentialAction.Cascade);
+-
+-            migrationBuilder.DropIndex(
+-                name: "IX_Batches_UploadedByTenantId_FileMac",
+-                table: "Batches");
+-
+-            migrationBuilder.DropIndex(
+-                name: "IX_Batches_UploadedByTenantId_UploadedTime",
+-                table: "Batches");
+-
+-            migrationBuilder.DropColumn(
+-                name: "OriginalFileName",
+-                table: "Batches");
+-
+-            migrationBuilder.AlterColumn<int>(
+-                name: "ProcessingError",
+-                table: "Batches",
+-                type: "int",
+-                nullable: false,
+-                defaultValue: 0,
+-                oldClrType: typeof(string),
+-                oldType: "nvarchar(max)",
+-                oldNullable: true);
+-
+-            migrationBuilder.AlterColumn<string>(
+-                name: "Name",
+-                table: "Batches",
+-                type: "nvarchar(450)",
+-                nullable: false,
+-                oldClrType: typeof(string),
+-                oldType: "nvarchar(200)",
+-                oldMaxLength: 200);
+-
+-            migrationBuilder.AlterColumn<string>(
+-                name: "FileMac",
+-                table: "Batches",
+-                type: "nvarchar(max)",
+-                nullable: false,
+-                oldClrType: typeof(string),
+-                oldType: "nvarchar(128)",
+-                oldMaxLength: 128);
+-
+-            migrationBuilder.RenameColumn(
+-                name: "FileMac",
+-                table: "Batches",
+-                newName: "fileMac");
+-        }
+-    }
+-}
+diff --git a/InfrastructureLayer/Security/BatchFileCipher.cs b/InfrastructureLayer/Security/BatchFileCipher.cs
+new file mode 100644
+index 0000000..a6145ed
+--- /dev/null
++++ b/InfrastructureLayer/Security/BatchFileCipher.cs
+@@ -0,0 +1,82 @@
++﻿using System;
++using System.Security.Cryptography;
++using System.Text;
++using ApplicationLayer.Contracts;
++using ApplicationLayer.Errors;
++using ApplicationLayer.Options;
++using DomainLayer.Common;
++using Microsoft.Extensions.Options;
++
++namespace InfrastructureLayer.Security
++{
++    /// <summary>
++    /// AES-256-GCM implementation of <see cref="IBatchFileCipher"/> (Batch Upload Phased Plan,
++    /// Phase 2). Derives a distinct key per tenant from the configured master secret via PBKDF2 —
++    /// the derived key is computed on demand and never stored. Ciphertext layout matches
++    /// <see cref="InfrastructureLayer.Logging.LogEncryptor"/>'s convention: [12-byte nonce]
++    /// [16-byte GCM tag][ciphertext].
++    /// </summary>
++    public sealed class BatchFileCipher : IBatchFileCipher
++    {
++        private const int NonceSize = 12;
++        private const int TagSize = 16;
++        private const int KeySize = 32;       // AES-256
++        private const int Pbkdf2Iterations = 100_000;
++
++        private readonly BatchCipherOptions _options;
++
++        /// <summary>Creates the cipher bound to the configured master secret/salt.</summary>
++        /// <param name="options">Batch-cipher settings (user-secrets/environment-backed).</param>
++        public BatchFileCipher(IOptions<BatchCipherOptions> options)
++        {
++            _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
++        }
++
++        /// <inheritdoc />
++        public Result<string> Decrypt(long tenantId, byte[] ciphertext)
++        {
++            if (ciphertext is null || ciphertext.Length < NonceSize + TagSize)
++            {
++                return Result.Failure<string>(BatchErrors.DecryptionFailed());
++            }
++
++            try
++            {
++                byte[] key = DeriveTenantKey(tenantId);
++
++                ReadOnlySpan<byte> input = ciphertext;
++                ReadOnlySpan<byte> nonce = input[..NonceSize];
++                ReadOnlySpan<byte> tag = input.Slice(NonceSize, TagSize);
++                ReadOnlySpan<byte> cipher = input[(NonceSize + TagSize)..];
++
++                byte[] plaintext = new byte[cipher.Length];
++
++                using (var aes = new AesGcm(key, TagSize))
++                {
++                    aes.Decrypt(nonce, cipher, tag, plaintext);
++                }
++
++                return Result.Success(Encoding.UTF8.GetString(plaintext));
++            }
++            catch (CryptographicException)
++            {
++                // Wrong key or tampered/corrupted ciphertext — GCM tag check failed. Expected
++                // failure mode per the plan: a clean Result, not a bubbled exception.
++                return Result.Failure<string>(BatchErrors.DecryptionFailed());
++            }
++        }
++
++        // Combines the configured salt with the tenant id so the same master secret yields a
++        // distinct key per tenant. Computed fresh on every call — never cached, never persisted.
++        private byte[] DeriveTenantKey(long tenantId)
++        {
++            byte[] configuredSalt = Convert.FromBase64String(_options.Salt);
++            byte[] tenantSalt = new byte[configuredSalt.Length + sizeof(long)];
++            Buffer.BlockCopy(configuredSalt, 0, tenantSalt, 0, configuredSalt.Length);
++            Buffer.BlockCopy(BitConverter.GetBytes(tenantId), 0, tenantSalt, configuredSalt.Length, sizeof(long));
++
++            using var kdf = new Rfc2898DeriveBytes(_options.MasterSecret, tenantSalt, Pbkdf2Iterations, HashAlgorithmName.SHA256);
++            return kdf.GetBytes(KeySize);
++        }
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Common/ResultExtensions.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Common/ResultExtensions.cs
+index 25df903..071d6c6 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Common/ResultExtensions.cs
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Common/ResultExtensions.cs
+@@ -67,6 +67,7 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Common
+             ErrorCategory.NotFound => StatusCodes.Status404NotFound,
+             ErrorCategory.Unauthorized => StatusCodes.Status401Unauthorized,
+             ErrorCategory.Forbidden => StatusCodes.Status403Forbidden,
++            ErrorCategory.Internal => StatusCodes.Status500InternalServerError,
+             _ => StatusCodes.Status500InternalServerError
+         };
+ 
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+index 54f7da7..dad37c1 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+@@ -138,4 +138,19 @@
+   <data name="Tenant.UsernameAlreadyExists" xml:space="preserve">
+     <value>في مستخدم باسم المستخدم '{0}' موجود قبل كده.</value>
+   </data>
++  <data name="Batch.FileEmpty" xml:space="preserve">
++    <value>الملف اللي اترفع فاضي.</value>
++  </data>
++  <data name="Batch.DecryptionFailed" xml:space="preserve">
++    <value>مقدرناش نفك تشفير الملف. يمكن يكون تالف أو المفتاح غلط.</value>
++  </data>
++  <data name="Batch.DuplicateFile" xml:space="preserve">
++    <value>الملف ده اتترفع قبل كده بالظبط.</value>
++  </data>
++  <data name="Batch.ExpectedRowCountMismatch" xml:space="preserve">
++    <value>عدد الصفوف مش زي المتوقع: {0}.</value>
++  </data>
++  <data name="Batch.ProcessingFailed" xml:space="preserve">
++    <value>حصل خطأ غير متوقع أثناء معالجة الدفعة. ابعت الـ trace id لو هتبلغ عن المشكلة.</value>
++  </data>
+ </root>
+\ No newline at end of file
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+index 9edca72..6a4825f 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+@@ -138,4 +138,19 @@
+   <data name="Tenant.UsernameAlreadyExists" xml:space="preserve">
+     <value>A tenant with username '{0}' already exists.</value>
+   </data>
++  <data name="Batch.FileEmpty" xml:space="preserve">
++    <value>The uploaded file is empty.</value>
++  </data>
++  <data name="Batch.DecryptionFailed" xml:space="preserve">
++    <value>The file could not be decrypted. It may be corrupted or encrypted with the wrong key.</value>
++  </data>
++  <data name="Batch.DuplicateFile" xml:space="preserve">
++    <value>This exact file has already been uploaded.</value>
++  </data>
++  <data name="Batch.ExpectedRowCountMismatch" xml:space="preserve">
++    <value>Expected/actual row count mismatch: {0}.</value>
++  </data>
++  <data name="Batch.ProcessingFailed" xml:space="preserve">
++    <value>An unexpected error occurred while processing the batch. Reference the trace id when reporting this.</value>
++  </data>
+ </root>
+\ No newline at end of file

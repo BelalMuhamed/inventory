@@ -67,6 +67,7 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Common
             ErrorCategory.NotFound => StatusCodes.Status404NotFound,
             ErrorCategory.Unauthorized => StatusCodes.Status401Unauthorized,
             ErrorCategory.Forbidden => StatusCodes.Status403Forbidden,
+            ErrorCategory.Internal => StatusCodes.Status500InternalServerError,
             _ => StatusCodes.Status500InternalServerError
         };
 

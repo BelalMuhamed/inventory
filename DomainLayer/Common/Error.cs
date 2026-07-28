@@ -52,5 +52,8 @@ namespace DomainLayer.Common
 
         /// <summary>Creates a <see cref="ErrorCategory.Forbidden"/> error (→ HTTP 403).</summary>
         public static Error Forbidden(string code, string message) => new(code, message, ErrorCategory.Forbidden);
+
+        /// <summary>Creates an <see cref="ErrorCategory.Internal"/> error (→ HTTP 500).</summary>
+        public static Error Internal(string code, string message) => new(code, message, ErrorCategory.Internal);
     }
 }

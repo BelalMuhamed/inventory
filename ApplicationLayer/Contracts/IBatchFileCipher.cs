@@ -1,0 +1,28 @@
+﻿using DomainLayer.Common;
+
+namespace ApplicationLayer.Contracts
+{
+    /// <summary>
+    /// Decrypts an uploaded batch file (AES-256-GCM). The per-tenant key is derived at call time
+    /// from <c>BatchCipherOptions</c> and is never persisted (Batch Upload Phased Plan, Phase 2).
+    /// A bad key or a tampered/corrupted file is a clean <see cref="Result{TValue}"/> failure,
+    /// not a thrown exception — the GCM authentication tag check does the tamper detection.
+    /// </summary>
+    public interface IBatchFileCipher
+    {
+        /// <summary>
+        /// Decrypts <paramref name="ciphertext"/> for <paramref name="tenantId"/> and returns the
+        /// plaintext file content as UTF-8 text.
+        /// </summary>
+        /// <param name="tenantId">Tenant the file was uploaded for; selects the derived key.</param>
+        /// <param name="ciphertext">
+        /// Raw encrypted file bytes, laid out as [12-byte nonce][16-byte GCM tag][ciphertext] —
+        /// the same convention as <c>InfrastructureLayer.Logging.LogEncryptor</c>.
+        /// </param>
+        /// <returns>
+        /// The decrypted plaintext on success, or <c>BatchErrors.DecryptionFailed()</c> on a bad
+        /// key, tampered ciphertext, or malformed input.
+        /// </returns>
+        Result<string> Decrypt(long tenantId, byte[] ciphertext);
+    }
+}

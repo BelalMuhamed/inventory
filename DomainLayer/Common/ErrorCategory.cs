@@ -30,6 +30,15 @@ namespace DomainLayer.Common
         Unauthorized = 4,
 
         /// <summary>Caller is authenticated but lacks access to the resource. Maps to HTTP 403.</summary>
-        Forbidden = 5
+        Forbidden = 5,
+
+        /// <summary>
+        /// An unexpected failure caught and logged with rich context by the caller (rather than
+        /// left to the generic unhandled-exception middleware), then surfaced as an opaque
+        /// message. Maps to HTTP 500. Introduced for the batch-upload pipeline's own boundary
+        /// catch (Batch Upload Phased Plan, Phase 6) — Serilog logging happens where the failure
+        /// occurs, with tenant/trace/batch context, not generically in the middleware.
+        /// </summary>
+        Internal = 6
     }
 }
