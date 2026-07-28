@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using ApplicationLayer.Contracts;
 using DomainLayer.Common;
 using DomainLayer.Entities;
+using DomainLayer.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace InfrastructureLayer.Data
@@ -267,13 +268,25 @@ namespace InfrastructureLayer.Data
                 // Optionally set UpdatedAt default value in SQL
                 entity.Property(e => e.UpdatedAt)
                       .HasDefaultValueSql("GETUTCDATE()");
-            
-        });
+
+                // Product-level rollup queries (ERD §3.1) — PK already covers (TenantId, BranchId, ProductId).
+                entity.HasIndex(e => new { e.TenantId, e.ProductId })
+                      .HasDatabaseName("IX_Stocks_TenantId_ProductId");
+
+                // Invariant guards (ERD §3.1): never let the aggregate go negative.
+                entity.ToTable(t =>
+                {
+                    t.HasCheckConstraint("CK_Stocks_AvailableQuantity_NonNegative", "[AvailableQuantity] >= 0");
+                    t.HasCheckConstraint("CK_Stocks_HoldQuantity_NonNegative", "[HoldQuantity] >= 0");
+                });
+            });
         }
         private static void ConfigureCards(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<ProductItem>(entity =>
             {
+                entity.Property(x => x.MaskedPan).IsRequired().HasMaxLength(32);
+
                 entity.HasIndex(u => u.CardHolderName)
             .HasDatabaseName("IX_card_holder_name")
             ;
@@ -281,19 +294,45 @@ namespace InfrastructureLayer.Data
                 entity.HasIndex(u => u.Status)
             .HasDatabaseName("IX_card_status_name")
            ;
+
+                // Item identity per tenant (Q2). Filtered so a soft-deleted item's PAN can be
+                // re-issued. NOTE: "Collision swap-in point #1" — PanFingerprint (SHA-256 of the
+                // plaintext PAN) replaces EncryptedPan here once adopted (see phased plan §Q1/Q2).
                 entity.HasIndex(x => new
                 {
                     x.TenantId,
                     x.EncryptedPan
                 })
-.IsUnique();
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0")
+                .HasDatabaseName("IX_Cards_TenantId_EncryptedPan");
 
+                // Non-unique covering index for the batch/stock query paths (§4.8).
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ProductId,
+                    x.BranchID,
+                    x.EncryptedPan
+                })
+                .HasDatabaseName("IX_Cards_TenantId_ProductId_BranchId_EncryptedPan");
+
+                // BatchId is required: an item always belongs to the batch that introduced it.
+                // Deleting a batch cascades and removes its items.
+                entity.HasOne(x => x.Batch)
+                      .WithMany(b => b.CardsInBatch)
+                      .HasForeignKey(x => x.BatchId)
+                      .OnDelete(DeleteBehavior.Cascade);
             });
         }
         private static void ConfigureBatches(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<Batch>(entity =>
             {
+                entity.Property(b => b.Name).IsRequired().HasMaxLength(200);
+                entity.Property(b => b.FileMac).IsRequired().HasMaxLength(128);
+                entity.Property(b => b.OriginalFileName).IsRequired().HasMaxLength(300);
+                entity.Property(b => b.BatchStatus).HasDefaultValue(UploadStatus.Failed);
 
                 entity.HasIndex(u => u.Name)
             .HasDatabaseName("IX_batch_name")
@@ -303,6 +342,15 @@ namespace InfrastructureLayer.Data
             .HasDatabaseName("IX_batch_status")
            ;
 
+                // Duplicate-file guard (§4.8), filtered so a soft-deleted batch doesn't block re-upload.
+                entity.HasIndex(b => new { b.UploadedByTenantId, b.FileMac })
+                      .IsUnique()
+                      .HasFilter("[IsDeleted] = 0")
+                      .HasDatabaseName("IX_Batches_UploadedByTenantId_FileMac");
+
+                // Batch list queries, newest first (API §4.8 GET /api/inventory/batches).
+                entity.HasIndex(b => new { b.UploadedByTenantId, b.UploadedTime })
+                      .HasDatabaseName("IX_Batches_UploadedByTenantId_UploadedTime");
             });
         }
     }

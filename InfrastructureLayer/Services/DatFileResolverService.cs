@@ -160,7 +160,8 @@ namespace InfrastructureLayer.Services
                     UploadedTime = DateTime.Now,
                     Name = fileName,
                     CardsInBatch = cardsInBatch,
-                    fileMac = fileMAC,
+                    FileMac = fileMAC,
+                    OriginalFileName = fileName,
                 };
 
                 //UPDATE STOCK RECORDS FOR CARD CENTER 
