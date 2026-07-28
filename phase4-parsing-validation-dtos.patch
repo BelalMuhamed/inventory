@@ -1,0 +1,276 @@
+diff --git a/ApplicationLayer/BatchUpload/BatchRowParser.cs b/ApplicationLayer/BatchUpload/BatchRowParser.cs
+new file mode 100644
+index 0000000..5b89f49
+--- /dev/null
++++ b/ApplicationLayer/BatchUpload/BatchRowParser.cs
+@@ -0,0 +1,116 @@
++﻿using System;
++using System.Collections.Generic;
++using System.Linq;
++using ApplicationLayer.Contracts;
++using ApplicationLayer.Security;
++
++namespace ApplicationLayer.BatchUpload
++{
++    /// <summary>
++    /// Default <see cref="IBatchRowParser"/> implementation (Batch Upload Phased Plan, Phase 4).
++    /// Pure logic only — no DB, no I/O — which is why it lives in ApplicationLayer directly
++    /// rather than behind an InfrastructureLayer implementation: there is no external dependency
++    /// to abstract away. The interface still exists for DI/testability (the orchestrator depends
++    /// on the abstraction, not this type, per the project's constructor-injection convention).
++    /// </summary>
++    public sealed class BatchRowParser : IBatchRowParser
++    {
++        private const char FieldDelimiter = '|';
++        private const int RequiredFieldCount = 3;
++        private const int MinPanLength = 13;
++        private const int MaxPanLength = 19;
++
++        /// <inheritdoc />
++        public (IReadOnlyList<ParsedBatchRow> ValidRows, IReadOnlyList<FailedBatchRow> FailedRows) Parse(string fileContent)
++        {
++            var validRows = new List<ParsedBatchRow>();
++            var failedRows = new List<FailedBatchRow>();
++
++            if (string.IsNullOrEmpty(fileContent))
++            {
++                return (validRows, failedRows);
++            }
++
++            string[] lines = fileContent.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
++            var seenPans = new HashSet<string>(StringComparer.Ordinal);
++
++            for (int i = 0; i < lines.Length; i++)
++            {
++                // A trailing newline at end-of-file produces one empty final element that is not
++                // a real row — drop only that one. A blank line anywhere else is a real
++                // (malformed) row and must still be reported.
++                if (i == lines.Length - 1 && lines[i].Length == 0)
++                {
++                    continue;
++                }
++
++                int rowNumber = i + 1;
++                string[] fields = lines[i].Split(FieldDelimiter);
++
++                if (fields.Length != RequiredFieldCount || fields.Any(string.IsNullOrWhiteSpace))
++                {
++                    failedRows.Add(new FailedBatchRow(rowNumber, "N/A", FailureReason.MalformedLine));
++                    continue;
++                }
++
++                string pan = fields[0].Trim().Replace(" ", string.Empty);
++                string productName = fields[1].Trim();
++                string branchName = fields[2].Trim();
++
++                if (!IsValidPan(pan))
++                {
++                    failedRows.Add(new FailedBatchRow(rowNumber, PanMasker.Mask(pan), FailureReason.InvalidPan));
++                    continue;
++                }
++
++                if (!seenPans.Add(pan))
++                {
++                    failedRows.Add(new FailedBatchRow(rowNumber, PanMasker.Mask(pan), FailureReason.DuplicatePanInFile));
++                    continue;
++                }
++
++                validRows.Add(new ParsedBatchRow(rowNumber, pan, productName, branchName));
++            }
++
++            return (validRows, failedRows);
++        }
++
++        private static bool IsValidPan(string pan)
++        {
++            if (pan.Length is < MinPanLength or > MaxPanLength)
++            {
++                return false;
++            }
++
++            return pan.All(char.IsDigit) && PassesLuhnCheck(pan);
++        }
++
++        // Standard Luhn (mod-10) checksum: from the rightmost digit, double every second digit;
++        // if doubling pushes a digit above 9, subtract 9 (equivalent to summing its two digits).
++        // Valid when the total is a multiple of 10.
++        private static bool PassesLuhnCheck(string digits)
++        {
++            int sum = 0;
++            bool doubleDigit = false;
++
++            for (int i = digits.Length - 1; i >= 0; i--)
++            {
++                int digit = digits[i] - '0';
++
++                if (doubleDigit)
++                {
++                    digit *= 2;
++                    if (digit > 9)
++                    {
++                        digit -= 9;
++                    }
++                }
++
++                sum += digit;
++                doubleDigit = !doubleDigit;
++            }
++
++            return sum % 10 == 0;
++        }
++    }
++}
+diff --git a/ApplicationLayer/BatchUpload/FailedBatchRow.cs b/ApplicationLayer/BatchUpload/FailedBatchRow.cs
+new file mode 100644
+index 0000000..8e9d2fc
+--- /dev/null
++++ b/ApplicationLayer/BatchUpload/FailedBatchRow.cs
+@@ -0,0 +1,15 @@
++﻿namespace ApplicationLayer.BatchUpload
++{
++    /// <summary>
++    /// A batch-file row that will not become a <c>ProductItem</c>. Carries only the masked PAN —
++    /// never the real one — so it is safe to hold in memory, log, and write into the Phase 5
++    /// failed-rows Excel report.
++    /// </summary>
++    /// <param name="RowNumber">1-based line number in the decrypted file.</param>
++    /// <param name="MaskedPan">
++    /// The masked PAN (ten mask characters + last six digits), or the literal <c>"N/A"</c> when
++    /// the line was too malformed to extract a PAN at all.
++    /// </param>
++    /// <param name="Reason">Why the row failed.</param>
++    public sealed record FailedBatchRow(int RowNumber, string MaskedPan, FailureReason Reason);
++}
+diff --git a/ApplicationLayer/BatchUpload/FailureReason.cs b/ApplicationLayer/BatchUpload/FailureReason.cs
+new file mode 100644
+index 0000000..d8bd587
+--- /dev/null
++++ b/ApplicationLayer/BatchUpload/FailureReason.cs
+@@ -0,0 +1,26 @@
++﻿namespace ApplicationLayer.BatchUpload
++{
++    /// <summary>
++    /// Why a batch-upload row failed (Batch Upload Phased Plan, Phase 6 per-row rules). The
++    /// first three are produced by <see cref="IBatchRowParser"/> (Phase 4, no DB); the last two
++    /// are produced by the orchestrator (Phase 6) after checking the row against the tenant's
++    /// product/branch maps — declared here so both phases share one vocabulary.
++    /// </summary>
++    public enum FailureReason
++    {
++        /// <summary>Wrong field count, or a required field was empty.</summary>
++        MalformedLine,
++
++        /// <summary>Non-numeric, wrong length (not 13–19 digits), or failed the Luhn check.</summary>
++        InvalidPan,
++
++        /// <summary>The same PAN appeared earlier in this file; only the first occurrence proceeds.</summary>
++        DuplicatePanInFile,
++
++        /// <summary>The row's product name does not match any product in the tenant's catalog.</summary>
++        UnknownProduct,
++
++        /// <summary>The row's branch name does not match any branch in the tenant's catalog.</summary>
++        UnknownBranch
++    }
++}
+diff --git a/ApplicationLayer/BatchUpload/ParsedBatchRow.cs b/ApplicationLayer/BatchUpload/ParsedBatchRow.cs
+new file mode 100644
+index 0000000..bcd2866
+--- /dev/null
++++ b/ApplicationLayer/BatchUpload/ParsedBatchRow.cs
+@@ -0,0 +1,15 @@
++﻿namespace ApplicationLayer.BatchUpload
++{
++    /// <summary>
++    /// A batch-file row that passed format validation (arity, PAN length/Luhn, no in-file
++    /// duplicate). Not yet validated against the tenant's product/branch catalog — that's the
++    /// orchestrator's job (Phase 6), which turns a <see cref="ParsedBatchRow"/> into either a new
++    /// <c>ProductItem</c> or a <see cref="FailedBatchRow"/> with
++    /// <see cref="FailureReason.UnknownProduct"/>/<see cref="FailureReason.UnknownBranch"/>.
++    /// </summary>
++    /// <param name="RowNumber">1-based line number in the decrypted file, for diagnostics.</param>
++    /// <param name="Pan">The full, cleartext PAN. Never logged or returned to the client as-is.</param>
++    /// <param name="ProductName">Product name as written in the file (not yet resolved to an id).</param>
++    /// <param name="BranchName">Branch name as written in the file (not yet resolved to an id).</param>
++    public sealed record ParsedBatchRow(int RowNumber, string Pan, string ProductName, string BranchName);
++}
+diff --git a/ApplicationLayer/Contracts/IBatchRowParser.cs b/ApplicationLayer/Contracts/IBatchRowParser.cs
+new file mode 100644
+index 0000000..2cebe98
+--- /dev/null
++++ b/ApplicationLayer/Contracts/IBatchRowParser.cs
+@@ -0,0 +1,29 @@
++﻿using System.Collections.Generic;
++using ApplicationLayer.BatchUpload;
++
++namespace ApplicationLayer.Contracts
++{
++    /// <summary>
++    /// Parses a decrypted batch file into valid and failed rows (Batch Upload Phased Plan,
++    /// Phase 4). Pure — no DB, no I/O, fully synchronous, fully unit-testable. Row format:
++    /// <c>pan|productName|branchName</c>, one row per line (matches the existing upload format).
++    /// </summary>
++    public interface IBatchRowParser
++    {
++        /// <summary>
++        /// Parses <paramref name="fileContent"/> line by line. Validates field arity, PAN length
++        /// (13–19 digits) and the Luhn checksum, and flags intra-file duplicate PANs (only the
++        /// first occurrence of a given PAN proceeds; later occurrences fail as
++        /// <see cref="FailureReason.DuplicatePanInFile"/>). Does not check the row's product/branch
++        /// names against anything — that requires the DB and is the orchestrator's job (Phase 6).
++        /// </summary>
++        /// <param name="fileContent">The full decrypted file content as text.</param>
++        /// <returns>
++        /// Every row from the file, partitioned into <c>ValidRows</c> (candidates for import) and
++        /// <c>FailedRows</c> (already-terminal failures). <c>ValidRows.Count + FailedRows.Count</c>
++        /// equals the file's row count — compare against the caller-declared expected row count
++        /// for <c>BatchErrors.ExpectedRowCountMismatch</c>.
++        /// </returns>
++        (IReadOnlyList<ParsedBatchRow> ValidRows, IReadOnlyList<FailedBatchRow> FailedRows) Parse(string fileContent);
++    }
++}
+diff --git a/ApplicationLayer/DTOs/Batches/BatchDtos.cs b/ApplicationLayer/DTOs/Batches/BatchDtos.cs
+new file mode 100644
+index 0000000..77b5d58
+--- /dev/null
++++ b/ApplicationLayer/DTOs/Batches/BatchDtos.cs
+@@ -0,0 +1,39 @@
++﻿using ApplicationLayer.BatchUpload;
++using Microsoft.AspNetCore.Http;
++
++namespace ApplicationLayer.DTOs.Batches
++{
++    /// <summary>
++    /// Request payload for <c>POST /api/inventory/upload</c> (API Spec §4.8, multipart/form-data).
++    /// </summary>
++    /// <param name="File">The encrypted batch file.</param>
++    /// <param name="BatchName">Logical batch name (persisted as <c>Batch.Name</c>).</param>
++    /// <param name="ExpectedRowCount">
++    /// Caller-declared row count, checked against the file's actual row count
++    /// (<c>BatchErrors.ExpectedRowCountMismatch</c> on mismatch).
++    /// </param>
++    public sealed record BatchUploadRequest(IFormFile File, string BatchName, int ExpectedRowCount);
++
++    /// <summary>
++    /// Result payload for a completed batch upload (API Spec §4.8). Returned only once the whole
++    /// pipeline has finished — there is no partial/pending response (Phase 6 runs synchronously,
++    /// one transaction).
++    /// </summary>
++    /// <param name="ImportedCount">
++    /// Rows that became a new <c>ProductItem</c> or updated an existing one on re-sight (both
++    /// count as success per §6.4).
++    /// </param>
++    /// <param name="FailedCount">Rows that did not import, for any reason (see <see cref="FailureReason"/>).</param>
++    /// <param name="FailureReportFileName">
++    /// Suggested file name for the failed-rows report, or <c>null</c> when <see cref="FailedCount"/> is 0.
++    /// </param>
++    /// <param name="FailureReportBase64">
++    /// Base64-encoded failed-rows Excel report (Phase 5), or <c>null</c> when <see cref="FailedCount"/> is 0.
++    /// Never contains a real PAN — masked PAN only.
++    /// </param>
++    public sealed record BatchUploadResult(
++        int ImportedCount,
++        int FailedCount,
++        string? FailureReportFileName,
++        string? FailureReportBase64);
++}
