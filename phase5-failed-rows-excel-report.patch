@@ -1,0 +1,193 @@
+diff --git a/ApplicationLayer/BatchUpload/FailedRowsReportLabels.cs b/ApplicationLayer/BatchUpload/FailedRowsReportLabels.cs
+new file mode 100644
+index 0000000..282181d
+--- /dev/null
++++ b/ApplicationLayer/BatchUpload/FailedRowsReportLabels.cs
+@@ -0,0 +1,24 @@
++﻿using System.Collections.Generic;
++
++namespace ApplicationLayer.BatchUpload
++{
++    /// <summary>
++    /// Already-localized display text for the failed-rows report (Batch Upload Phased Plan,
++    /// Phase 5). Deliberately carries only strings, not an <c>IStringLocalizer</c>: the report
++    /// builder must not depend on the localization pipeline directly, because the shared
++    /// <c>Messages</c> resource type physically lives in the Presentation project — resolving it
++    /// here would mean Application/Infrastructure referencing Presentation, which Onion
++    /// architecture forbids. The caller (which does have locale context) resolves these strings
++    /// and passes them in.
++    /// </summary>
++    /// <param name="MaskedPanColumnHeader">Localized header for the masked-PAN column.</param>
++    /// <param name="FailureReasonColumnHeader">Localized header for the failure-reason column.</param>
++    /// <param name="ReasonText">
++    /// Localized display text per <see cref="FailureReason"/>. A reason missing from this map
++    /// falls back to the enum member's own name rather than failing report generation.
++    /// </param>
++    public sealed record FailedRowsReportLabels(
++        string MaskedPanColumnHeader,
++        string FailureReasonColumnHeader,
++        IReadOnlyDictionary<FailureReason, string> ReasonText);
++}
+diff --git a/ApplicationLayer/Contracts/IFailedRowsReportBuilder.cs b/ApplicationLayer/Contracts/IFailedRowsReportBuilder.cs
+new file mode 100644
+index 0000000..5128cff
+--- /dev/null
++++ b/ApplicationLayer/Contracts/IFailedRowsReportBuilder.cs
+@@ -0,0 +1,23 @@
++﻿using System.Collections.Generic;
++using ApplicationLayer.BatchUpload;
++
++namespace ApplicationLayer.Contracts
++{
++    /// <summary>
++    /// Builds the failed-rows Excel report for a batch upload (API §4.8, Batch Upload Phased
++    /// Plan Phase 5). Self-contained: takes the already-failed rows and already-localized
++    /// display text, produces the workbook bytes. Never receives, and therefore can never emit,
++    /// a real PAN — <see cref="FailedBatchRow"/> only ever carries the masked value.
++    /// </summary>
++    public interface IFailedRowsReportBuilder
++    {
++        /// <summary>
++        /// Builds a two-column ("Masked PAN", "Failure Reason") worksheet, one row per failed
++        /// row, in file order.
++        /// </summary>
++        /// <param name="failedRows">The batch's failed rows, in the order they should appear.</param>
++        /// <param name="labels">Localized column headers and per-reason display text.</param>
++        /// <returns>The workbook's raw bytes (.xlsx).</returns>
++        byte[] Build(IReadOnlyList<FailedBatchRow> failedRows, FailedRowsReportLabels labels);
++    }
++}
+diff --git a/InfrastructureLayer/InfrastructureLayer.csproj b/InfrastructureLayer/InfrastructureLayer.csproj
+index ea88644..893f674 100644
+--- a/InfrastructureLayer/InfrastructureLayer.csproj
++++ b/InfrastructureLayer/InfrastructureLayer.csproj
+@@ -14,6 +14,7 @@
+ 		<FrameworkReference Include="Microsoft.AspNetCore.App" />
+ 	</ItemGroup>
+   <ItemGroup>
++    <PackageReference Include="ClosedXML" Version="0.104.1" />
+     <PackageReference Include="Microsoft.AspNetCore.Hosting.Abstractions" Version="2.3.10" />
+     <PackageReference Include="Microsoft.AspNetCore.Http" Version="2.3.10" />
+     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.27" />
+diff --git a/InfrastructureLayer/Reporting/FailedRowsReportBuilder.cs b/InfrastructureLayer/Reporting/FailedRowsReportBuilder.cs
+new file mode 100644
+index 0000000..4caf5a4
+--- /dev/null
++++ b/InfrastructureLayer/Reporting/FailedRowsReportBuilder.cs
+@@ -0,0 +1,54 @@
++﻿using System.Collections.Generic;
++using System.IO;
++using ApplicationLayer.BatchUpload;
++using ApplicationLayer.Contracts;
++using ClosedXML.Excel;
++
++namespace InfrastructureLayer.Reporting
++{
++    /// <summary>
++    /// ClosedXML implementation of <see cref="IFailedRowsReportBuilder"/> (Batch Upload Phased
++    /// Plan, Phase 5). A genuine external-library integration, unlike the pure
++    /// <c>BatchRowParser</c> (Phase 4) — belongs in InfrastructureLayer per the project's Onion
++    /// convention.
++    /// </summary>
++    public sealed class FailedRowsReportBuilder : IFailedRowsReportBuilder
++    {
++        private const string WorksheetName = "Failed Rows";
++        private const int MaskedPanColumn = 1;
++        private const int FailureReasonColumn = 2;
++        private const int HeaderRow = 1;
++
++        /// <inheritdoc />
++        public byte[] Build(IReadOnlyList<FailedBatchRow> failedRows, FailedRowsReportLabels labels)
++        {
++            using var workbook = new XLWorkbook();
++            IXLWorksheet sheet = workbook.Worksheets.Add(WorksheetName);
++
++            sheet.Cell(HeaderRow, MaskedPanColumn).Value = labels.MaskedPanColumnHeader;
++            sheet.Cell(HeaderRow, FailureReasonColumn).Value = labels.FailureReasonColumnHeader;
++            sheet.Row(HeaderRow).Style.Font.Bold = true;
++
++            int row = HeaderRow + 1;
++            foreach (FailedBatchRow failedRow in failedRows)
++            {
++                // failedRow.MaskedPan is the only PAN-shaped value FailedBatchRow can carry —
++                // there is no real-PAN field to accidentally write here.
++                sheet.Cell(row, MaskedPanColumn).Value = failedRow.MaskedPan;
++                sheet.Cell(row, FailureReasonColumn).Value = ResolveReasonText(failedRow.Reason, labels.ReasonText);
++                row++;
++            }
++
++            sheet.Columns(MaskedPanColumn, FailureReasonColumn).AdjustToContents();
++
++            using var stream = new MemoryStream();
++            workbook.SaveAs(stream);
++            return stream.ToArray();
++        }
++
++        // Falls back to the enum member's own name rather than throwing, so a missing
++        // localization entry degrades gracefully instead of breaking report generation.
++        private static string ResolveReasonText(FailureReason reason, IReadOnlyDictionary<FailureReason, string> reasonText)
++            => reasonText.TryGetValue(reason, out string? text) ? text : reason.ToString();
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+index dad37c1..e5cd332 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+@@ -153,4 +153,25 @@
+   <data name="Batch.ProcessingFailed" xml:space="preserve">
+     <value>حصل خطأ غير متوقع أثناء معالجة الدفعة. ابعت الـ trace id لو هتبلغ عن المشكلة.</value>
+   </data>
++  <data name="Batch.Report.ColumnMaskedPan" xml:space="preserve">
++    <value>رقم الكارت (مخفي)</value>
++  </data>
++  <data name="Batch.Report.ColumnFailureReason" xml:space="preserve">
++    <value>سبب الرفض</value>
++  </data>
++  <data name="Batch.FailureReason.MalformedLine" xml:space="preserve">
++    <value>الصف مش مكتوب صح (عدد حقول غلط، أو في حقل مطلوب فاضي).</value>
++  </data>
++  <data name="Batch.FailureReason.InvalidPan" xml:space="preserve">
++    <value>رقم الكارت غلط (مش أرقام، أو طوله غلط، أو فشل في التحقق).</value>
++  </data>
++  <data name="Batch.FailureReason.DuplicatePanInFile" xml:space="preserve">
++    <value>رقم الكارت ده مكرر في نفس الملف؛ اتعالجت أول مرة بس.</value>
++  </data>
++  <data name="Batch.FailureReason.UnknownProduct" xml:space="preserve">
++    <value>المنتج المكتوب في الصف ده مش موجود عند المستخدم ده.</value>
++  </data>
++  <data name="Batch.FailureReason.UnknownBranch" xml:space="preserve">
++    <value>الفرع المكتوب في الصف ده مش موجود عند المستخدم ده.</value>
++  </data>
+ </root>
+\ No newline at end of file
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+index 6a4825f..160bf63 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+@@ -153,4 +153,25 @@
+   <data name="Batch.ProcessingFailed" xml:space="preserve">
+     <value>An unexpected error occurred while processing the batch. Reference the trace id when reporting this.</value>
+   </data>
++  <data name="Batch.Report.ColumnMaskedPan" xml:space="preserve">
++    <value>Masked PAN</value>
++  </data>
++  <data name="Batch.Report.ColumnFailureReason" xml:space="preserve">
++    <value>Failure Reason</value>
++  </data>
++  <data name="Batch.FailureReason.MalformedLine" xml:space="preserve">
++    <value>The row is malformed (wrong number of fields, or a required field is empty).</value>
++  </data>
++  <data name="Batch.FailureReason.InvalidPan" xml:space="preserve">
++    <value>The PAN is invalid (not numeric, wrong length, or failed the check digit).</value>
++  </data>
++  <data name="Batch.FailureReason.DuplicatePanInFile" xml:space="preserve">
++    <value>This PAN appears more than once in the file; only the first occurrence was processed.</value>
++  </data>
++  <data name="Batch.FailureReason.UnknownProduct" xml:space="preserve">
++    <value>The product named in this row does not exist for this tenant.</value>
++  </data>
++  <data name="Batch.FailureReason.UnknownBranch" xml:space="preserve">
++    <value>The branch named in this row does not exist for this tenant.</value>
++  </data>
+ </root>
+\ No newline at end of file

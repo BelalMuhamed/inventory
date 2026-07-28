@@ -153,4 +153,25 @@
   <data name="Batch.ProcessingFailed" xml:space="preserve">
     <value>حصل خطأ غير متوقع أثناء معالجة الدفعة. ابعت الـ trace id لو هتبلغ عن المشكلة.</value>
   </data>
+  <data name="Batch.Report.ColumnMaskedPan" xml:space="preserve">
+    <value>رقم الكارت (مخفي)</value>
+  </data>
+  <data name="Batch.Report.ColumnFailureReason" xml:space="preserve">
+    <value>سبب الرفض</value>
+  </data>
+  <data name="Batch.FailureReason.MalformedLine" xml:space="preserve">
+    <value>الصف مش مكتوب صح (عدد حقول غلط، أو في حقل مطلوب فاضي).</value>
+  </data>
+  <data name="Batch.FailureReason.InvalidPan" xml:space="preserve">
+    <value>رقم الكارت غلط (مش أرقام، أو طوله غلط، أو فشل في التحقق).</value>
+  </data>
+  <data name="Batch.FailureReason.DuplicatePanInFile" xml:space="preserve">
+    <value>رقم الكارت ده مكرر في نفس الملف؛ اتعالجت أول مرة بس.</value>
+  </data>
+  <data name="Batch.FailureReason.UnknownProduct" xml:space="preserve">
+    <value>المنتج المكتوب في الصف ده مش موجود عند المستخدم ده.</value>
+  </data>
+  <data name="Batch.FailureReason.UnknownBranch" xml:space="preserve">
+    <value>الفرع المكتوب في الصف ده مش موجود عند المستخدم ده.</value>
+  </data>
 </root>
