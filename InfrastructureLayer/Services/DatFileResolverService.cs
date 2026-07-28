@@ -85,7 +85,7 @@ namespace InfrastructureLayer.Services
 
                     maskedPan = "**********" + last6;
 
-                    Product productDb = await _unitOfWork.Products.GetByNameAsync(product, tenantId, token);
+                    Product productDb = await _unitOfWork.Products.GetByNameAsync(tenantId, product, token);
                     Branch branch = await _unitOfWork.Branches.GetByNameAsync(tenantId, branchName, token);
 
                     cards.Add(new ProductItem
@@ -116,7 +116,7 @@ namespace InfrastructureLayer.Services
             if (existingStock is not null)
                 return Result.Success();
 
-            var product = await _unitOfWork.Products.GetByNameAsync(productName, tenantId, cancellationToken);
+            var product = await _unitOfWork.Products.GetByNameAsync(tenantId, productName, cancellationToken);
             if (product is null)
                 return Result.Failure(StockErrors.ProductNotFound(productName));
 
@@ -207,7 +207,7 @@ namespace InfrastructureLayer.Services
                 List<Product> productsToAdd = new List<Product>();
                 foreach (var product in uniqueProducts)
                 {
-                    var ProductExist = await _unitOfWork.Products.GetByNameAsync(product, tenantId,  cancelToken);
+                    var ProductExist = await _unitOfWork.Products.GetByNameAsync(tenantId, product,  cancelToken);
                     if (ProductExist==null)
                     {
                       return false;

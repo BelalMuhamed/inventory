@@ -33,6 +33,6 @@ namespace ApplicationLayer.Contracts
         /// <summary>
         /// get product by name 
         /// </summary>
-        Task<Product?> GetByNameAsync(string name,long tenantId ,CancellationToken cancellationToken = default);
+        Task<Product?> GetByNameAsync(long tenantId, string name, CancellationToken cancellationToken = default);
     }
 }
