@@ -71,5 +71,34 @@ namespace InfrastructureLayer.Repositories
 
         public async Task<ProductItem?> GetForUpdateAsync(long id, CancellationToken cancellationToken = default)
             => await Set.Include(x => x.Product).FirstOrDefaultAsync(x => x.ID == id, cancellationToken);
+
+        public async Task AddRangeAsync(IEnumerable<ProductItem> items, CancellationToken cancellationToken = default)
+            => await Set.AddRangeAsync(items, cancellationToken);
+
+        public async Task<IReadOnlyDictionary<string, ProductItem>> GetExistingByMaskedPansAsync(
+            long tenantId, IEnumerable<string> maskedPans, CancellationToken cancellationToken = default)
+        {
+            List<string> pans = maskedPans as List<string> ?? new List<string>(maskedPans);
+            if (pans.Count == 0)
+            {
+                return new Dictionary<string, ProductItem>();
+            }
+
+            // Tracked (no AsNoTracking): the caller mutates Branch/Status in place for the
+            // re-sight upsert and commits with a single SaveChanges (§6.4).
+            List<ProductItem> items = await Set
+                .Where(x => x.TenantId == tenantId && pans.Contains(x.MaskedPan))
+                .ToListAsync(cancellationToken);
+
+            // Last-value-wins on a masked-PAN collision — documented limitation, see the XML doc
+            // on IProductItemRepo.GetExistingByMaskedPansAsync.
+            var map = new Dictionary<string, ProductItem>(StringComparer.Ordinal);
+            foreach (ProductItem item in items)
+            {
+                map[item.MaskedPan] = item;
+            }
+
+            return map;
+        }
     }
 }

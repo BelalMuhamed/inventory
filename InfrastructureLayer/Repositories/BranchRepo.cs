@@ -76,5 +76,16 @@ namespace InfrastructureLayer.Repositories
 
         public Task<Branch?> GetByNameAsync(long tenantId, string name, CancellationToken cancellationToken = default) =>
       _context.Set<Branch>().FirstOrDefaultAsync(b => b.TenantId == tenantId && b.Name == name, cancellationToken);
+
+        public async Task<IReadOnlyDictionary<string, Branch>> GetTenantMapAsync(long tenantId, CancellationToken cancellationToken = default)
+        {
+            // The global query filter already excludes soft-deleted rows (ConfigureBranch).
+            List<Branch> branches = await _context.Set<Branch>()
+                .AsNoTracking()
+                .Where(b => b.TenantId == tenantId)
+                .ToListAsync(cancellationToken);
+
+            return branches.ToDictionary(b => b.Name, b => b, StringComparer.OrdinalIgnoreCase);
+        }
     }
 }

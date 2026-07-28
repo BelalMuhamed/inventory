@@ -75,5 +75,29 @@ namespace InfrastructureLayer.Repositories
 
         public async Task AddAsync(Stock stock, CancellationToken cancellationToken = default)
             => await Set.AddAsync(stock, cancellationToken);
+
+        public async Task<Stock> GetOrCreateForUpdateAsync(
+            long tenantId, long branchId, long productId, CancellationToken cancellationToken = default)
+        {
+            Stock? existing = await GetForUpdateAsync(tenantId, branchId, productId, cancellationToken);
+            if (existing is not null)
+            {
+                return existing;
+            }
+
+            var stock = new Stock
+            {
+                TenantId = tenantId,
+                BranchId = branchId,
+                ProductId = productId,
+                AvailableQuantity = 0,
+                HoldQuantity = 0
+            };
+
+            // Staged only — no SaveChanges here. The caller commits via
+            // IUnitOfWork.ExecuteInTransactionAsync alongside the rest of the batch's changes.
+            await Set.AddAsync(stock, cancellationToken);
+            return stock;
+        }
     }
 }

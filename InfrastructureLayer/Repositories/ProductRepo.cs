@@ -96,5 +96,16 @@ namespace InfrastructureLayer.Repositories
       => await _context.Set<Product>()
           .IgnoreQueryFilters()
           .FirstOrDefaultAsync(p => p.TenantId == tenantId && !p.IsDeleted && p.Name == name, cancellationToken);
+
+        public async Task<IReadOnlyDictionary<string, Product>> GetTenantMapAsync(long tenantId, CancellationToken cancellationToken = default)
+        {
+            // The global query filter already excludes soft-deleted rows (ConfigureProduct).
+            List<Product> products = await _context.Set<Product>()
+                .AsNoTracking()
+                .Where(p => p.TenantId == tenantId)
+                .ToListAsync(cancellationToken);
+
+            return products.ToDictionary(p => p.Name, p => p, StringComparer.OrdinalIgnoreCase);
+        }
     }
 }

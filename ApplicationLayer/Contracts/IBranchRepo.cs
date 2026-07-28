@@ -33,5 +33,13 @@ namespace ApplicationLayer.Contracts
         ///get by branch name 
         /// </summary>
         Task<Branch?> GetByNameAsync(long tenantId, string name, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Loads every non-deleted branch for the tenant in one query, keyed by name
+        /// (case-insensitive — matches SQL Server's default collation and the filtered UNIQUE
+        /// (TenantId, Name) constraint). Replaces per-row <see cref="GetByNameAsync"/> lookups in
+        /// the batch-upload pipeline (Batch Upload Phased Plan, Phase 3).
+        /// </summary>
+        Task<IReadOnlyDictionary<string, Branch>> GetTenantMapAsync(long tenantId, CancellationToken cancellationToken = default);
     }
 }

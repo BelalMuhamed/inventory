@@ -40,5 +40,21 @@ namespace ApplicationLayer.Contracts
         /// because Stock's primary key is the composite (TenantId, BranchId, ProductId) — no single TKey exists.
         /// </summary>
         Task AddAsync(Stock stock, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Tracked get-or-create by id (Batch Upload Phased Plan, Phase 3). Returns the existing
+        /// row via <see cref="GetForUpdateAsync"/> if one exists, or stages (not saves) a new
+        /// zero-quantity row otherwise. Callers must have already confirmed the branch/product
+        /// exist (e.g. via the tenant maps) — this method does no such validation itself.
+        /// <para>
+        /// Replaces the old <see cref="GetByBranchAndProductNameAsync"/>-based flow for the batch
+        /// pipeline: no per-row name lookups, and — critically — no internal <c>SaveChanges</c>
+        /// call. The old flow's internal commit broke the "one transaction for the whole batch"
+        /// invariant; this method leaves committing to the caller's
+        /// <see cref="IUnitOfWork.ExecuteInTransactionAsync"/>.
+        /// </para>
+        /// </summary>
+        Task<Stock> GetOrCreateForUpdateAsync(
+            long tenantId, long branchId, long productId, CancellationToken cancellationToken = default);
     }
 }

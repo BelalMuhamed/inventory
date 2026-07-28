@@ -1,6 +1,9 @@
 using ApplicationLayer.Contracts;
+using DomainLayer.Common;
 using InfrastructureLayer.Data;
 using InfrastructureLayer.Repositories;
+using Microsoft.EntityFrameworkCore.Storage;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -40,5 +43,38 @@ namespace InfrastructureLayer
 
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
             => _context.SaveChangesAsync(cancellationToken);
+
+        /// <inheritdoc />
+        public async Task<Result> ExecuteInTransactionAsync(Func<Task<Result>> work, CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(work);
+
+            await using IDbContextTransaction transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+
+            try
+            {
+                Result result = await work();
+
+                if (result.IsFailure)
+                {
+                    // A collected business failure (e.g. duplicate file, decryption failure) —
+                    // not an exception. Roll back whatever "work" staged and hand the same
+                    // Result straight back; the caller decides how to log/surface it.
+                    await transaction.RollbackAsync(cancellationToken);
+                    return result;
+                }
+
+                await _context.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                return result;
+            }
+            catch
+            {
+                // Never partially apply. Logging/translation is the caller's job (it has the
+                // tenant/trace/batch context); this method only guarantees rollback + rethrow.
+                await transaction.RollbackAsync(cancellationToken);
+                throw;
+            }
+        }
     }
 }

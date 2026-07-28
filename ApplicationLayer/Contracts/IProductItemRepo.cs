@@ -18,5 +18,29 @@ namespace ApplicationLayer.Contracts
 
         /// <summary>Loads one tracked item by id (product eager-loaded) for in-transaction mutation.</summary>
         Task<ProductItem?> GetForUpdateAsync(long id, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Stages a batch of new items for insertion in one call (Batch Upload Phased Plan,
+        /// Phase 3/6) — a single <c>AddRange</c> instead of N individual <c>AddAsync</c> calls.
+        /// Does not call <c>SaveChanges</c>; the caller commits via
+        /// <see cref="IUnitOfWork.ExecuteInTransactionAsync"/>.
+        /// </summary>
+        Task AddRangeAsync(IEnumerable<ProductItem> items, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Loads every existing item for the tenant whose <see cref="ProductItem.MaskedPan"/> is
+        /// in <paramref name="maskedPans"/>, in one query, keyed by <c>MaskedPan</c> — the
+        /// one-query re-sight/upsert lookup for the batch pipeline (§4.8/§6.4). Entities are
+        /// tracked (not <c>AsNoTracking</c>) so the caller can mutate Branch/Status in place and
+        /// commit with a single <c>SaveChanges</c>.
+        /// <para>
+        /// <b>Known limitation (documented, not fixed here):</b> keyed on the masked value, not
+        /// the real PAN. Two distinct PANs sharing the same last six digits collapse to the same
+        /// dictionary key — last one loaded wins. See the Batch Upload Phased Plan's "collision
+        /// swap-in point #2"; the fix is a separate PanFingerprint column, out of scope here.
+        /// </para>
+        /// </summary>
+        Task<IReadOnlyDictionary<string, ProductItem>> GetExistingByMaskedPansAsync(
+            long tenantId, IEnumerable<string> maskedPans, CancellationToken cancellationToken = default);
     }
 }
