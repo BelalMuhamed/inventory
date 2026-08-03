@@ -179,3 +179,11 @@ C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuan
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\obj\Debug\net8.0\PresentationLayer.pdb
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\obj\Debug\net8.0\PresentationLayer.genruntimeconfig.cache
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\obj\Debug\net8.0\ref\PresentationLayer.dll
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\ClosedXML.dll
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\ClosedXML.Parser.dll
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\DocumentFormat.OpenXml.dll
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\DocumentFormat.OpenXml.Framework.dll
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\ExcelNumberFormat.dll
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\RBush.dll
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\SixLabors.Fonts.dll
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\System.IO.Packaging.dll
