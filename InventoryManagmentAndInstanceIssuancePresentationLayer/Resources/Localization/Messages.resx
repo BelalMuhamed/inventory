@@ -174,4 +174,7 @@
   <data name="Batch.FailureReason.UnknownBranch" xml:space="preserve">
     <value>The branch named in this row does not exist for this tenant.</value>
   </data>
+  <data name="Batch.ActorNotResolved" xml:space="preserve">
+    <value>The acting principal could not be resolved.</value>
+  </data>
 </root>

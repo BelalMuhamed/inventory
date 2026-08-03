@@ -1,8 +1,10 @@
+using ApplicationLayer.BatchUpload;
 using ApplicationLayer.Contracts;
 using ApplicationLayer.Options;
 using ApplicationLayer.ServicesContracts;
 using InfrastructureLayer.Data;
 using InfrastructureLayer.Data.Interceptors;
+using InfrastructureLayer.Reporting;
 using InfrastructureLayer.Security;
 using InfrastructureLayer.Services;
 using Microsoft.EntityFrameworkCore;
@@ -39,6 +41,15 @@ namespace InfrastructureLayer
             .Validate(o => !string.IsNullOrWhiteSpace(o.SigningKey), "JWT SigningKey is required.")
             .ValidateOnStart();
             services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
+
+            // Batch Upload Phased Plan, Phase 7: same fail-fast pattern as the JWT signing key —
+            // a misconfigured master secret should surface as a clear startup error, not a
+            // confusing decrypt failure on the first upload attempt.
+            services.AddOptions<BatchCipherOptions>()
+                .Bind(configuration.GetSection(BatchCipherOptions.SectionName))
+                .Validate(o => !string.IsNullOrWhiteSpace(o.MasterSecret), "BatchCipher MasterSecret is required.")
+                .Validate(o => !string.IsNullOrWhiteSpace(o.Salt), "BatchCipher Salt is required.")
+                .ValidateOnStart();
             // InfrastructureLayer/InfrastructureServiceRegistration.cs  (modified registrations only)
             //   ... existing registrations unchanged ...
             services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -60,6 +71,14 @@ namespace InfrastructureLayer
             services.AddScoped<IProductItemService, ProductItemService>();
             services.AddScoped<System.Func<IProductItemService>>(sp => sp.GetRequiredService<IProductItemService>);
 
+            // Batch Upload Phased Plan, Phase 7.
+            // Stateless, no dependencies -> Singleton, matching Pbkdf2PasswordHasher's precedent.
+            services.AddSingleton<IBatchRowParser, BatchRowParser>();
+            services.AddSingleton<IFailedRowsReportBuilder, FailedRowsReportBuilder>();
+            // Stateless per call but takes IOptions<T> -> Scoped, matching JwtTokenGenerator's precedent.
+            services.AddScoped<IBatchFileCipher, BatchFileCipher>();
+            services.AddScoped<IBatchUploadService, BatchUploadService>();
+            services.AddScoped<System.Func<IBatchUploadService>>(sp => sp.GetRequiredService<IBatchUploadService>);
 
             return services;
 

@@ -15,6 +15,7 @@ namespace InfrastructureLayer.Services
         private readonly Lazy<IProductService> _products;
         private readonly Lazy<IStockService> _stocks;
         private readonly Lazy<IProductItemService> _productItems;
+        private readonly Lazy<IBatchUploadService> _batchUpload;
 
         public ServiceManager(
             Func<IAuthService> authFactory,
@@ -22,7 +23,8 @@ namespace InfrastructureLayer.Services
             Func<IBranchService> branchFactory,
             Func<IProductService> productFactory,
             Func<IStockService> stockFactory,
-            Func<IProductItemService> productItemFactory)
+            Func<IProductItemService> productItemFactory,
+            Func<IBatchUploadService> batchUploadFactory)
         {
             _auth = new Lazy<IAuthService>(authFactory);
             _tenants = new Lazy<ITenantService>(tenantFactory);
@@ -30,6 +32,7 @@ namespace InfrastructureLayer.Services
             _products = new Lazy<IProductService>(productFactory);
             _stocks = new Lazy<IStockService>(stockFactory);
             _productItems = new Lazy<IProductItemService>(productItemFactory);
+            _batchUpload = new Lazy<IBatchUploadService>(batchUploadFactory);
         }
 
         public IAuthService Auth => _auth.Value;
@@ -38,5 +41,6 @@ namespace InfrastructureLayer.Services
         public IProductService Products => _products.Value;
         public IStockService Stocks => _stocks.Value;
         public IProductItemService ProductItems => _productItems.Value;
+        public IBatchUploadService BatchUpload => _batchUpload.Value;
     }
 }

@@ -36,6 +36,13 @@ namespace ApplicationLayer.Errors
                 .WithArg($"{expected}/{actual}");
 
         /// <summary>
+        /// The caller has no resolvable tenant context (e.g. a system-admin token, which this
+        /// endpoint does not support — there is no tenant to upload cards for) (→ 401).
+        /// </summary>
+        public static Error ActorNotResolved() =>
+            Error.Unauthorized("Batch.ActorNotResolved", "The acting principal could not be resolved.");
+
+        /// <summary>
         /// An unexpected exception was caught at the orchestration boundary (Phase 6). Logged via
         /// Serilog with tenant/trace/batch context at the point it occurred; the client only ever
         /// sees this opaque message (→ 500).

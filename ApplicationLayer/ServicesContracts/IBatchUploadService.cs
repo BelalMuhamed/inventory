@@ -14,13 +14,11 @@ namespace ApplicationLayer.ServicesContracts
     public interface IBatchUploadService
     {
         /// <summary>
-        /// Runs the full batch-upload pipeline for one uploaded file.
+        /// Runs the full batch-upload pipeline for one uploaded file. The uploading tenant is
+        /// resolved internally from <c>ICurrentTenant</c> (matching every other service in this
+        /// codebase — see <c>ProductService</c>/<c>BranchService</c>/<c>StockService</c>) rather
+        /// than being passed in by the caller.
         /// </summary>
-        /// <param name="tenantId">
-        /// The uploading tenant (resolved by the caller, e.g. via <c>ICurrentTenant</c> in
-        /// Presentation) — both <c>Batch.BankId</c> and <c>Batch.UploadedByTenantId</c> under
-        /// today's single-account-per-tenant model.
-        /// </param>
         /// <param name="request">The uploaded file, batch name, and declared row count.</param>
         /// <param name="reportLabels">
         /// Already-localized column headers and failure-reason text for the failed-rows report.
@@ -30,14 +28,14 @@ namespace ApplicationLayer.ServicesContracts
         /// </param>
         /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
         /// <returns>
-        /// <see cref="Result{TValue}.Failure"/> only for whole-file issues (empty file, row-count
-        /// mismatch, duplicate file, decryption failure) or a genuinely unexpected exception.
-        /// Row-level failures are a collected outcome, not a failure — a file where every row
-        /// failed validation still returns <see cref="Result{TValue}.Success"/> with
+        /// <see cref="Result{TValue}.Failure"/> for whole-file issues (empty file, row-count
+        /// mismatch, duplicate file, decryption failure), an unresolvable caller (system-admin
+        /// tokens have no tenant to upload for), or a genuinely unexpected exception. Row-level
+        /// failures are a collected outcome, not a failure — a file where every row failed
+        /// validation still returns <see cref="Result{TValue}.Success"/> with
         /// <c>ImportedCount == 0</c> and the failed-rows report attached.
         /// </returns>
         Task<Result<BatchUploadResult>> UploadAsync(
-            long tenantId,
             BatchUploadRequest request,
             FailedRowsReportLabels reportLabels,
             CancellationToken cancellationToken = default);

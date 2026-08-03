@@ -640,6 +640,68 @@
     ]
   },
   {
+    "ContainingType": "InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.InventoryController",
+    "Method": "Upload",
+    "RelativePath": "api/inventory/upload",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "File",
+        "Type": "Microsoft.AspNetCore.Http.IFormFile",
+        "IsRequired": false
+      },
+      {
+        "Name": "BatchName",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "ExpectedRowCount",
+        "Type": "System.Int32",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 401
+      },
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 500
+      },
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[ApplicationLayer.DTOs.Batches.BatchUploadResult, ApplicationLayer, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 200
+      },
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 409
+      },
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 422
+      }
+    ]
+  },
+  {
     "ContainingType": "InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.ProductItemsController",
     "Method": "GetAll",
     "RelativePath": "api/product-items",

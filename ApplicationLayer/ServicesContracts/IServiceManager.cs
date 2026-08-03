@@ -17,5 +17,7 @@ namespace ApplicationLayer.ServicesContracts
         IProductService Products { get; }
         IStockService Stocks { get; }
         IProductItemService ProductItems { get; }
+        /// <summary>Batch card-upload use case (Batch Upload Phased Plan, Phase 6).</summary>
+        IBatchUploadService BatchUpload { get; }
     }
 }

@@ -11,6 +11,11 @@ C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuan
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\ar\PresentationLayer.resources.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\Azure.Core.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\Azure.Identity.dll
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\ClosedXML.dll
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\ClosedXML.Parser.dll
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\DocumentFormat.OpenXml.dll
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\DocumentFormat.OpenXml.Framework.dll
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\ExcelNumberFormat.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\Humanizer.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\Microsoft.AspNetCore.Authentication.JwtBearer.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\Microsoft.AspNetCore.Cryptography.Internal.dll
@@ -52,6 +57,7 @@ C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuan
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\Microsoft.SqlServer.Server.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\Microsoft.Win32.SystemEvents.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\Mono.TextTemplating.dll
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\RBush.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\Serilog.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\Serilog.AspNetCore.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\Serilog.Extensions.Hosting.dll
@@ -61,6 +67,7 @@ C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuan
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\Serilog.Sinks.Console.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\Serilog.Sinks.Debug.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\Serilog.Sinks.File.dll
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\SixLabors.Fonts.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\Swashbuckle.AspNetCore.Swagger.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\Swashbuckle.AspNetCore.SwaggerGen.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\Swashbuckle.AspNetCore.SwaggerUI.dll
@@ -74,6 +81,7 @@ C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuan
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\System.Configuration.ConfigurationManager.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\System.Drawing.Common.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\System.IdentityModel.Tokens.Jwt.dll
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\System.IO.Packaging.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\System.Memory.Data.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\System.Runtime.Caching.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\System.Security.Cryptography.ProtectedData.dll
@@ -179,11 +187,3 @@ C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuan
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\obj\Debug\net8.0\PresentationLayer.pdb
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\obj\Debug\net8.0\PresentationLayer.genruntimeconfig.cache
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\obj\Debug\net8.0\ref\PresentationLayer.dll
-C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\ClosedXML.dll
-C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\ClosedXML.Parser.dll
-C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\DocumentFormat.OpenXml.dll
-C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\DocumentFormat.OpenXml.Framework.dll
-C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\ExcelNumberFormat.dll
-C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\RBush.dll
-C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\SixLabors.Fonts.dll
-C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\System.IO.Packaging.dll

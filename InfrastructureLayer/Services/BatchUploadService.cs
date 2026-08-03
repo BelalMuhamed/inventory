@@ -28,6 +28,7 @@ namespace InfrastructureLayer.Services
     public sealed class BatchUploadService : IBatchUploadService
     {
         private readonly IUnitOfWork _unitOfWork;
+        private readonly ICurrentTenant _currentTenant;
         private readonly IBatchFileCipher _cipher;
         private readonly IBatchRowParser _parser;
         private readonly IFailedRowsReportBuilder _reportBuilder;
@@ -35,12 +36,14 @@ namespace InfrastructureLayer.Services
 
         public BatchUploadService(
             IUnitOfWork unitOfWork,
+            ICurrentTenant currentTenant,
             IBatchFileCipher cipher,
             IBatchRowParser parser,
             IFailedRowsReportBuilder reportBuilder,
             ILogger<BatchUploadService> logger)
         {
             _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+            _currentTenant = currentTenant ?? throw new ArgumentNullException(nameof(currentTenant));
             _cipher = cipher ?? throw new ArgumentNullException(nameof(cipher));
             _parser = parser ?? throw new ArgumentNullException(nameof(parser));
             _reportBuilder = reportBuilder ?? throw new ArgumentNullException(nameof(reportBuilder));
@@ -49,11 +52,20 @@ namespace InfrastructureLayer.Services
 
         /// <inheritdoc />
         public async Task<Result<BatchUploadResult>> UploadAsync(
-            long tenantId,
             BatchUploadRequest request,
             FailedRowsReportLabels reportLabels,
             CancellationToken cancellationToken = default)
         {
+            // Matches every other service's convention (ProductService/BranchService/
+            // StockService): resolved here, not passed in by the caller. A system-admin token
+            // has no tenant to upload cards for, so it is rejected rather than supported —
+            // unlike ProductService.CreateAsync, this endpoint does not offer an "upload on
+            // behalf of tenant X" path for admins.
+            if (_currentTenant.TenantId is not long tenantId)
+            {
+                return Result.Failure<BatchUploadResult>(BatchErrors.ActorNotResolved());
+            }
+
             string? fileMac = null;
 
             try
