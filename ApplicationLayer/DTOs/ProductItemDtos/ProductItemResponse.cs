@@ -5,8 +5,9 @@ namespace ApplicationLayer.DTOs.ProductItems
 {
     /// <summary>
     /// Product-item projection (API Spec §4.7). The PAN is never returned in full:
-    /// <see cref="MaskedPan"/> shows six masking characters followed by the last six characters
-    /// of <c>EncryptedPan</c> (e.g. <c>******123456</c>).
+    /// <see cref="MaskedPan"/> is the persisted display value — ten masking characters followed
+    /// by the last six PAN digits (e.g. <c>**********123456</c>). The card's identity/dedup
+    /// fingerprint is never included on this or any other DTO.
     /// </summary>
     public sealed record ProductItemResponse(
         long Id,
@@ -35,7 +36,7 @@ namespace ApplicationLayer.DTOs.ProductItems
     /// <summary>
     /// Filter/paging inputs for <c>GET /api/product-items</c> (API Spec §4.7).
     /// </summary>
-    /// <param name="Code">Prefix match against the stored <c>EncryptedPan</c>.</param>
+    /// <param name="Code">Substring match against the stored <c>MaskedPan</c> (i.e. the last six PAN digits).</param>
     /// <param name="ProductId">Optional exact product filter.</param>
     /// <param name="ProductName">Optional case-insensitive product-name contains-filter.</param>
     /// <param name="Status">Optional status filter.</param>

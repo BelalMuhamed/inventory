@@ -146,7 +146,7 @@ namespace InfrastructureLayer.Services
         private static ProductItemResponse Map(ProductItem x) => new(
             x.ID,
             x.TenantId,
-            MaskPan(x.EncryptedPan),
+            x.MaskedPan,
             x.ProductId,
             x.Product?.Name ?? string.Empty,
             x.BranchID,
@@ -157,13 +157,5 @@ namespace InfrastructureLayer.Services
             x.IsDeleted,
             x.CreatedAt,
             x.UpdatedAt);
-
-        // Masked PAN: six masking characters + the last six characters (e.g. ******123456).
-        private static string MaskPan(string? pan)
-        {
-            if (string.IsNullOrEmpty(pan)) return string.Empty;
-            string tail = pan.Length <= 6 ? pan : pan[^6..];
-            return new string('*', 6) + tail;
-        }
     }
 }

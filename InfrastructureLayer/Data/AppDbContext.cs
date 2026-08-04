@@ -287,6 +287,11 @@ namespace InfrastructureLayer.Data
             {
                 entity.Property(x => x.MaskedPan).IsRequired().HasMaxLength(32);
 
+                entity.Property(x => x.PanFingerprint)
+                    .IsRequired()
+                    .HasColumnType("binary(32)")
+                    .IsFixedLength();
+
                 entity.HasIndex(u => u.CardHolderName)
             .HasDatabaseName("IX_card_holder_name")
             ;
@@ -295,17 +300,16 @@ namespace InfrastructureLayer.Data
             .HasDatabaseName("IX_card_status_name")
            ;
 
-                // Item identity per tenant (Q2). Filtered so a soft-deleted item's PAN can be
-                // re-issued. NOTE: "Collision swap-in point #1" — PanFingerprint (SHA-256 of the
-                // plaintext PAN) replaces EncryptedPan here once adopted (see phased plan §Q1/Q2).
+                // Item identity per tenant (PAN Storage Redesign). Filtered so a soft-deleted
+                // item's PAN can be re-issued.
                 entity.HasIndex(x => new
                 {
                     x.TenantId,
-                    x.EncryptedPan
+                    x.PanFingerprint
                 })
                 .IsUnique()
                 .HasFilter("[IsDeleted] = 0")
-                .HasDatabaseName("IX_Cards_TenantId_EncryptedPan");
+                .HasDatabaseName("IX_Cards_TenantId_PanFingerprint");
 
                 // Non-unique covering index for the batch/stock query paths (§4.8).
                 entity.HasIndex(x => new
@@ -313,9 +317,9 @@ namespace InfrastructureLayer.Data
                     x.TenantId,
                     x.ProductId,
                     x.BranchID,
-                    x.EncryptedPan
+                    x.PanFingerprint
                 })
-                .HasDatabaseName("IX_Cards_TenantId_ProductId_BranchId_EncryptedPan");
+                .HasDatabaseName("IX_Cards_TenantId_ProductId_BranchId_PanFingerprint");
 
                 // BatchId is required: an item always belongs to the batch that introduced it.
                 // Deleting a batch cascades and removes its items.

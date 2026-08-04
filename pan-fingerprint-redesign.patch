@@ -1,0 +1,536 @@
+diff --git a/ApplicationLayer/Contracts/IPanFingerprintGenerator.cs b/ApplicationLayer/Contracts/IPanFingerprintGenerator.cs
+new file mode 100644
+index 0000000..ae90f4a
+--- /dev/null
++++ b/ApplicationLayer/Contracts/IPanFingerprintGenerator.cs
+@@ -0,0 +1,25 @@
++﻿namespace ApplicationLayer.Contracts
++{
++    /// <summary>
++    /// Computes the deterministic identity/dedup fingerprint for a card PAN (PAN Storage
++    /// Redesign). Keeps the concrete algorithm (HMAC-SHA256, per-tenant derived key) in the
++    /// infrastructure layer so the application layer depends only on this contract.
++    /// </summary>
++    public interface IPanFingerprintGenerator
++    {
++        /// <summary>
++        /// Computes the deterministic HMAC-SHA256 fingerprint of <paramref name="normalizedPan"/>
++        /// for <paramref name="tenantId"/>. The same tenant and the same PAN always yield the
++        /// same 32 bytes; the same PAN under a different tenant yields different bytes. Never
++        /// throws on well-formed input.
++        /// </summary>
++        /// <param name="tenantId">Owning tenant id — selects the derived HMAC key.</param>
++        /// <param name="normalizedPan">
++        /// The full PAN, already normalized via <c>BatchFileFormat.NormalizePan</c>. This method
++        /// does not normalize its input — callers must normalize first so the same physical card
++        /// always fingerprints identically regardless of incidental formatting.
++        /// </param>
++        /// <returns>A 32-byte HMAC-SHA256 fingerprint. Never displayed, logged, or returned by any API.</returns>
++        byte[] Fingerprint(long tenantId, string normalizedPan);
++    }
++}
+diff --git a/ApplicationLayer/Contracts/IProductItemRepo.cs b/ApplicationLayer/Contracts/IProductItemRepo.cs
+index 939e486..e0a36c2 100644
+--- a/ApplicationLayer/Contracts/IProductItemRepo.cs
++++ b/ApplicationLayer/Contracts/IProductItemRepo.cs
+@@ -28,19 +28,13 @@ namespace ApplicationLayer.Contracts
+         Task AddRangeAsync(IEnumerable<ProductItem> items, CancellationToken cancellationToken = default);
+ 
+         /// <summary>
+-        /// Loads every existing item for the tenant whose <see cref="ProductItem.MaskedPan"/> is
+-        /// in <paramref name="maskedPans"/>, in one query, keyed by <c>MaskedPan</c> — the
+-        /// one-query re-sight/upsert lookup for the batch pipeline (§4.8/§6.4). Entities are
+-        /// tracked (not <c>AsNoTracking</c>) so the caller can mutate Branch/Status in place and
+-        /// commit with a single <c>SaveChanges</c>.
+-        /// <para>
+-        /// <b>Known limitation (documented, not fixed here):</b> keyed on the masked value, not
+-        /// the real PAN. Two distinct PANs sharing the same last six digits collapse to the same
+-        /// dictionary key — last one loaded wins. See the Batch Upload Phased Plan's "collision
+-        /// swap-in point #2"; the fix is a separate PanFingerprint column, out of scope here.
+-        /// </para>
++        /// Loads every existing item for the tenant whose <see cref="ProductItem.PanFingerprint"/>
++        /// is in <paramref name="fingerprints"/>, in one query, keyed by the hex-encoded
++        /// fingerprint (<c>Convert.ToHexString</c>) — the one-query re-sight/upsert lookup for
++        /// the batch pipeline (§4.8/§6.4). Entities are tracked (not <c>AsNoTracking</c>) so the
++        /// caller can mutate Branch/Status in place and commit with a single <c>SaveChanges</c>.
+         /// </summary>
+-        Task<IReadOnlyDictionary<string, ProductItem>> GetExistingByMaskedPansAsync(
+-            long tenantId, IEnumerable<string> maskedPans, CancellationToken cancellationToken = default);
++        Task<IReadOnlyDictionary<string, ProductItem>> GetExistingByFingerprintsAsync(
++            long tenantId, IEnumerable<byte[]> fingerprints, CancellationToken cancellationToken = default);
+     }
+ }
+\ No newline at end of file
+diff --git a/ApplicationLayer/DTOs/ProductItemDtos/ProductItemResponse.cs b/ApplicationLayer/DTOs/ProductItemDtos/ProductItemResponse.cs
+index 5d55965..6a279a3 100644
+--- a/ApplicationLayer/DTOs/ProductItemDtos/ProductItemResponse.cs
++++ b/ApplicationLayer/DTOs/ProductItemDtos/ProductItemResponse.cs
+@@ -5,8 +5,9 @@ namespace ApplicationLayer.DTOs.ProductItems
+ {
+     /// <summary>
+     /// Product-item projection (API Spec §4.7). The PAN is never returned in full:
+-    /// <see cref="MaskedPan"/> shows six masking characters followed by the last six characters
+-    /// of <c>EncryptedPan</c> (e.g. <c>******123456</c>).
++    /// <see cref="MaskedPan"/> is the persisted display value — ten masking characters followed
++    /// by the last six PAN digits (e.g. <c>**********123456</c>). The card's identity/dedup
++    /// fingerprint is never included on this or any other DTO.
+     /// </summary>
+     public sealed record ProductItemResponse(
+         long Id,
+@@ -35,7 +36,7 @@ namespace ApplicationLayer.DTOs.ProductItems
+     /// <summary>
+     /// Filter/paging inputs for <c>GET /api/product-items</c> (API Spec §4.7).
+     /// </summary>
+-    /// <param name="Code">Prefix match against the stored <c>EncryptedPan</c>.</param>
++    /// <param name="Code">Substring match against the stored <c>MaskedPan</c> (i.e. the last six PAN digits).</param>
+     /// <param name="ProductId">Optional exact product filter.</param>
+     /// <param name="ProductName">Optional case-insensitive product-name contains-filter.</param>
+     /// <param name="Status">Optional status filter.</param>
+diff --git a/ApplicationLayer/Options/PanHashOptions.cs b/ApplicationLayer/Options/PanHashOptions.cs
+new file mode 100644
+index 0000000..cd8b242
+--- /dev/null
++++ b/ApplicationLayer/Options/PanHashOptions.cs
+@@ -0,0 +1,25 @@
++﻿namespace ApplicationLayer.Options
++{
++    /// <summary>
++    /// Settings for the PAN fingerprint HMAC (card identity/dedup hash), bound from the
++    /// <c>"PanHash"</c> section. Deliberately a separate master secret from
++    /// <see cref="BatchCipherOptions"/> (key separation): a compromised or rotated file-cipher
++    /// key must never also compromise PAN identity hashing, and vice versa. Supplied via
++    /// user-secrets/environment — never committed, never persisted.
++    /// </summary>
++    public sealed class PanHashOptions
++    {
++        /// <summary>Configuration section name.</summary>
++        public const string SectionName = "PanHash";
++
++        /// <summary>Master secret every tenant's derived HMAC key is built from (PBKDF2). Supplied via secrets.</summary>
++        public string MasterSecret { get; set; } = string.Empty;
++
++        /// <summary>
++        /// Base64 salt for key derivation, combined with the tenant id so each tenant gets a
++        /// distinct HMAC key from the same master secret. Supplied via secrets; must stay
++        /// stable, or every previously computed <c>PanFingerprint</c> becomes unmatchable.
++        /// </summary>
++        public string Salt { get; set; } = string.Empty;
++    }
++}
+diff --git a/ApplicationLayer/Security/PanMasker.cs b/ApplicationLayer/Security/PanMasker.cs
+index 35169a8..cf8402b 100644
+--- a/ApplicationLayer/Security/PanMasker.cs
++++ b/ApplicationLayer/Security/PanMasker.cs
+@@ -2,8 +2,8 @@
+ {
+     /// <summary>
+     /// Stateless PAN masking (Batch Upload Phased Plan §Q1 / Phase 2). Always computed from the
+-    /// plaintext PAN, never from <c>EncryptedPan</c> ciphertext — that was the old bug this
+-    /// replaces. No key, no options: pure functions, safe to call from anywhere without DI.
++    /// plaintext PAN, independently of card identity (see <c>IPanFingerprintGenerator</c>).
++    /// No key, no options: pure functions, safe to call from anywhere without DI.
+     /// </summary>
+     public static class PanMasker
+     {
+diff --git a/DomainLayer/Entities/ProductItem.cs b/DomainLayer/Entities/ProductItem.cs
+index a255489..464736d 100644
+--- a/DomainLayer/Entities/ProductItem.cs
++++ b/DomainLayer/Entities/ProductItem.cs
+@@ -6,12 +6,14 @@ using System.ComponentModel.DataAnnotations.Schema;
+ namespace DomainLayer.Entities
+ {
+     /// <summary>
+-    /// A single physical card instance (ERD §3.3). <see cref="EncryptedPan"/> is unique per
+-    /// tenant among non-deleted rows and is the batch-upload lookup key.
++    /// A single physical card instance (ERD §3.3). <see cref="PanFingerprint"/> is the sole
++    /// identity/dedup key — a deterministic HMAC-SHA256 fingerprint of the normalized full PAN
++    /// (see <c>IPanFingerprintGenerator</c>) — and is unique per tenant among non-deleted rows.
++    /// It is never displayed, logged, or returned by any API.
+     /// <see cref="MaskedPan"/> is the display/search-safe derivative computed at ingestion time
+-    /// from the plaintext PAN (never from ciphertext — see <c>PanMasker</c>, Phase 2): ten mask
+-    /// characters concatenated with the last six PAN digits. There is no separate "last 6"
+-    /// column — <see cref="MaskedPan"/> carries that information already.
++    /// from the plaintext PAN (never derived from <see cref="PanFingerprint"/> — see
++    /// <c>PanMasker</c>): ten mask characters concatenated with the last six PAN digits. It is
++    /// used exclusively for display and user-facing search, never for identity or dedup.
+     /// <see cref="BatchId"/> is required: an item always belongs to the batch that introduced
+     /// it, and deleting that batch deletes its items (Cascade).
+     /// </summary>
+@@ -21,13 +23,18 @@ namespace DomainLayer.Entities
+         [Key]
+         public long ID { get; set; }
+ 
+-        /// <summary>AES-GCM ciphertext of the full PAN. Non-deterministic — never used for lookup/dedup.</summary>
+-        public string EncryptedPan { get; set; } = null!;
++        /// <summary>
++        /// Deterministic HMAC-SHA256 fingerprint (32 bytes) of the normalized full PAN. The sole
++        /// identity/dedup key for this tenant — drives the unique index and the batch-upload
++        /// re-sight lookup. Never displayed, never logged, never returned by any API response.
++        /// See <c>IPanFingerprintGenerator</c>.
++        /// </summary>
++        public byte[] PanFingerprint { get; set; } = null!;
+ 
+         /// <summary>
+         /// Masked PAN persisted at ingestion time: ten mask characters ("**********") followed
+-        /// by the last six PAN digits (Q1). Safe for display and for the batch-upload identity
+-        /// index (Phase 1 §Q2).
++        /// by the last six PAN digits. The only field used throughout the application for
++        /// display and any user-facing search — never used for identity or duplicate detection.
+         /// </summary>
+         public string MaskedPan { get; set; } = null!;
+ 
+diff --git a/InfrastructureLayer/Data/AppDbContext.cs b/InfrastructureLayer/Data/AppDbContext.cs
+index 9475ec8..702d897 100644
+--- a/InfrastructureLayer/Data/AppDbContext.cs
++++ b/InfrastructureLayer/Data/AppDbContext.cs
+@@ -287,6 +287,11 @@ namespace InfrastructureLayer.Data
+             {
+                 entity.Property(x => x.MaskedPan).IsRequired().HasMaxLength(32);
+ 
++                entity.Property(x => x.PanFingerprint)
++                    .IsRequired()
++                    .HasColumnType("binary(32)")
++                    .IsFixedLength();
++
+                 entity.HasIndex(u => u.CardHolderName)
+             .HasDatabaseName("IX_card_holder_name")
+             ;
+@@ -295,17 +300,16 @@ namespace InfrastructureLayer.Data
+             .HasDatabaseName("IX_card_status_name")
+            ;
+ 
+-                // Item identity per tenant (Q2). Filtered so a soft-deleted item's PAN can be
+-                // re-issued. NOTE: "Collision swap-in point #1" — PanFingerprint (SHA-256 of the
+-                // plaintext PAN) replaces EncryptedPan here once adopted (see phased plan §Q1/Q2).
++                // Item identity per tenant (PAN Storage Redesign). Filtered so a soft-deleted
++                // item's PAN can be re-issued.
+                 entity.HasIndex(x => new
+                 {
+                     x.TenantId,
+-                    x.EncryptedPan
++                    x.PanFingerprint
+                 })
+                 .IsUnique()
+                 .HasFilter("[IsDeleted] = 0")
+-                .HasDatabaseName("IX_Cards_TenantId_EncryptedPan");
++                .HasDatabaseName("IX_Cards_TenantId_PanFingerprint");
+ 
+                 // Non-unique covering index for the batch/stock query paths (§4.8).
+                 entity.HasIndex(x => new
+@@ -313,9 +317,9 @@ namespace InfrastructureLayer.Data
+                     x.TenantId,
+                     x.ProductId,
+                     x.BranchID,
+-                    x.EncryptedPan
++                    x.PanFingerprint
+                 })
+-                .HasDatabaseName("IX_Cards_TenantId_ProductId_BranchId_EncryptedPan");
++                .HasDatabaseName("IX_Cards_TenantId_ProductId_BranchId_PanFingerprint");
+ 
+                 // BatchId is required: an item always belongs to the batch that introduced it.
+                 // Deleting a batch cascades and removes its items.
+diff --git a/InfrastructureLayer/InfrastructureServiceRegistration.cs b/InfrastructureLayer/InfrastructureServiceRegistration.cs
+index 36e38d4..29ac13e 100644
+--- a/InfrastructureLayer/InfrastructureServiceRegistration.cs
++++ b/InfrastructureLayer/InfrastructureServiceRegistration.cs
+@@ -1,4 +1,5 @@
+-﻿using ApplicationLayer.BatchUpload;
++﻿using System;
++using ApplicationLayer.BatchUpload;
+ using ApplicationLayer.CardFiles;
+ using ApplicationLayer.Contracts;
+ using ApplicationLayer.Options;
+@@ -51,6 +52,17 @@ namespace InfrastructureLayer
+                 .Validate(o => !string.IsNullOrWhiteSpace(o.MasterSecret), "BatchCipher MasterSecret is required.")
+                 .Validate(o => !string.IsNullOrWhiteSpace(o.Salt), "BatchCipher Salt is required.")
+                 .ValidateOnStart();
++
++            // PAN Storage Redesign: deliberately a separate secret from BatchCipherOptions (key
++            // separation) — same fail-fast pattern as the JWT signing key and the batch-cipher
++            // master secret, so a misconfigured PanHash secret surfaces as a clear startup error
++            // rather than a confusing failure on the first batch upload.
++            services.AddOptions<PanHashOptions>()
++                .Bind(configuration.GetSection(PanHashOptions.SectionName))
++                .Validate(o => !string.IsNullOrWhiteSpace(o.MasterSecret), "PanHash MasterSecret is required.")
++                .Validate(o => !string.IsNullOrWhiteSpace(o.Salt), "PanHash Salt is required.")
++                .Validate(o => Convert.TryFromBase64String(o.Salt, new byte[128], out _), "PanHash Salt must be valid base64.")
++                .ValidateOnStart();
+             // InfrastructureLayer/InfrastructureServiceRegistration.cs  (modified registrations only)
+             //   ... existing registrations unchanged ...
+             services.AddScoped<IUnitOfWork, UnitOfWork>();
+@@ -89,6 +101,11 @@ namespace InfrastructureLayer
+             services.AddScoped<IBatchFileDecryptor, BatchFileCipher>();
+             services.AddScoped<IBatchFileEncryptor, BatchFileCipher>();
+ 
++            // PAN Storage Redesign: Scoped (not Singleton) so the derived-key cache inside
++            // PanFingerprintGenerator lives for exactly one request/batch upload — see the class
++            // doc comment for why that scope matters.
++            services.AddScoped<IPanFingerprintGenerator, PanFingerprintGenerator>();
++
+             services.AddScoped<IBatchUploadService, BatchUploadService>();
+             services.AddScoped<System.Func<IBatchUploadService>>(sp => sp.GetRequiredService<IBatchUploadService>);
+ 
+diff --git a/InfrastructureLayer/Repositories/ProductItemRepo.cs b/InfrastructureLayer/Repositories/ProductItemRepo.cs
+index 30ac48a..99f99e1 100644
+--- a/InfrastructureLayer/Repositories/ProductItemRepo.cs
++++ b/InfrastructureLayer/Repositories/ProductItemRepo.cs
+@@ -30,7 +30,7 @@ namespace InfrastructureLayer.Repositories
+                 query = query.Where(x => x.IsDeleted == deleted);
+ 
+             if (!string.IsNullOrWhiteSpace(filter.Code))
+-                query = query.Where(x => x.EncryptedPan.StartsWith(filter.Code));   // prefix match on stored PAN
++                query = query.Where(x => x.MaskedPan.Contains(filter.Code));   // substring match on masked PAN (last six digits)
+ 
+             if (filter.ProductId is long productId)
+                 query = query.Where(x => x.ProductId == productId);
+@@ -47,7 +47,7 @@ namespace InfrastructureLayer.Repositories
+             bool desc = string.Equals(filter.SortDir, "desc", StringComparison.OrdinalIgnoreCase);
+             query = (filter.SortBy?.ToLowerInvariant()) switch
+             {
+-                "code" => desc ? query.OrderByDescending(x => x.EncryptedPan) : query.OrderBy(x => x.EncryptedPan),
++                "code" => desc ? query.OrderByDescending(x => x.MaskedPan) : query.OrderBy(x => x.MaskedPan),
+                 "status" => desc ? query.OrderByDescending(x => x.Status) : query.OrderBy(x => x.Status),
+                 "productid" => desc ? query.OrderByDescending(x => x.ProductId) : query.OrderBy(x => x.ProductId),
+                 "branchid" => desc ? query.OrderByDescending(x => x.BranchID) : query.OrderBy(x => x.BranchID),
+@@ -75,11 +75,11 @@ namespace InfrastructureLayer.Repositories
+         public async Task AddRangeAsync(IEnumerable<ProductItem> items, CancellationToken cancellationToken = default)
+             => await Set.AddRangeAsync(items, cancellationToken);
+ 
+-        public async Task<IReadOnlyDictionary<string, ProductItem>> GetExistingByMaskedPansAsync(
+-            long tenantId, IEnumerable<string> maskedPans, CancellationToken cancellationToken = default)
++        public async Task<IReadOnlyDictionary<string, ProductItem>> GetExistingByFingerprintsAsync(
++            long tenantId, IEnumerable<byte[]> fingerprints, CancellationToken cancellationToken = default)
+         {
+-            List<string> pans = maskedPans as List<string> ?? new List<string>(maskedPans);
+-            if (pans.Count == 0)
++            List<byte[]> keys = fingerprints as List<byte[]> ?? new List<byte[]>(fingerprints);
++            if (keys.Count == 0)
+             {
+                 return new Dictionary<string, ProductItem>();
+             }
+@@ -87,15 +87,16 @@ namespace InfrastructureLayer.Repositories
+             // Tracked (no AsNoTracking): the caller mutates Branch/Status in place for the
+             // re-sight upsert and commits with a single SaveChanges (§6.4).
+             List<ProductItem> items = await Set
+-                .Where(x => x.TenantId == tenantId && pans.Contains(x.MaskedPan))
++                .Where(x => x.TenantId == tenantId && keys.Contains(x.PanFingerprint))
+                 .ToListAsync(cancellationToken);
+ 
+-            // Last-value-wins on a masked-PAN collision — documented limitation, see the XML doc
+-            // on IProductItemRepo.GetExistingByMaskedPansAsync.
++            // Keyed by the hex-encoded fingerprint (32-byte HMAC-SHA256 output). No collision
++            // handling here: unlike the old masked-value key, a genuine PanFingerprint collision
++            // between distinct PANs is cryptographically negligible.
+             var map = new Dictionary<string, ProductItem>(StringComparer.Ordinal);
+             foreach (ProductItem item in items)
+             {
+-                map[item.MaskedPan] = item;
++                map[Convert.ToHexString(item.PanFingerprint)] = item;
+             }
+ 
+             return map;
+diff --git a/InfrastructureLayer/Security/PanFingerprintGenerator.cs b/InfrastructureLayer/Security/PanFingerprintGenerator.cs
+new file mode 100644
+index 0000000..547ac3e
+--- /dev/null
++++ b/InfrastructureLayer/Security/PanFingerprintGenerator.cs
+@@ -0,0 +1,80 @@
++using System;
++using System.Security.Cryptography;
++using System.Text;
++using ApplicationLayer.Contracts;
++using ApplicationLayer.Options;
++using Microsoft.Extensions.Options;
++
++namespace InfrastructureLayer.Security
++{
++    /// <summary>
++    /// HMAC-SHA256 implementation of the PAN fingerprint generator (PAN Storage Redesign).
++    /// Derives a distinct key per tenant from the configured master secret via PBKDF2 — same
++    /// derivation shape as <see cref="BatchFileCipher"/>, but with an independent secret
++    /// (<see cref="PanHashOptions"/>): the file-decryption key and the PAN-identity key must
++    /// never be linkable to each other.
++    /// <para>
++    /// A plain (unkeyed) hash of a PAN is brute-forceable offline: the BIN is public and the
++    /// last digit is a Luhn check digit, leaving a small enough keyspace per BIN to defeat a
++    /// salted-but-keyless hash in practice. Only a secret the attacker does not have — the HMAC
++    /// key — blocks that. This is why <c>Fingerprint</c> is keyed, not a bare
++    /// <c>SHA256.HashData</c> call.
++    /// </para>
++    /// <para>
++    /// Registered <c>Scoped</c> (one instance per HTTP request / one batch upload). The derived
++    /// key is cached on the instance after the first call: <c>Fingerprint</c> runs once per row
++    /// in a batch upload, and re-deriving via 100,000 PBKDF2 iterations on every row would turn a
++    /// several-thousand-row batch into a multi-second-per-request cost. Caching per scoped
++    /// instance needs no manual invalidation — it dies with the request.
++    /// </para>
++    /// </summary>
++    public sealed class PanFingerprintGenerator : IPanFingerprintGenerator
++    {
++        private const int KeySize = 32;       // HMAC-SHA256 key/output size
++        private const int Pbkdf2Iterations = 100_000;
++
++        private readonly PanHashOptions _options;
++
++        private long? _cachedTenantId;
++        private byte[]? _cachedKey;
++
++        /// <summary>Creates the generator bound to the configured master secret/salt.</summary>
++        /// <param name="options">PAN-hash settings (user-secrets/environment-backed).</param>
++        public PanFingerprintGenerator(IOptions<PanHashOptions> options)
++        {
++            _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
++        }
++
++        /// <inheritdoc />
++        public byte[] Fingerprint(long tenantId, string normalizedPan)
++        {
++            byte[] key = GetOrDeriveKey(tenantId);
++            using var hmac = new HMACSHA256(key);
++            return hmac.ComputeHash(Encoding.UTF8.GetBytes(normalizedPan ?? string.Empty));
++        }
++
++        // Combines the configured salt with the tenant id so the same master secret yields a
++        // distinct key per tenant — same pattern as BatchFileCipher.DeriveTenantKey, deliberately
++        // duplicated rather than shared: these two derivations must be able to evolve
++        // independently (key separation), so a shared helper would be the wrong coupling.
++        private byte[] GetOrDeriveKey(long tenantId)
++        {
++            if (_cachedKey is not null && _cachedTenantId == tenantId)
++            {
++                return _cachedKey;
++            }
++
++            byte[] configuredSalt = Convert.FromBase64String(_options.Salt);
++            byte[] tenantSalt = new byte[configuredSalt.Length + sizeof(long)];
++            Buffer.BlockCopy(configuredSalt, 0, tenantSalt, 0, configuredSalt.Length);
++            Buffer.BlockCopy(BitConverter.GetBytes(tenantId), 0, tenantSalt, configuredSalt.Length, sizeof(long));
++
++            using var kdf = new Rfc2898DeriveBytes(_options.MasterSecret, tenantSalt, Pbkdf2Iterations, HashAlgorithmName.SHA256);
++            byte[] key = kdf.GetBytes(KeySize);
++
++            _cachedTenantId = tenantId;
++            _cachedKey = key;
++            return key;
++        }
++    }
++}
+diff --git a/InfrastructureLayer/Services/BatchUploadService.cs b/InfrastructureLayer/Services/BatchUploadService.cs
+index de2564f..8c5a137 100644
+--- a/InfrastructureLayer/Services/BatchUploadService.cs
++++ b/InfrastructureLayer/Services/BatchUploadService.cs
+@@ -32,6 +32,7 @@ namespace InfrastructureLayer.Services
+         private readonly IBatchFileDecryptor _decryptor;
+         private readonly IBatchRowParser _parser;
+         private readonly IFailedRowsReportBuilder _reportBuilder;
++        private readonly IPanFingerprintGenerator _fingerprintGenerator;
+         private readonly ILogger<BatchUploadService> _logger;
+ 
+         public BatchUploadService(
+@@ -40,6 +41,7 @@ namespace InfrastructureLayer.Services
+             IBatchFileDecryptor decryptor,
+             IBatchRowParser parser,
+             IFailedRowsReportBuilder reportBuilder,
++            IPanFingerprintGenerator fingerprintGenerator,
+             ILogger<BatchUploadService> logger)
+         {
+             _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+@@ -47,6 +49,7 @@ namespace InfrastructureLayer.Services
+             _decryptor = decryptor ?? throw new ArgumentNullException(nameof(decryptor));
+             _parser = parser ?? throw new ArgumentNullException(nameof(parser));
+             _reportBuilder = reportBuilder ?? throw new ArgumentNullException(nameof(reportBuilder));
++            _fingerprintGenerator = fingerprintGenerator ?? throw new ArgumentNullException(nameof(fingerprintGenerator));
+             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+         }
+ 
+@@ -118,16 +121,21 @@ namespace InfrastructureLayer.Services
+                 IReadOnlyDictionary<string, Branch> branchMap =
+                     await _unitOfWork.Branches.GetTenantMapAsync(tenantId, cancellationToken);
+ 
+-                List<string> candidateMaskedPans = parsedRows.Select(r => PanMasker.Mask(r.Pan)).ToList();
++                // Identity/dedup is keyed on PanFingerprint, never on MaskedPan (PAN Storage
++                // Redesign) — MaskedPan is display-only from this point on.
++                List<byte[]> candidateFingerprints = parsedRows
++                    .Select(r => _fingerprintGenerator.Fingerprint(tenantId, r.Pan))
++                    .ToList();
+                 IReadOnlyDictionary<string, ProductItem> existingItems =
+-                    await _unitOfWork.ProductItems.GetExistingByMaskedPansAsync(tenantId, candidateMaskedPans, cancellationToken);
++                    await _unitOfWork.ProductItems.GetExistingByFingerprintsAsync(tenantId, candidateFingerprints, cancellationToken);
+ 
+                 var failedRows = new List<FailedBatchRow>(parserFailures);
+-                var rowsToProcess = new List<(ParsedBatchRow Row, Product Product, Branch Branch, string MaskedPan)>();
++                var rowsToProcess = new List<(ParsedBatchRow Row, Product Product, Branch Branch, string MaskedPan, byte[] Fingerprint)>();
+ 
+                 foreach (ParsedBatchRow row in parsedRows)
+                 {
+                     string maskedPan = PanMasker.Mask(row.Pan);
++                    byte[] fingerprint = _fingerprintGenerator.Fingerprint(tenantId, row.Pan);
+ 
+                     if (!productMap.TryGetValue(row.ProductName, out Product? product))
+                     {
+@@ -141,7 +149,7 @@ namespace InfrastructureLayer.Services
+                         continue;
+                     }
+ 
+-                    rowsToProcess.Add((row, product, branch, maskedPan));
++                    rowsToProcess.Add((row, product, branch, maskedPan, fingerprint));
+                 }
+ 
+                 int importedCount = 0;
+@@ -167,9 +175,9 @@ namespace InfrastructureLayer.Services
+                         OriginalFileName = originalFileName,
+                     };
+ 
+-                    foreach ((ParsedBatchRow row, Product product, Branch branch, string maskedPan) in rowsToProcess)
++                    foreach ((ParsedBatchRow row, Product product, Branch branch, string maskedPan, byte[] fingerprint) in rowsToProcess)
+                     {
+-                        if (existingItems.TryGetValue(maskedPan, out ProductItem? existingItem))
++                        if (existingItems.TryGetValue(Convert.ToHexString(fingerprint), out ProductItem? existingItem))
+                         {
+                             // Re-sight (§6.4): update Branch/Status only. BatchId is left as the
+                             // batch that first introduced the item — not reassigned here.
+@@ -184,12 +192,12 @@ namespace InfrastructureLayer.Services
+                         }
+                         else
+                         {
+-                            // Q1: the PAN is never encrypted or persisted in full. Both
+-                            // EncryptedPan (legacy column name, still the unique-index/identity
+-                            // column) and MaskedPan hold the identical masked value.
++                            // PAN Storage Redesign: the full PAN is never persisted in any form.
++                            // MaskedPan is display-only; PanFingerprint is the sole identity/dedup
++                            // key, computed once per row from the same normalized PAN.
+                             var newItem = new ProductItem
+                             {
+-                                EncryptedPan = maskedPan,
++                                PanFingerprint = fingerprint,
+                                 MaskedPan = maskedPan,
+                                 TenantId = tenantId,
+                                 ProductId = product.Id,
+diff --git a/InfrastructureLayer/Services/ProductItemService.cs b/InfrastructureLayer/Services/ProductItemService.cs
+index 14bee11..46c54b2 100644
+--- a/InfrastructureLayer/Services/ProductItemService.cs
++++ b/InfrastructureLayer/Services/ProductItemService.cs
+@@ -146,7 +146,7 @@ namespace InfrastructureLayer.Services
+         private static ProductItemResponse Map(ProductItem x) => new(
+             x.ID,
+             x.TenantId,
+-            MaskPan(x.EncryptedPan),
++            x.MaskedPan,
+             x.ProductId,
+             x.Product?.Name ?? string.Empty,
+             x.BranchID,
+@@ -157,13 +157,5 @@ namespace InfrastructureLayer.Services
+             x.IsDeleted,
+             x.CreatedAt,
+             x.UpdatedAt);
+-
+-        // Masked PAN: six masking characters + the last six characters (e.g. ******123456).
+-        private static string MaskPan(string? pan)
+-        {
+-            if (string.IsNullOrEmpty(pan)) return string.Empty;
+-            string tail = pan.Length <= 6 ? pan : pan[^6..];
+-            return new string('*', 6) + tail;
+-        }
+     }
+ }
+\ No newline at end of file

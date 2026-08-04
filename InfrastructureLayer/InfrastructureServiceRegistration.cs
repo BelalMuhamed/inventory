@@ -1,4 +1,5 @@
-﻿using ApplicationLayer.BatchUpload;
+﻿using System;
+using ApplicationLayer.BatchUpload;
 using ApplicationLayer.CardFiles;
 using ApplicationLayer.Contracts;
 using ApplicationLayer.Options;
@@ -51,6 +52,17 @@ namespace InfrastructureLayer
                 .Validate(o => !string.IsNullOrWhiteSpace(o.MasterSecret), "BatchCipher MasterSecret is required.")
                 .Validate(o => !string.IsNullOrWhiteSpace(o.Salt), "BatchCipher Salt is required.")
                 .ValidateOnStart();
+
+            // PAN Storage Redesign: deliberately a separate secret from BatchCipherOptions (key
+            // separation) — same fail-fast pattern as the JWT signing key and the batch-cipher
+            // master secret, so a misconfigured PanHash secret surfaces as a clear startup error
+            // rather than a confusing failure on the first batch upload.
+            services.AddOptions<PanHashOptions>()
+                .Bind(configuration.GetSection(PanHashOptions.SectionName))
+                .Validate(o => !string.IsNullOrWhiteSpace(o.MasterSecret), "PanHash MasterSecret is required.")
+                .Validate(o => !string.IsNullOrWhiteSpace(o.Salt), "PanHash Salt is required.")
+                .Validate(o => Convert.TryFromBase64String(o.Salt, new byte[128], out _), "PanHash Salt must be valid base64.")
+                .ValidateOnStart();
             // InfrastructureLayer/InfrastructureServiceRegistration.cs  (modified registrations only)
             //   ... existing registrations unchanged ...
             services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -88,6 +100,11 @@ namespace InfrastructureLayer
             // instance because BatchFileCipher is stateless -- two instances behave identically.
             services.AddScoped<IBatchFileDecryptor, BatchFileCipher>();
             services.AddScoped<IBatchFileEncryptor, BatchFileCipher>();
+
+            // PAN Storage Redesign: Scoped (not Singleton) so the derived-key cache inside
+            // PanFingerprintGenerator lives for exactly one request/batch upload — see the class
+            // doc comment for why that scope matters.
+            services.AddScoped<IPanFingerprintGenerator, PanFingerprintGenerator>();
 
             services.AddScoped<IBatchUploadService, BatchUploadService>();
             services.AddScoped<System.Func<IBatchUploadService>>(sp => sp.GetRequiredService<IBatchUploadService>);

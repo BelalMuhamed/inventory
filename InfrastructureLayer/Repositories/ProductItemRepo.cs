@@ -30,7 +30,7 @@ namespace InfrastructureLayer.Repositories
                 query = query.Where(x => x.IsDeleted == deleted);
 
             if (!string.IsNullOrWhiteSpace(filter.Code))
-                query = query.Where(x => x.EncryptedPan.StartsWith(filter.Code));   // prefix match on stored PAN
+                query = query.Where(x => x.MaskedPan.Contains(filter.Code));   // substring match on masked PAN (last six digits)
 
             if (filter.ProductId is long productId)
                 query = query.Where(x => x.ProductId == productId);
@@ -47,7 +47,7 @@ namespace InfrastructureLayer.Repositories
             bool desc = string.Equals(filter.SortDir, "desc", StringComparison.OrdinalIgnoreCase);
             query = (filter.SortBy?.ToLowerInvariant()) switch
             {
-                "code" => desc ? query.OrderByDescending(x => x.EncryptedPan) : query.OrderBy(x => x.EncryptedPan),
+                "code" => desc ? query.OrderByDescending(x => x.MaskedPan) : query.OrderBy(x => x.MaskedPan),
                 "status" => desc ? query.OrderByDescending(x => x.Status) : query.OrderBy(x => x.Status),
                 "productid" => desc ? query.OrderByDescending(x => x.ProductId) : query.OrderBy(x => x.ProductId),
                 "branchid" => desc ? query.OrderByDescending(x => x.BranchID) : query.OrderBy(x => x.BranchID),
@@ -75,11 +75,11 @@ namespace InfrastructureLayer.Repositories
         public async Task AddRangeAsync(IEnumerable<ProductItem> items, CancellationToken cancellationToken = default)
             => await Set.AddRangeAsync(items, cancellationToken);
 
-        public async Task<IReadOnlyDictionary<string, ProductItem>> GetExistingByMaskedPansAsync(
-            long tenantId, IEnumerable<string> maskedPans, CancellationToken cancellationToken = default)
+        public async Task<IReadOnlyDictionary<string, ProductItem>> GetExistingByFingerprintsAsync(
+            long tenantId, IEnumerable<byte[]> fingerprints, CancellationToken cancellationToken = default)
         {
-            List<string> pans = maskedPans as List<string> ?? new List<string>(maskedPans);
-            if (pans.Count == 0)
+            List<byte[]> keys = fingerprints as List<byte[]> ?? new List<byte[]>(fingerprints);
+            if (keys.Count == 0)
             {
                 return new Dictionary<string, ProductItem>();
             }
@@ -87,15 +87,16 @@ namespace InfrastructureLayer.Repositories
             // Tracked (no AsNoTracking): the caller mutates Branch/Status in place for the
             // re-sight upsert and commits with a single SaveChanges (§6.4).
             List<ProductItem> items = await Set
-                .Where(x => x.TenantId == tenantId && pans.Contains(x.MaskedPan))
+                .Where(x => x.TenantId == tenantId && keys.Contains(x.PanFingerprint))
                 .ToListAsync(cancellationToken);
 
-            // Last-value-wins on a masked-PAN collision — documented limitation, see the XML doc
-            // on IProductItemRepo.GetExistingByMaskedPansAsync.
+            // Keyed by the hex-encoded fingerprint (32-byte HMAC-SHA256 output). No collision
+            // handling here: unlike the old masked-value key, a genuine PanFingerprint collision
+            // between distinct PANs is cryptographically negligible.
             var map = new Dictionary<string, ProductItem>(StringComparer.Ordinal);
             foreach (ProductItem item in items)
             {
-                map[item.MaskedPan] = item;
+                map[Convert.ToHexString(item.PanFingerprint)] = item;
             }
 
             return map;

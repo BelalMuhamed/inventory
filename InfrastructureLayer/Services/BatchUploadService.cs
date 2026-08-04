@@ -32,6 +32,7 @@ namespace InfrastructureLayer.Services
         private readonly IBatchFileDecryptor _decryptor;
         private readonly IBatchRowParser _parser;
         private readonly IFailedRowsReportBuilder _reportBuilder;
+        private readonly IPanFingerprintGenerator _fingerprintGenerator;
         private readonly ILogger<BatchUploadService> _logger;
 
         public BatchUploadService(
@@ -40,6 +41,7 @@ namespace InfrastructureLayer.Services
             IBatchFileDecryptor decryptor,
             IBatchRowParser parser,
             IFailedRowsReportBuilder reportBuilder,
+            IPanFingerprintGenerator fingerprintGenerator,
             ILogger<BatchUploadService> logger)
         {
             _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
@@ -47,6 +49,7 @@ namespace InfrastructureLayer.Services
             _decryptor = decryptor ?? throw new ArgumentNullException(nameof(decryptor));
             _parser = parser ?? throw new ArgumentNullException(nameof(parser));
             _reportBuilder = reportBuilder ?? throw new ArgumentNullException(nameof(reportBuilder));
+            _fingerprintGenerator = fingerprintGenerator ?? throw new ArgumentNullException(nameof(fingerprintGenerator));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
@@ -118,16 +121,21 @@ namespace InfrastructureLayer.Services
                 IReadOnlyDictionary<string, Branch> branchMap =
                     await _unitOfWork.Branches.GetTenantMapAsync(tenantId, cancellationToken);
 
-                List<string> candidateMaskedPans = parsedRows.Select(r => PanMasker.Mask(r.Pan)).ToList();
+                // Identity/dedup is keyed on PanFingerprint, never on MaskedPan (PAN Storage
+                // Redesign) — MaskedPan is display-only from this point on.
+                List<byte[]> candidateFingerprints = parsedRows
+                    .Select(r => _fingerprintGenerator.Fingerprint(tenantId, r.Pan))
+                    .ToList();
                 IReadOnlyDictionary<string, ProductItem> existingItems =
-                    await _unitOfWork.ProductItems.GetExistingByMaskedPansAsync(tenantId, candidateMaskedPans, cancellationToken);
+                    await _unitOfWork.ProductItems.GetExistingByFingerprintsAsync(tenantId, candidateFingerprints, cancellationToken);
 
                 var failedRows = new List<FailedBatchRow>(parserFailures);
-                var rowsToProcess = new List<(ParsedBatchRow Row, Product Product, Branch Branch, string MaskedPan)>();
+                var rowsToProcess = new List<(ParsedBatchRow Row, Product Product, Branch Branch, string MaskedPan, byte[] Fingerprint)>();
 
                 foreach (ParsedBatchRow row in parsedRows)
                 {
                     string maskedPan = PanMasker.Mask(row.Pan);
+                    byte[] fingerprint = _fingerprintGenerator.Fingerprint(tenantId, row.Pan);
 
                     if (!productMap.TryGetValue(row.ProductName, out Product? product))
                     {
@@ -141,7 +149,7 @@ namespace InfrastructureLayer.Services
                         continue;
                     }
 
-                    rowsToProcess.Add((row, product, branch, maskedPan));
+                    rowsToProcess.Add((row, product, branch, maskedPan, fingerprint));
                 }
 
                 int importedCount = 0;
@@ -167,9 +175,9 @@ namespace InfrastructureLayer.Services
                         OriginalFileName = originalFileName,
                     };
 
-                    foreach ((ParsedBatchRow row, Product product, Branch branch, string maskedPan) in rowsToProcess)
+                    foreach ((ParsedBatchRow row, Product product, Branch branch, string maskedPan, byte[] fingerprint) in rowsToProcess)
                     {
-                        if (existingItems.TryGetValue(maskedPan, out ProductItem? existingItem))
+                        if (existingItems.TryGetValue(Convert.ToHexString(fingerprint), out ProductItem? existingItem))
                         {
                             // Re-sight (§6.4): update Branch/Status only. BatchId is left as the
                             // batch that first introduced the item — not reassigned here.
@@ -184,12 +192,12 @@ namespace InfrastructureLayer.Services
                         }
                         else
                         {
-                            // Q1: the PAN is never encrypted or persisted in full. Both
-                            // EncryptedPan (legacy column name, still the unique-index/identity
-                            // column) and MaskedPan hold the identical masked value.
+                            // PAN Storage Redesign: the full PAN is never persisted in any form.
+                            // MaskedPan is display-only; PanFingerprint is the sole identity/dedup
+                            // key, computed once per row from the same normalized PAN.
                             var newItem = new ProductItem
                             {
-                                EncryptedPan = maskedPan,
+                                PanFingerprint = fingerprint,
                                 MaskedPan = maskedPan,
                                 TenantId = tenantId,
                                 ProductId = product.Id,

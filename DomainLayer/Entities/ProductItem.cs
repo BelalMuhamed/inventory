@@ -6,12 +6,14 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace DomainLayer.Entities
 {
     /// <summary>
-    /// A single physical card instance (ERD §3.3). <see cref="EncryptedPan"/> is unique per
-    /// tenant among non-deleted rows and is the batch-upload lookup key.
+    /// A single physical card instance (ERD §3.3). <see cref="PanFingerprint"/> is the sole
+    /// identity/dedup key — a deterministic HMAC-SHA256 fingerprint of the normalized full PAN
+    /// (see <c>IPanFingerprintGenerator</c>) — and is unique per tenant among non-deleted rows.
+    /// It is never displayed, logged, or returned by any API.
     /// <see cref="MaskedPan"/> is the display/search-safe derivative computed at ingestion time
-    /// from the plaintext PAN (never from ciphertext — see <c>PanMasker</c>, Phase 2): ten mask
-    /// characters concatenated with the last six PAN digits. There is no separate "last 6"
-    /// column — <see cref="MaskedPan"/> carries that information already.
+    /// from the plaintext PAN (never derived from <see cref="PanFingerprint"/> — see
+    /// <c>PanMasker</c>): ten mask characters concatenated with the last six PAN digits. It is
+    /// used exclusively for display and user-facing search, never for identity or dedup.
     /// <see cref="BatchId"/> is required: an item always belongs to the batch that introduced
     /// it, and deleting that batch deletes its items (Cascade).
     /// </summary>
@@ -21,13 +23,18 @@ namespace DomainLayer.Entities
         [Key]
         public long ID { get; set; }
 
-        /// <summary>AES-GCM ciphertext of the full PAN. Non-deterministic — never used for lookup/dedup.</summary>
-        public string EncryptedPan { get; set; } = null!;
+        /// <summary>
+        /// Deterministic HMAC-SHA256 fingerprint (32 bytes) of the normalized full PAN. The sole
+        /// identity/dedup key for this tenant — drives the unique index and the batch-upload
+        /// re-sight lookup. Never displayed, never logged, never returned by any API response.
+        /// See <c>IPanFingerprintGenerator</c>.
+        /// </summary>
+        public byte[] PanFingerprint { get; set; } = null!;
 
         /// <summary>
         /// Masked PAN persisted at ingestion time: ten mask characters ("**********") followed
-        /// by the last six PAN digits (Q1). Safe for display and for the batch-upload identity
-        /// index (Phase 1 §Q2).
+        /// by the last six PAN digits. The only field used throughout the application for
+        /// display and any user-facing search — never used for identity or duplicate detection.
         /// </summary>
         public string MaskedPan { get; set; } = null!;
 

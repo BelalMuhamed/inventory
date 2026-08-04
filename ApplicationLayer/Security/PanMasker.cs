@@ -2,8 +2,8 @@
 {
     /// <summary>
     /// Stateless PAN masking (Batch Upload Phased Plan §Q1 / Phase 2). Always computed from the
-    /// plaintext PAN, never from <c>EncryptedPan</c> ciphertext — that was the old bug this
-    /// replaces. No key, no options: pure functions, safe to call from anywhere without DI.
+    /// plaintext PAN, independently of card identity (see <c>IPanFingerprintGenerator</c>).
+    /// No key, no options: pure functions, safe to call from anywhere without DI.
     /// </summary>
     public static class PanMasker
     {
