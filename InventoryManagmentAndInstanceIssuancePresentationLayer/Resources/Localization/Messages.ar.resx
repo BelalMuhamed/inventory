@@ -177,4 +177,31 @@
   <data name="Batch.ActorNotResolved" xml:space="preserve">
     <value>مقدرناش نتعرف على المستخدم اللي بينفذ الطلب ده.</value>
   </data>
+  <data name="Batch.InvalidFileExtension" xml:space="preserve">
+    <value>مش مقبول غير ملفات بامتداد dat. بس.</value>
+  </data>
+  <data name="Batch.FileMissing" xml:space="preserve">
+    <value>مفيش ملف اتبعت، أو الملف فاضي.</value>
+  </data>
+  <data name="Batch.EncryptionFailed" xml:space="preserve">
+    <value>مقدرناش نشفر ملف الكروت. ابعتلنا رقم التتبع لما تبلغ عن المشكلة.</value>
+  </data>
+  <data name="CardFile.ActorNotResolved" xml:space="preserve">
+    <value>مقدرناش نتعرف على المستخدم اللي بينفذ الطلب ده.</value>
+  </data>
+  <data name="CardFile.TenantUnavailable" xml:space="preserve">
+    <value>الجهة رقم {0} موقوفة أو محذوفة، ومش هينفع نطلعلها ملف كروت.</value>
+  </data>
+  <data name="CardFile.NoCards" xml:space="preserve">
+    <value>لازم تبعت كارت واحد على الأقل.</value>
+  </data>
+  <data name="CardFile.TooManyCards" xml:space="preserve">
+    <value>ملف الكروت مينفعش يزيد عن {0} كارت.</value>
+  </data>
+  <data name="CardFile.CardsRejected" xml:space="preserve">
+    <value>فيه {0} كارت معدوش التحقق، وماتعملش أي ملف.</value>
+  </data>
+  <data name="CardFile.GenerationFailed" xml:space="preserve">
+    <value>حصل خطأ مش متوقع وإحنا بنعمل ملف الكروت. ابعتلنا رقم التتبع لما تبلغ عن المشكلة.</value>
+  </data>
 </root>

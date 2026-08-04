@@ -1,4 +1,5 @@
-using ApplicationLayer.BatchUpload;
+﻿using ApplicationLayer.BatchUpload;
+using ApplicationLayer.CardFiles;
 using ApplicationLayer.Contracts;
 using ApplicationLayer.Options;
 using ApplicationLayer.ServicesContracts;
@@ -71,14 +72,28 @@ namespace InfrastructureLayer
             services.AddScoped<IProductItemService, ProductItemService>();
             services.AddScoped<System.Func<IProductItemService>>(sp => sp.GetRequiredService<IProductItemService>);
 
+            // Card File Generation, Phase 9.6: defaulted, so no configuration is required for the
+            // endpoint to be safe out of the box.
+            services.Configure<CardFileOptions>(configuration.GetSection(CardFileOptions.SectionName));
+
             // Batch Upload Phased Plan, Phase 7.
             // Stateless, no dependencies -> Singleton, matching Pbkdf2PasswordHasher's precedent.
             services.AddSingleton<IBatchRowParser, BatchRowParser>();
+            services.AddSingleton<ICardFileWriter, CardFileWriter>();
             services.AddSingleton<IFailedRowsReportBuilder, FailedRowsReportBuilder>();
-            // Stateless per call but takes IOptions<T> -> Scoped, matching JwtTokenGenerator's precedent.
-            services.AddScoped<IBatchFileCipher, BatchFileCipher>();
+
+            // Card File Generation, Phase 9.2/9.6: one implementation, two narrow contracts. Both
+            // resolve to the SAME registration lifetime and type so encrypt and decrypt can never
+            // drift apart in key derivation. Registered separately rather than via a shared
+            // instance because BatchFileCipher is stateless -- two instances behave identically.
+            services.AddScoped<IBatchFileDecryptor, BatchFileCipher>();
+            services.AddScoped<IBatchFileEncryptor, BatchFileCipher>();
+
             services.AddScoped<IBatchUploadService, BatchUploadService>();
             services.AddScoped<System.Func<IBatchUploadService>>(sp => sp.GetRequiredService<IBatchUploadService>);
+
+            services.AddScoped<ICardFileGenerationService, CardFileGenerationService>();
+            services.AddScoped<System.Func<ICardFileGenerationService>>(sp => sp.GetRequiredService<ICardFileGenerationService>);
 
             return services;
 

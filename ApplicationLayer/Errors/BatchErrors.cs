@@ -8,6 +8,22 @@ namespace ApplicationLayer.Errors
     /// </summary>
     public static class BatchErrors
     {
+        /// <summary>
+        /// The uploaded file is not a <c>.dat</c> file (→ 422). Checked before the stream is
+        /// read, so a wrong-file upload costs nothing. This is a contract guard, not a security
+        /// control — <c>payload.exe.dat</c> passes it. Integrity is the AES-GCM tag's job.
+        /// </summary>
+        public static Error InvalidFileExtension() =>
+            Error.Validation("Batch.InvalidFileExtension", "Only .dat files can be uploaded.");
+
+        /// <summary>
+        /// No file was supplied, or the supplied file has zero bytes (→ 422). Distinguished
+        /// from <see cref="DecryptionFailed"/> so an empty upload reports as the operator error it
+        /// is rather than as a suspected tampering event.
+        /// </summary>
+        public static Error FileMissing() =>
+            Error.Validation("Batch.FileMissing", "No file was supplied.");
+
         /// <summary>The decrypted upload file has no rows to process (→ 422).</summary>
         public static Error FileEmpty() =>
             Error.Validation("Batch.FileEmpty", "The uploaded file is empty.");
@@ -41,6 +57,16 @@ namespace ApplicationLayer.Errors
         /// </summary>
         public static Error ActorNotResolved() =>
             Error.Unauthorized("Batch.ActorNotResolved", "The acting principal could not be resolved.");
+
+        /// <summary>
+        /// A card file could not be encrypted (→ 500). Not caller-driven: this means the
+        /// configured master secret or salt is unusable. Logged with full context; the client sees
+        /// only the opaque message (Card File Generation, Phase 9.3).
+        /// </summary>
+        public static Error EncryptionFailed() =>
+            Error.Internal(
+                "Batch.EncryptionFailed",
+                "The card file could not be encrypted. Reference the trace id when reporting this.");
 
         /// <summary>
         /// An unexpected exception was caught at the orchestration boundary (Phase 6). Logged via

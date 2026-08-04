@@ -52,7 +52,8 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Common
                     Code = error.Code,
                     Message = error.Message,        // English default → fallback when no resource key exists
                     Category = error.Category.ToString(),
-                    MessageArg = error.MessageArg   // substituted into the resource's {0} placeholder
+                    MessageArg = error.MessageArg,  // substituted into the resource's {0} placeholder
+                    ValidationErrors = error.Details // field-level detail; null for most errors, then omitted
                 },
                 traceId);
 

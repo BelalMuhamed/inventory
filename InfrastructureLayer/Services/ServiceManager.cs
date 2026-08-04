@@ -1,4 +1,4 @@
-using ApplicationLayer.ServicesContracts;
+﻿using ApplicationLayer.ServicesContracts;
 using System;
 
 namespace InfrastructureLayer.Services
@@ -16,6 +16,7 @@ namespace InfrastructureLayer.Services
         private readonly Lazy<IStockService> _stocks;
         private readonly Lazy<IProductItemService> _productItems;
         private readonly Lazy<IBatchUploadService> _batchUpload;
+        private readonly Lazy<ICardFileGenerationService> _cardFiles;
 
         public ServiceManager(
             Func<IAuthService> authFactory,
@@ -24,7 +25,8 @@ namespace InfrastructureLayer.Services
             Func<IProductService> productFactory,
             Func<IStockService> stockFactory,
             Func<IProductItemService> productItemFactory,
-            Func<IBatchUploadService> batchUploadFactory)
+            Func<IBatchUploadService> batchUploadFactory,
+            Func<ICardFileGenerationService> cardFileFactory)
         {
             _auth = new Lazy<IAuthService>(authFactory);
             _tenants = new Lazy<ITenantService>(tenantFactory);
@@ -33,6 +35,7 @@ namespace InfrastructureLayer.Services
             _stocks = new Lazy<IStockService>(stockFactory);
             _productItems = new Lazy<IProductItemService>(productItemFactory);
             _batchUpload = new Lazy<IBatchUploadService>(batchUploadFactory);
+            _cardFiles = new Lazy<ICardFileGenerationService>(cardFileFactory);
         }
 
         public IAuthService Auth => _auth.Value;
@@ -42,5 +45,6 @@ namespace InfrastructureLayer.Services
         public IStockService Stocks => _stocks.Value;
         public IProductItemService ProductItems => _productItems.Value;
         public IBatchUploadService BatchUpload => _batchUpload.Value;
+        public ICardFileGenerationService CardFiles => _cardFiles.Value;
     }
 }

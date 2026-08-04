@@ -1,4 +1,4 @@
-namespace ApplicationLayer.ServicesContracts
+﻿namespace ApplicationLayer.ServicesContracts
 {
     /// <summary>
     /// Aggregates the application's service contracts behind a single injectable façade,
@@ -19,5 +19,7 @@ namespace ApplicationLayer.ServicesContracts
         IProductItemService ProductItems { get; }
         /// <summary>Batch card-upload use case (Batch Upload Phased Plan, Phase 6).</summary>
         IBatchUploadService BatchUpload { get; }
+        /// <summary>Card-file generation use case (Card File Generation, Phase 9.5).</summary>
+        ICardFileGenerationService CardFiles { get; }
     }
 }

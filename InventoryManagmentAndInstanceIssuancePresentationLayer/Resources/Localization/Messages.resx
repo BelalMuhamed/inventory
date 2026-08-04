@@ -177,4 +177,31 @@
   <data name="Batch.ActorNotResolved" xml:space="preserve">
     <value>The acting principal could not be resolved.</value>
   </data>
+  <data name="Batch.InvalidFileExtension" xml:space="preserve">
+    <value>Only .dat files can be uploaded.</value>
+  </data>
+  <data name="Batch.FileMissing" xml:space="preserve">
+    <value>No file was supplied.</value>
+  </data>
+  <data name="Batch.EncryptionFailed" xml:space="preserve">
+    <value>The card file could not be encrypted. Reference the trace id when reporting this.</value>
+  </data>
+  <data name="CardFile.ActorNotResolved" xml:space="preserve">
+    <value>The acting principal could not be resolved.</value>
+  </data>
+  <data name="CardFile.TenantUnavailable" xml:space="preserve">
+    <value>Tenant {0} is inactive or deleted and cannot be issued a card file.</value>
+  </data>
+  <data name="CardFile.NoCards" xml:space="preserve">
+    <value>At least one card is required.</value>
+  </data>
+  <data name="CardFile.TooManyCards" xml:space="preserve">
+    <value>A card file may contain at most {0} cards.</value>
+  </data>
+  <data name="CardFile.CardsRejected" xml:space="preserve">
+    <value>{0} card(s) failed validation. No file was generated.</value>
+  </data>
+  <data name="CardFile.GenerationFailed" xml:space="preserve">
+    <value>An unexpected error occurred while generating the card file. Reference the trace id when reporting this.</value>
+  </data>
 </root>

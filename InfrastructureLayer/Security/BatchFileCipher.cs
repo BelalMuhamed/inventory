@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Security.Cryptography;
 using System.Text;
 using ApplicationLayer.Contracts;
@@ -10,13 +10,20 @@ using Microsoft.Extensions.Options;
 namespace InfrastructureLayer.Security
 {
     /// <summary>
-    /// AES-256-GCM implementation of <see cref="IBatchFileCipher"/> (Batch Upload Phased Plan,
-    /// Phase 2). Derives a distinct key per tenant from the configured master secret via PBKDF2 —
-    /// the derived key is computed on demand and never stored. Ciphertext layout matches
+    /// AES-256-GCM implementation of the batch-file cipher (Batch Upload Phased Plan, Phase 2;
+    /// encryption added in Card File Generation, Phase 9.3). Derives a distinct key per tenant
+    /// from the configured master secret via PBKDF2 — the derived key is computed on demand and
+    /// never stored. Ciphertext layout matches
     /// <see cref="InfrastructureLayer.Logging.LogEncryptor"/>'s convention: [12-byte nonce]
     /// [16-byte GCM tag][ciphertext].
+    /// <para>
+    /// One class implements both <see cref="IBatchFileEncryptor"/> and
+    /// <see cref="IBatchFileDecryptor"/> specifically so that <see cref="DeriveTenantKey"/> has
+    /// exactly one definition. A second derivation routine written independently for the
+    /// generation side would be a round-trip failure waiting to happen.
+    /// </para>
     /// </summary>
-    public sealed class BatchFileCipher : IBatchFileCipher
+    public sealed class BatchFileCipher : IBatchFileEncryptor, IBatchFileDecryptor
     {
         private const int NonceSize = 12;
         private const int TagSize = 16;
@@ -30,6 +37,46 @@ namespace InfrastructureLayer.Security
         public BatchFileCipher(IOptions<BatchCipherOptions> options)
         {
             _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        }
+
+        /// <inheritdoc />
+        public Result<byte[]> Encrypt(long tenantId, string plaintext)
+        {
+            try
+            {
+                byte[] key = DeriveTenantKey(tenantId);
+
+                // Encoding.UTF8.GetBytes never emits a preamble, so the file is BOM-free by
+                // construction. Building the plaintext through a StreamWriter would not be —
+                // see BatchFileFormat's remarks on why a stray BOM breaks every row-1 PAN.
+                byte[] plaintextBytes = Encoding.UTF8.GetBytes(plaintext ?? string.Empty);
+
+                byte[] output = new byte[NonceSize + TagSize + plaintextBytes.Length];
+
+                Span<byte> nonce = output.AsSpan(0, NonceSize);
+                Span<byte> tag = output.AsSpan(NonceSize, TagSize);
+                Span<byte> cipher = output.AsSpan(NonceSize + TagSize);
+
+                // Fresh random nonce per file. GCM nonce reuse under a fixed key is catastrophic:
+                // it discloses the XOR of the two plaintexts and, worse, the authentication
+                // subkey, which makes tag forgery possible. 96 random bits puts the collision
+                // bound near 2^32 files per tenant — far outside any realistic issuance volume.
+                RandomNumberGenerator.Fill(nonce);
+
+                using (var aes = new AesGcm(key, TagSize))
+                {
+                    aes.Encrypt(nonce, plaintextBytes, cipher, tag);
+                }
+
+                return Result.Success(output);
+            }
+            catch (Exception ex) when (ex is CryptographicException or FormatException or ArgumentException)
+            {
+                // Not caller-driven: reaching here means the configured master secret or salt is
+                // unusable (e.g. a non-base64 salt). Surfaced as an opaque internal failure so no
+                // key material detail leaks into the response.
+                return Result.Failure<byte[]>(BatchErrors.EncryptionFailed());
+            }
         }
 
         /// <inheritdoc />
@@ -68,6 +115,7 @@ namespace InfrastructureLayer.Security
 
         // Combines the configured salt with the tenant id so the same master secret yields a
         // distinct key per tenant. Computed fresh on every call — never cached, never persisted.
+        // Shared by both directions; changing it invalidates every previously issued file.
         private byte[] DeriveTenantKey(long tenantId)
         {
             byte[] configuredSalt = Convert.FromBase64String(_options.Salt);

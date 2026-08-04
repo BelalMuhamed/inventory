@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace DomainLayer.Common
 {
     /// <summary>
@@ -37,6 +39,23 @@ namespace DomainLayer.Common
 
         /// <summary>Returns a copy of this error tagged with a message argument for localization.</summary>
         public Error WithArg(string arg) => this with { MessageArg = arg };
+
+        /// <summary>
+        /// Optional field-level detail, keyed by field or element path (e.g. <c>"cards[3]"</c>).
+        /// Surfaced by the presentation layer as <c>ApiError.ValidationErrors</c> — the same shape
+        /// model-state failures already produce, so clients parse one structure rather than two.
+        /// Null for the great majority of errors, and omitted from the serialized body when null.
+        /// <para>
+        /// Added in Card File Generation, Phase 9.2, because a rejected generation request has to
+        /// tell the caller <em>which</em> cards failed and why, and the success payload is null on
+        /// a failed <see cref="Result{TValue}"/> by design.
+        /// </para>
+        /// </summary>
+        public IReadOnlyDictionary<string, string[]>? Details { get; private init; }
+
+        /// <summary>Returns a copy of this error carrying field-level detail.</summary>
+        /// <param name="details">Failure detail keyed by field or element path.</param>
+        public Error WithDetails(IReadOnlyDictionary<string, string[]> details) => this with { Details = details };
 
         /// <summary>Creates a <see cref="ErrorCategory.Validation"/> error (→ HTTP 422).</summary>
         public static Error Validation(string code, string message) => new(code, message, ErrorCategory.Validation);

@@ -29,7 +29,7 @@ namespace InfrastructureLayer.Services
     {
         private readonly IUnitOfWork _unitOfWork;
         private readonly ICurrentTenant _currentTenant;
-        private readonly IBatchFileCipher _cipher;
+        private readonly IBatchFileDecryptor _decryptor;
         private readonly IBatchRowParser _parser;
         private readonly IFailedRowsReportBuilder _reportBuilder;
         private readonly ILogger<BatchUploadService> _logger;
@@ -37,14 +37,14 @@ namespace InfrastructureLayer.Services
         public BatchUploadService(
             IUnitOfWork unitOfWork,
             ICurrentTenant currentTenant,
-            IBatchFileCipher cipher,
+            IBatchFileDecryptor decryptor,
             IBatchRowParser parser,
             IFailedRowsReportBuilder reportBuilder,
             ILogger<BatchUploadService> logger)
         {
             _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
             _currentTenant = currentTenant ?? throw new ArgumentNullException(nameof(currentTenant));
-            _cipher = cipher ?? throw new ArgumentNullException(nameof(cipher));
+            _decryptor = decryptor ?? throw new ArgumentNullException(nameof(decryptor));
             _parser = parser ?? throw new ArgumentNullException(nameof(parser));
             _reportBuilder = reportBuilder ?? throw new ArgumentNullException(nameof(reportBuilder));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -66,6 +66,15 @@ namespace InfrastructureLayer.Services
                 return Result.Failure<BatchUploadResult>(BatchErrors.ActorNotResolved());
             }
 
+            // Cheapest possible rejection: before the stream is read, before any key derivation.
+            // A wrong-extension or empty upload never touches the cipher.
+            Result fileCheck = ValidateUploadedFile(request.File);
+            if (fileCheck.IsFailure)
+            {
+                return Result.Failure<BatchUploadResult>(fileCheck.Error);
+            }
+
+            string originalFileName = SanitizeFileName(request.File.FileName);
             string? fileMac = null;
 
             try
@@ -74,7 +83,7 @@ namespace InfrastructureLayer.Services
 
                 byte[] rawBytes = await ReadAllBytesAsync(request.File, cancellationToken);
 
-                Result<string> decryptResult = _cipher.Decrypt(tenantId, rawBytes);
+                Result<string> decryptResult = _decryptor.Decrypt(tenantId, rawBytes);
                 if (decryptResult.IsFailure)
                 {
                     return Result.Failure<BatchUploadResult>(decryptResult.Error);
@@ -155,7 +164,7 @@ namespace InfrastructureLayer.Services
                         // already be set. The compiler can't narrow a captured nullable local
                         // across this lambda boundary, hence the null-forgiving operator.
                         FileMac = fileMac!,
-                        OriginalFileName = request.File.FileName,
+                        OriginalFileName = originalFileName,
                     };
 
                     foreach ((ParsedBatchRow row, Product product, Branch branch, string maskedPan) in rowsToProcess)
@@ -255,6 +264,40 @@ namespace InfrastructureLayer.Services
                 return Result.Failure<BatchUploadResult>(BatchErrors.ProcessingFailed());
             }
         }
+
+        /// <summary>
+        /// Pre-flight guard on the uploaded file (Card File Generation, Phase 9.7): a file must be
+        /// present, non-empty, and named <c>*.dat</c>.
+        /// <para>
+        /// Enforced here rather than as a model-validation attribute for two reasons: the failure
+        /// has to travel the same localized <see cref="Result"/> path as every other batch error,
+        /// and the sanitized name it produces is what gets persisted as
+        /// <c>Batch.OriginalFileName</c>.
+        /// </para>
+        /// </summary>
+        private static Result ValidateUploadedFile(IFormFile? file)
+        {
+            if (file is null || file.Length == 0)
+            {
+                return Result.Failure(BatchErrors.FileMissing());
+            }
+
+            string fileName = SanitizeFileName(file.FileName);
+            string extension = Path.GetExtension(fileName);
+
+            if (!string.Equals(extension, BatchFileFormat.FileExtension, StringComparison.OrdinalIgnoreCase))
+            {
+                return Result.Failure(BatchErrors.InvalidFileExtension());
+            }
+
+            return Result.Success();
+        }
+
+        // The client controls FileName entirely, and it lands in the database. Path.GetFileName
+        // strips any directory component a hostile or careless client attaches ("..\..\x.dat"),
+        // so both the extension check and the stored value work on a bare name.
+        private static string SanitizeFileName(string? fileName) =>
+            Path.GetFileName(fileName ?? string.Empty);
 
         private static void AddDelta(Dictionary<(long BranchId, long ProductId), int> deltas, long branchId, long productId, int amount)
         {

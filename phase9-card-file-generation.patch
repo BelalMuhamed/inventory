@@ -1,0 +1,1626 @@
+From ec61113b242c9ec28206f3e51d99b8513a2ca4df Mon Sep 17 00:00:00 2001
+From: Claude <claude@local>
+Date: Mon, 3 Aug 2026 12:34:57 +0000
+Subject: [PATCH] Phase 9: card file generation endpoint + .dat upload guard
+
+---
+ .../BatchUpload/BatchFileFormat.cs            | 127 ++++++++
+ .../BatchUpload/BatchRowParser.cs             |  59 +---
+ ApplicationLayer/CardFiles/CardFileLine.cs    |  18 ++
+ ApplicationLayer/CardFiles/CardFileWriter.cs  |  50 +++
+ .../CardFiles/CardRejectionReason.cs          |  32 ++
+ ...chFileCipher.cs => IBatchFileDecryptor.cs} |  15 +-
+ .../Contracts/IBatchFileEncryptor.cs          |  37 +++
+ ApplicationLayer/Contracts/ICardFileWriter.cs |  25 ++
+ .../DTOs/CardFiles/CardFileDtos.cs            |  65 ++++
+ ApplicationLayer/Errors/BatchErrors.cs        |  26 ++
+ ApplicationLayer/Errors/CardFileErrors.cs     |  84 +++++
+ ApplicationLayer/Options/CardFileOptions.cs   |  20 ++
+ .../ICardFileGenerationService.cs             |  37 +++
+ .../ServicesContracts/IServiceManager.cs      |   4 +-
+ DomainLayer/Common/Error.cs                   |  19 ++
+ .../InfrastructureServiceRegistration.cs      |  21 +-
+ .../Security/BatchFileCipher.cs               |  58 +++-
+ .../Services/BatchUploadService.cs            |  53 +++-
+ .../Services/CardFileGenerationService.cs     | 295 ++++++++++++++++++
+ .../Services/ServiceManager.cs                |   8 +-
+ .../Common/ResultExtensions.cs                |   3 +-
+ .../Controllers/CardFilesController.cs        |  80 +++++
+ .../Resources/Localization/Messages.ar.resx   |  29 +-
+ .../Resources/Localization/Messages.resx      |  29 +-
+ .../appsettings.json                          |   3 +
+ 25 files changed, 1132 insertions(+), 65 deletions(-)
+ create mode 100644 ApplicationLayer/BatchUpload/BatchFileFormat.cs
+ create mode 100644 ApplicationLayer/CardFiles/CardFileLine.cs
+ create mode 100644 ApplicationLayer/CardFiles/CardFileWriter.cs
+ create mode 100644 ApplicationLayer/CardFiles/CardRejectionReason.cs
+ rename ApplicationLayer/Contracts/{IBatchFileCipher.cs => IBatchFileDecryptor.cs} (59%)
+ create mode 100644 ApplicationLayer/Contracts/IBatchFileEncryptor.cs
+ create mode 100644 ApplicationLayer/Contracts/ICardFileWriter.cs
+ create mode 100644 ApplicationLayer/DTOs/CardFiles/CardFileDtos.cs
+ create mode 100644 ApplicationLayer/Errors/CardFileErrors.cs
+ create mode 100644 ApplicationLayer/Options/CardFileOptions.cs
+ create mode 100644 ApplicationLayer/ServicesContracts/ICardFileGenerationService.cs
+ create mode 100644 InfrastructureLayer/Services/CardFileGenerationService.cs
+ create mode 100644 InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/CardFilesController.cs
+
+diff --git a/ApplicationLayer/BatchUpload/BatchFileFormat.cs b/ApplicationLayer/BatchUpload/BatchFileFormat.cs
+new file mode 100644
+index 0000000..1a2726f
+--- /dev/null
++++ b/ApplicationLayer/BatchUpload/BatchFileFormat.cs
+@@ -0,0 +1,127 @@
++using System;
++using System.Linq;
++
++namespace ApplicationLayer.BatchUpload
++{
++    /// <summary>
++    /// The single source of truth for the batch card-file wire format (Card File Generation,
++    /// Phase 9.1). Both sides of the contract depend on this type and nothing else:
++    /// <see cref="BatchRowParser"/> consumes files described here, and
++    /// <see cref="ApplicationLayer.CardFiles.CardFileWriter"/> produces them.
++    /// <para>
++    /// Before this type existed the delimiter, field count, and PAN rules were <c>private const</c>
++    /// inside the parser. Duplicating them in the writer would let the two sides drift silently:
++    /// the server would happily emit a file that every tenant then rejects row-by-row, with no
++    /// server-side signal that anything is wrong. Changing the format now means changing it here,
++    /// once.
++    /// </para>
++    /// <para>
++    /// Format: one card per line, <c>PAN|ProductName|BranchName</c>, UTF-8 with no byte-order mark.
++    /// The BOM exclusion is load-bearing — <c>BatchFileCipher.Decrypt</c> finishes with
++    /// <c>Encoding.UTF8.GetString</c>, which does not strip a preamble, so a BOM would survive
++    /// decryption and prepend U+FEFF to the first PAN, failing every row-1 digit check.
++    /// </para>
++    /// </summary>
++    public static class BatchFileFormat
++    {
++        /// <summary>Separates the three fields within a row.</summary>
++        public const char FieldDelimiter = '|';
++
++        /// <summary>Fields required per row: PAN, product name, branch name — in that order.</summary>
++        public const int RequiredFieldCount = 3;
++
++        /// <summary>Shortest accepted PAN length.</summary>
++        public const int MinPanLength = 13;
++
++        /// <summary>Longest accepted PAN length.</summary>
++        public const int MaxPanLength = 19;
++
++        /// <summary>
++        /// Line separator emitted by the writer. The parser accepts <c>\r\n</c> as well
++        /// (see <see cref="SplitLines"/>) so hand-edited files still import.
++        /// </summary>
++        public const string LineSeparator = "\n";
++
++        /// <summary>
++        /// The only file extension the upload endpoint accepts. Note this is a contract guard,
++        /// not a security control — the actual integrity check is the AES-GCM authentication tag.
++        /// </summary>
++        public const string FileExtension = ".dat";
++
++        private static readonly string[] LineSeparatorCandidates = { "\r\n", "\n" };
++
++        /// <summary>
++        /// Splits decrypted file content into rows, tolerating either line ending.
++        /// Empty entries are preserved: a blank line in the middle of a file is a real
++        /// (malformed) row and must still be reported, not silently dropped.
++        /// </summary>
++        /// <param name="fileContent">Decrypted plaintext file content.</param>
++        public static string[] SplitLines(string fileContent) =>
++            fileContent.Split(LineSeparatorCandidates, StringSplitOptions.None);
++
++        /// <summary>
++        /// Canonicalizes a PAN for validation and comparison: trims surrounding whitespace and
++        /// removes the interior spaces commonly present in copy-pasted card numbers. Never throws.
++        /// </summary>
++        /// <param name="pan">Raw PAN as supplied by the caller or read from a file row.</param>
++        public static string NormalizePan(string? pan) =>
++            pan is null ? string.Empty : pan.Trim().Replace(" ", string.Empty);
++
++        /// <summary>
++        /// True when <paramref name="pan"/> is 13–19 digits and satisfies the Luhn checksum.
++        /// Expects an already-normalized value (see <see cref="NormalizePan"/>).
++        /// </summary>
++        /// <param name="pan">Normalized PAN.</param>
++        public static bool IsValidPan(string? pan)
++        {
++            if (string.IsNullOrEmpty(pan) || pan.Length is < MinPanLength or > MaxPanLength)
++            {
++                return false;
++            }
++
++            return pan.All(char.IsDigit) && PassesLuhnCheck(pan);
++        }
++
++        /// <summary>
++        /// True when <paramref name="value"/> contains a character that would corrupt the row
++        /// structure: the field delimiter, or either line-ending character. A product named
++        /// <c>"Visa|Gold"</c> would otherwise produce a four-field row that the parser rejects as
++        /// malformed at the tenant's end, long after the generating request succeeded.
++        /// </summary>
++        /// <param name="value">A product or branch name destined for a file row.</param>
++        public static bool ContainsForbiddenCharacter(string? value) =>
++            value is not null &&
++            (value.Contains(FieldDelimiter) || value.Contains('\r') || value.Contains('\n'));
++
++        /// <summary>
++        /// Standard Luhn (mod-10) checksum: from the rightmost digit, double every second digit;
++        /// if doubling pushes a digit above 9, subtract 9 (equivalent to summing its two digits).
++        /// Valid when the total is a multiple of 10.
++        /// </summary>
++        /// <param name="digits">A string known to contain only decimal digits.</param>
++        public static bool PassesLuhnCheck(string digits)
++        {
++            int sum = 0;
++            bool doubleDigit = false;
++
++            for (int i = digits.Length - 1; i >= 0; i--)
++            {
++                int digit = digits[i] - '0';
++
++                if (doubleDigit)
++                {
++                    digit *= 2;
++                    if (digit > 9)
++                    {
++                        digit -= 9;
++                    }
++                }
++
++                sum += digit;
++                doubleDigit = !doubleDigit;
++            }
++
++            return sum % 10 == 0;
++        }
++    }
++}
+diff --git a/ApplicationLayer/BatchUpload/BatchRowParser.cs b/ApplicationLayer/BatchUpload/BatchRowParser.cs
+index 5b89f49..9355f19 100644
+--- a/ApplicationLayer/BatchUpload/BatchRowParser.cs
++++ b/ApplicationLayer/BatchUpload/BatchRowParser.cs
+@@ -1,6 +1,5 @@
+-﻿using System;
++using System;
+ using System.Collections.Generic;
+-using System.Linq;
+ using ApplicationLayer.Contracts;
+ using ApplicationLayer.Security;
+ 
+@@ -12,14 +11,15 @@ namespace ApplicationLayer.BatchUpload
+     /// rather than behind an InfrastructureLayer implementation: there is no external dependency
+     /// to abstract away. The interface still exists for DI/testability (the orchestrator depends
+     /// on the abstraction, not this type, per the project's constructor-injection convention).
++    /// <para>
++    /// Phase 9.1: the format constants and PAN rules moved to <see cref="BatchFileFormat"/> so the
++    /// file writer on the generation side derives from the same definitions. What stays here is
++    /// row-level <em>policy</em> — which failure reason applies, and in-file duplicate detection —
++    /// as opposed to the format itself.
++    /// </para>
+     /// </summary>
+     public sealed class BatchRowParser : IBatchRowParser
+     {
+-        private const char FieldDelimiter = '|';
+-        private const int RequiredFieldCount = 3;
+-        private const int MinPanLength = 13;
+-        private const int MaxPanLength = 19;
+-
+         /// <inheritdoc />
+         public (IReadOnlyList<ParsedBatchRow> ValidRows, IReadOnlyList<FailedBatchRow> FailedRows) Parse(string fileContent)
+         {
+@@ -31,7 +31,7 @@ namespace ApplicationLayer.BatchUpload
+                 return (validRows, failedRows);
+             }
+ 
+-            string[] lines = fileContent.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
++            string[] lines = BatchFileFormat.SplitLines(fileContent);
+             var seenPans = new HashSet<string>(StringComparer.Ordinal);
+ 
+             for (int i = 0; i < lines.Length; i++)
+@@ -45,19 +45,19 @@ namespace ApplicationLayer.BatchUpload
+                 }
+ 
+                 int rowNumber = i + 1;
+-                string[] fields = lines[i].Split(FieldDelimiter);
++                string[] fields = lines[i].Split(BatchFileFormat.FieldDelimiter);
+ 
+-                if (fields.Length != RequiredFieldCount || fields.Any(string.IsNullOrWhiteSpace))
++                if (fields.Length != BatchFileFormat.RequiredFieldCount || HasBlankField(fields))
+                 {
+                     failedRows.Add(new FailedBatchRow(rowNumber, "N/A", FailureReason.MalformedLine));
+                     continue;
+                 }
+ 
+-                string pan = fields[0].Trim().Replace(" ", string.Empty);
++                string pan = BatchFileFormat.NormalizePan(fields[0]);
+                 string productName = fields[1].Trim();
+                 string branchName = fields[2].Trim();
+ 
+-                if (!IsValidPan(pan))
++                if (!BatchFileFormat.IsValidPan(pan))
+                 {
+                     failedRows.Add(new FailedBatchRow(rowNumber, PanMasker.Mask(pan), FailureReason.InvalidPan));
+                     continue;
+@@ -75,42 +75,17 @@ namespace ApplicationLayer.BatchUpload
+             return (validRows, failedRows);
+         }
+ 
+-        private static bool IsValidPan(string pan)
+-        {
+-            if (pan.Length is < MinPanLength or > MaxPanLength)
+-            {
+-                return false;
+-            }
+-
+-            return pan.All(char.IsDigit) && PassesLuhnCheck(pan);
+-        }
+-
+-        // Standard Luhn (mod-10) checksum: from the rightmost digit, double every second digit;
+-        // if doubling pushes a digit above 9, subtract 9 (equivalent to summing its two digits).
+-        // Valid when the total is a multiple of 10.
+-        private static bool PassesLuhnCheck(string digits)
++        private static bool HasBlankField(string[] fields)
+         {
+-            int sum = 0;
+-            bool doubleDigit = false;
+-
+-            for (int i = digits.Length - 1; i >= 0; i--)
++            foreach (string field in fields)
+             {
+-                int digit = digits[i] - '0';
+-
+-                if (doubleDigit)
++                if (string.IsNullOrWhiteSpace(field))
+                 {
+-                    digit *= 2;
+-                    if (digit > 9)
+-                    {
+-                        digit -= 9;
+-                    }
++                    return true;
+                 }
+-
+-                sum += digit;
+-                doubleDigit = !doubleDigit;
+             }
+ 
+-            return sum % 10 == 0;
++            return false;
+         }
+     }
+ }
+diff --git a/ApplicationLayer/CardFiles/CardFileLine.cs b/ApplicationLayer/CardFiles/CardFileLine.cs
+new file mode 100644
+index 0000000..2bf11e5
+--- /dev/null
++++ b/ApplicationLayer/CardFiles/CardFileLine.cs
+@@ -0,0 +1,18 @@
++namespace ApplicationLayer.CardFiles
++{
++    /// <summary>
++    /// One fully-validated, ready-to-serialize card row (Card File Generation, Phase 9.4). The
++    /// mirror image of <c>ParsedBatchRow</c>: that type is what comes <em>out</em> of a file,
++    /// this is what goes <em>in</em>.
++    /// <para>
++    /// Constructing one is an assertion that the row has already passed every check — PAN shape
++    /// and Luhn, non-blank names, no delimiter or line-break characters, and product/branch names
++    /// resolved against the target tenant. <c>CardFileWriter</c> does not re-validate; it
++    /// serializes.
++    /// </para>
++    /// </summary>
++    /// <param name="Pan">Normalized clear PAN (13–19 digits, Luhn-valid).</param>
++    /// <param name="ProductName">Canonical product name as stored for the tenant, not the caller's casing.</param>
++    /// <param name="BranchName">Canonical branch name as stored for the tenant, not the caller's casing.</param>
++    public sealed record CardFileLine(string Pan, string ProductName, string BranchName);
++}
+diff --git a/ApplicationLayer/CardFiles/CardFileWriter.cs b/ApplicationLayer/CardFiles/CardFileWriter.cs
+new file mode 100644
+index 0000000..5f60934
+--- /dev/null
++++ b/ApplicationLayer/CardFiles/CardFileWriter.cs
+@@ -0,0 +1,50 @@
++using System.Collections.Generic;
++using System.Text;
++using ApplicationLayer.BatchUpload;
++using ApplicationLayer.Contracts;
++
++namespace ApplicationLayer.CardFiles
++{
++    /// <summary>
++    /// Default <see cref="ICardFileWriter"/> implementation (Card File Generation, Phase 9.4).
++    /// Pure logic — no DB, no I/O, no crypto — so it lives in ApplicationLayer directly, for the
++    /// same reason <c>BatchRowParser</c> does: there is no external dependency to abstract away,
++    /// and the interface exists for DI and testability rather than for layering.
++    /// <para>
++    /// Every constant it emits comes from <see cref="BatchFileFormat"/>, shared with the parser.
++    /// The round-trip test that matters is write → encrypt → decrypt → parse, asserting zero
++    /// failed rows.
++    /// </para>
++    /// </summary>
++    public sealed class CardFileWriter : ICardFileWriter
++    {
++        /// <inheritdoc />
++        public string Write(IReadOnlyList<CardFileLine> lines)
++        {
++            if (lines is null || lines.Count == 0)
++            {
++                return string.Empty;
++            }
++
++            var builder = new StringBuilder();
++
++            for (int i = 0; i < lines.Count; i++)
++            {
++                if (i > 0)
++                {
++                    builder.Append(BatchFileFormat.LineSeparator);
++                }
++
++                CardFileLine line = lines[i];
++
++                builder.Append(line.Pan)
++                       .Append(BatchFileFormat.FieldDelimiter)
++                       .Append(line.ProductName)
++                       .Append(BatchFileFormat.FieldDelimiter)
++                       .Append(line.BranchName);
++            }
++
++            return builder.ToString();
++        }
++    }
++}
+diff --git a/ApplicationLayer/CardFiles/CardRejectionReason.cs b/ApplicationLayer/CardFiles/CardRejectionReason.cs
+new file mode 100644
+index 0000000..feb0b3b
+--- /dev/null
++++ b/ApplicationLayer/CardFiles/CardRejectionReason.cs
+@@ -0,0 +1,32 @@
++namespace ApplicationLayer.CardFiles
++{
++    /// <summary>
++    /// Why a single card in a generation request was rejected (Card File Generation, Phase 9.4).
++    /// <para>
++    /// Deliberately distinct from <c>FailureReason</c>, which classifies rows read <em>from</em> a
++    /// file. The two sets overlap but are not the same: there is no "malformed line" when the
++    /// server is the one writing the lines, and conversely a caller can supply a name containing
++    /// the field delimiter, which no well-formed file row ever can.
++    /// </para>
++    /// </summary>
++    public enum CardRejectionReason
++    {
++        /// <summary>PAN is not 13–19 digits, or fails the Luhn checksum.</summary>
++        InvalidPan = 0,
++
++        /// <summary>The same PAN appears more than once in the request.</summary>
++        DuplicatePan = 1,
++
++        /// <summary>Product name or branch name is missing or blank.</summary>
++        MissingField = 2,
++
++        /// <summary>A name contains the field delimiter or a line break, which would corrupt the row.</summary>
++        ForbiddenCharacter = 3,
++
++        /// <summary>No active product with that name exists for the target tenant.</summary>
++        UnknownProduct = 4,
++
++        /// <summary>No active branch with that name exists for the target tenant.</summary>
++        UnknownBranch = 5
++    }
++}
+diff --git a/ApplicationLayer/Contracts/IBatchFileCipher.cs b/ApplicationLayer/Contracts/IBatchFileDecryptor.cs
+similarity index 59%
+rename from ApplicationLayer/Contracts/IBatchFileCipher.cs
+rename to ApplicationLayer/Contracts/IBatchFileDecryptor.cs
+index 521fbef..a862cde 100644
+--- a/ApplicationLayer/Contracts/IBatchFileCipher.cs
++++ b/ApplicationLayer/Contracts/IBatchFileDecryptor.cs
+@@ -1,20 +1,27 @@
+-﻿using DomainLayer.Common;
++using DomainLayer.Common;
+ 
+ namespace ApplicationLayer.Contracts
+ {
+     /// <summary>
+-    /// Decrypts an uploaded batch file (AES-256-GCM). The per-tenant key is derived at call time
++    /// Decrypts a batch card file (AES-256-GCM). The per-tenant key is derived at call time
+     /// from <c>BatchCipherOptions</c> and is never persisted (Batch Upload Phased Plan, Phase 2).
+     /// A bad key or a tampered/corrupted file is a clean <see cref="Result{TValue}"/> failure,
+     /// not a thrown exception — the GCM authentication tag check does the tamper detection.
++    /// <para>
++    /// Renamed from <c>IBatchFileCipher</c> in Phase 9.2 when file generation introduced the
++    /// opposite operation. Decrypt and encrypt are deliberately separate contracts: the
++    /// tenant-facing upload pipeline must be able to decrypt and must never be able to encrypt,
++    /// and the system-admin generation pipeline is the mirror image. One implementation
++    /// (<c>BatchFileCipher</c>) satisfies both, which is what guarantees the round trip.
++    /// </para>
+     /// </summary>
+-    public interface IBatchFileCipher
++    public interface IBatchFileDecryptor
+     {
+         /// <summary>
+         /// Decrypts <paramref name="ciphertext"/> for <paramref name="tenantId"/> and returns the
+         /// plaintext file content as UTF-8 text.
+         /// </summary>
+-        /// <param name="tenantId">Tenant the file was uploaded for; selects the derived key.</param>
++        /// <param name="tenantId">Tenant the file was issued to; selects the derived key.</param>
+         /// <param name="ciphertext">
+         /// Raw encrypted file bytes, laid out as [12-byte nonce][16-byte GCM tag][ciphertext] —
+         /// the same convention as <c>InfrastructureLayer.Logging.LogEncryptor</c>.
+diff --git a/ApplicationLayer/Contracts/IBatchFileEncryptor.cs b/ApplicationLayer/Contracts/IBatchFileEncryptor.cs
+new file mode 100644
+index 0000000..560e08a
+--- /dev/null
++++ b/ApplicationLayer/Contracts/IBatchFileEncryptor.cs
+@@ -0,0 +1,37 @@
++using DomainLayer.Common;
++
++namespace ApplicationLayer.Contracts
++{
++    /// <summary>
++    /// Encrypts a batch card file for delivery to a tenant (AES-256-GCM), the inverse of
++    /// <see cref="IBatchFileDecryptor"/> (Card File Generation, Phase 9.2). Used only by the
++    /// system-admin generation pipeline.
++    /// <para>
++    /// Kept separate from <see cref="IBatchFileDecryptor"/> rather than merged into one
++    /// <c>ICipher</c>: the upload pipeline has no business being able to encrypt, and on a
++    /// security-sensitive type the narrower dependency is worth the extra interface. Both are
++    /// implemented by the same <c>BatchFileCipher</c>, so both directions share one key-derivation
++    /// routine — which is precisely what makes the round trip safe to rely on.
++    /// </para>
++    /// </summary>
++    public interface IBatchFileEncryptor
++    {
++        /// <summary>
++        /// Encrypts <paramref name="plaintext"/> under <paramref name="tenantId"/>'s derived key.
++        /// </summary>
++        /// <param name="tenantId">Tenant the file is being issued to; selects the derived key.</param>
++        /// <param name="plaintext">
++        /// File content as text. Encoded UTF-8 without a byte-order mark — see
++        /// <c>BatchFileFormat</c> for why the BOM matters.
++        /// </param>
++        /// <returns>
++        /// Ciphertext laid out as [12-byte nonce][16-byte GCM tag][ciphertext], byte-for-byte
++        /// what <see cref="IBatchFileDecryptor.Decrypt"/> expects. A fresh cryptographically
++        /// random nonce is generated per call — never a counter, never derived from the tenant id,
++        /// because nonce reuse under a fixed GCM key leaks both the plaintext XOR and the
++        /// authentication subkey. Failure is configuration-level only
++        /// (<c>BatchErrors.EncryptionFailed()</c>), never caller-driven.
++        /// </returns>
++        Result<byte[]> Encrypt(long tenantId, string plaintext);
++    }
++}
+diff --git a/ApplicationLayer/Contracts/ICardFileWriter.cs b/ApplicationLayer/Contracts/ICardFileWriter.cs
+new file mode 100644
+index 0000000..422755f
+--- /dev/null
++++ b/ApplicationLayer/Contracts/ICardFileWriter.cs
+@@ -0,0 +1,25 @@
++using System.Collections.Generic;
++using ApplicationLayer.CardFiles;
++
++namespace ApplicationLayer.Contracts
++{
++    /// <summary>
++    /// Serializes validated card rows into batch-file plaintext (Card File Generation,
++    /// Phase 9.4) — the inverse of <c>IBatchRowParser</c>.
++    /// </summary>
++    public interface ICardFileWriter
++    {
++        /// <summary>
++        /// Renders <paramref name="lines"/> as batch-file plaintext in the layout defined by
++        /// <c>BatchFileFormat</c>.
++        /// </summary>
++        /// <param name="lines">Validated rows, emitted in the order supplied.</param>
++        /// <returns>
++        /// The file content, ready to hash and encrypt. No trailing line separator: the parser
++        /// tolerates one, but omitting it keeps the row count exactly equal to
++        /// <c>lines.Count</c>, which is the number the tenant must supply as
++        /// <c>expectedRowCount</c> on upload.
++        /// </returns>
++        string Write(IReadOnlyList<CardFileLine> lines);
++    }
++}
+diff --git a/ApplicationLayer/DTOs/CardFiles/CardFileDtos.cs b/ApplicationLayer/DTOs/CardFiles/CardFileDtos.cs
+new file mode 100644
+index 0000000..7acf47b
+--- /dev/null
++++ b/ApplicationLayer/DTOs/CardFiles/CardFileDtos.cs
+@@ -0,0 +1,65 @@
++using System.Collections.Generic;
++using ApplicationLayer.CardFiles;
++
++namespace ApplicationLayer.DTOs.CardFiles
++{
++    /// <summary>
++    /// A single card to place in the generated file.
++    /// </summary>
++    /// <param name="ClearPan">
++    /// Full PAN in the clear. This is the only place in the platform where a complete PAN crosses
++    /// the API boundary — it is never logged, never persisted, and never echoed back in any
++    /// response, masked or otherwise.
++    /// </param>
++    /// <param name="ProductName">Product name, matched case-insensitively against the target tenant's catalog.</param>
++    /// <param name="BranchName">Branch name, matched case-insensitively against the target tenant's branches.</param>
++    public sealed record CardFileEntry(string ClearPan, string ProductName, string BranchName);
++
++    /// <summary>
++    /// Request payload for <c>POST /api/card-files</c> (Card File Generation, Phase 9). Issued by
++    /// the system admin on behalf of a tenant, which is why the tenant is a parameter here rather
++    /// than resolved from the caller's token as it is everywhere else.
++    /// </summary>
++    /// <param name="TenantId">Tenant the file is being generated for; selects the encryption key.</param>
++    /// <param name="Cards">Cards to include. All-or-nothing: one rejected card fails the request.</param>
++    public sealed record CardFileGenerationRequest(long TenantId, IReadOnlyList<CardFileEntry> Cards);
++
++    /// <summary>
++    /// A card that failed validation, used to build the 422 detail map and for logging. Carries
++    /// only the masked PAN.
++    /// </summary>
++    /// <param name="Index">Zero-based position in the request's <c>cards</c> array.</param>
++    /// <param name="MaskedPan">Masked PAN, via <c>PanMasker</c>.</param>
++    /// <param name="Reason">Why the card was rejected.</param>
++    public sealed record RejectedCardEntry(int Index, string MaskedPan, CardRejectionReason Reason);
++
++    /// <summary>
++    /// Result of a successful generation (Card File Generation, Phase 9). Nothing is persisted to
++    /// produce this — no <c>Batch</c>, no <c>ProductItem</c>, no <c>Stock</c>. Those are written
++    /// by the tenant when they upload the file.
++    /// </summary>
++    /// <param name="FileName">
++    /// Suggested file name, always ending in <c>.dat</c> so it passes the upload endpoint's
++    /// extension guard unchanged.
++    /// </param>
++    /// <param name="FileMac">
++    /// Uppercase SHA-256 hex of the plaintext — the same value the tenant's upload will compute
++    /// after decrypting. Hand it over out-of-band so delivery can be verified, and so support can
++    /// correlate a tenant's duplicate-file 409 back to a specific generated file.
++    /// </param>
++    /// <param name="CardCount">Cards written to the file.</param>
++    /// <param name="ExpectedRowCount">
++    /// Row count the tenant must declare on upload. Equal to <paramref name="CardCount"/> by
++    /// construction; returned separately because supplying it wrongly is the single most likely
++    /// operator error in the whole hand-off.
++    /// </param>
++    /// <param name="FileSizeBytes">Size of the encrypted file in bytes, before base64 expansion.</param>
++    /// <param name="FileContentBase64">The encrypted <c>.dat</c> file, base64-encoded.</param>
++    public sealed record CardFileGenerationResult(
++        string FileName,
++        string FileMac,
++        int    CardCount,
++        int    ExpectedRowCount,
++        long   FileSizeBytes,
++        string FileContentBase64);
++}
+diff --git a/ApplicationLayer/Errors/BatchErrors.cs b/ApplicationLayer/Errors/BatchErrors.cs
+index 72e9b12..4df9ed8 100644
+--- a/ApplicationLayer/Errors/BatchErrors.cs
++++ b/ApplicationLayer/Errors/BatchErrors.cs
+@@ -8,6 +8,22 @@ namespace ApplicationLayer.Errors
+     /// </summary>
+     public static class BatchErrors
+     {
++        /// <summary>
++        /// The uploaded file is not a <c>.dat</c> file (→ 422). Checked before the stream is
++        /// read, so a wrong-file upload costs nothing. This is a contract guard, not a security
++        /// control — <c>payload.exe.dat</c> passes it. Integrity is the AES-GCM tag's job.
++        /// </summary>
++        public static Error InvalidFileExtension() =>
++            Error.Validation("Batch.InvalidFileExtension", "Only .dat files can be uploaded.");
++
++        /// <summary>
++        /// No file was supplied, or the supplied file has zero bytes (→ 422). Distinguished
++        /// from <see cref="DecryptionFailed"/> so an empty upload reports as the operator error it
++        /// is rather than as a suspected tampering event.
++        /// </summary>
++        public static Error FileMissing() =>
++            Error.Validation("Batch.FileMissing", "No file was supplied.");
++
+         /// <summary>The decrypted upload file has no rows to process (→ 422).</summary>
+         public static Error FileEmpty() =>
+             Error.Validation("Batch.FileEmpty", "The uploaded file is empty.");
+@@ -42,6 +58,16 @@ namespace ApplicationLayer.Errors
+         public static Error ActorNotResolved() =>
+             Error.Unauthorized("Batch.ActorNotResolved", "The acting principal could not be resolved.");
+ 
++        /// <summary>
++        /// A card file could not be encrypted (→ 500). Not caller-driven: this means the
++        /// configured master secret or salt is unusable. Logged with full context; the client sees
++        /// only the opaque message (Card File Generation, Phase 9.3).
++        /// </summary>
++        public static Error EncryptionFailed() =>
++            Error.Internal(
++                "Batch.EncryptionFailed",
++                "The card file could not be encrypted. Reference the trace id when reporting this.");
++
+         /// <summary>
+         /// An unexpected exception was caught at the orchestration boundary (Phase 6). Logged via
+         /// Serilog with tenant/trace/batch context at the point it occurred; the client only ever
+diff --git a/ApplicationLayer/Errors/CardFileErrors.cs b/ApplicationLayer/Errors/CardFileErrors.cs
+new file mode 100644
+index 0000000..dab5aef
+--- /dev/null
++++ b/ApplicationLayer/Errors/CardFileErrors.cs
+@@ -0,0 +1,84 @@
++using System.Collections.Generic;
++using System.Globalization;
++using System.Linq;
++using ApplicationLayer.DTOs.CardFiles;
++using DomainLayer.Common;
++
++namespace ApplicationLayer.Errors
++{
++    /// <summary>
++    /// Stable, localizable <see cref="Error"/> catalogue for card-file generation (Card File
++    /// Generation, Phase 9.2). Mirrors <see cref="BatchErrors"/>'s pattern.
++    /// <para>
++    /// Tenant-existence failures deliberately reuse <see cref="TenantErrors"/> rather than
++    /// duplicating codes here: a missing tenant is a missing tenant, and clients already handle
++    /// <c>Tenant.NotFound</c>.
++    /// </para>
++    /// </summary>
++    public static class CardFileErrors
++    {
++        /// <summary>
++        /// The caller is not a system admin (→ 401). The <c>SystemAdminOnly</c> policy normally
++        /// stops this at the pipeline; the service re-checks as defence in depth, matching
++        /// <c>ProductService</c>/<c>BranchService</c>.
++        /// </summary>
++        public static Error ActorNotResolved() =>
++            Error.Unauthorized("CardFile.ActorNotResolved", "The acting principal could not be resolved.");
++
++        /// <summary>
++        /// The target tenant is soft-deleted or deactivated (→ 409). Separate from
++        /// <c>Tenant.NotFound</c> because "exists but cannot receive cards" is an operationally
++        /// different situation from "does not exist".
++        /// </summary>
++        public static Error TenantUnavailable(long tenantId) =>
++            Error.Conflict(
++                "CardFile.TenantUnavailable",
++                $"Tenant {tenantId} is inactive or deleted and cannot be issued a card file.")
++                .WithArg(tenantId.ToString(CultureInfo.InvariantCulture));
++
++        /// <summary>The request contains no cards (→ 422).</summary>
++        public static Error NoCards() =>
++            Error.Validation("CardFile.NoCards", "At least one card is required.");
++
++        /// <summary>The request exceeds the configured card cap (→ 422).</summary>
++        public static Error TooManyCards(int maximum) =>
++            Error.Validation(
++                "CardFile.TooManyCards",
++                $"A card file may contain at most {maximum} cards.")
++                .WithArg(maximum.ToString(CultureInfo.InvariantCulture));
++
++        /// <summary>
++        /// One or more cards failed validation (→ 422). All-or-nothing by design: a card file is
++        /// a deliverable artifact, and shipping one that is knowingly part-broken costs more than
++        /// a validation round-trip. Nothing is generated when this fires.
++        /// <para>
++        /// The per-card detail rides on <see cref="Error.Details"/>, keyed by the card's position
++        /// in the request (<c>"cards[7]"</c>) so the caller can map each rejection straight back
++        /// to its input. Reasons are machine-readable enum names, not prose — the caller here is
++        /// an admin tool, not an end user reading a message. PANs never appear.
++        /// </para>
++        /// </summary>
++        /// <param name="rejections">Every card that failed, in request order.</param>
++        public static Error CardsRejected(IReadOnlyList<RejectedCardEntry> rejections)
++        {
++            IReadOnlyDictionary<string, string[]> details = rejections.ToDictionary(
++                rejection => $"cards[{rejection.Index}]",
++                rejection => new[] { rejection.Reason.ToString() });
++
++            return Error.Validation(
++                    "CardFile.CardsRejected",
++                    $"{rejections.Count} card(s) failed validation. No file was generated.")
++                .WithArg(rejections.Count.ToString(CultureInfo.InvariantCulture))
++                .WithDetails(details);
++        }
++
++        /// <summary>
++        /// An unexpected exception was caught at the generation boundary (→ 500). Logged with
++        /// tenant/trace context — never with card data — before the opaque message is surfaced.
++        /// </summary>
++        public static Error GenerationFailed() =>
++            Error.Internal(
++                "CardFile.GenerationFailed",
++                "An unexpected error occurred while generating the card file. Reference the trace id when reporting this.");
++    }
++}
+diff --git a/ApplicationLayer/Options/CardFileOptions.cs b/ApplicationLayer/Options/CardFileOptions.cs
+new file mode 100644
+index 0000000..88a014a
+--- /dev/null
++++ b/ApplicationLayer/Options/CardFileOptions.cs
+@@ -0,0 +1,20 @@
++namespace ApplicationLayer.Options
++{
++    /// <summary>
++    /// Settings for card-file generation, bound from the <c>"CardFile"</c> section
++    /// (Card File Generation, Phase 9.5).
++    /// </summary>
++    public sealed class CardFileOptions
++    {
++        /// <summary>Configuration section name.</summary>
++        public const string SectionName = "CardFile";
++
++        /// <summary>
++        /// Upper bound on cards per request. Without a cap, one request builds an unbounded
++        /// plaintext string plus an unbounded base64 response in memory — a trivial way to
++        /// exhaust the server. Defaulted rather than required so the endpoint is safe with no
++        /// configuration at all.
++        /// </summary>
++        public int MaxCardsPerRequest { get; set; } = 50_000;
++    }
++}
+diff --git a/ApplicationLayer/ServicesContracts/ICardFileGenerationService.cs b/ApplicationLayer/ServicesContracts/ICardFileGenerationService.cs
+new file mode 100644
+index 0000000..a30cbdb
+--- /dev/null
++++ b/ApplicationLayer/ServicesContracts/ICardFileGenerationService.cs
+@@ -0,0 +1,37 @@
++using System.Threading;
++using System.Threading.Tasks;
++using ApplicationLayer.DTOs.CardFiles;
++using DomainLayer.Common;
++
++namespace ApplicationLayer.ServicesContracts
++{
++    /// <summary>
++    /// The card-file generation use case (Card File Generation, Phase 9.5): validate the target
++    /// tenant → validate every card → serialize → fingerprint → encrypt. The system admin calls
++    /// it; the resulting <c>.dat</c> is delivered out-of-band to the tenant, who feeds it back in
++    /// through <see cref="IBatchUploadService"/>.
++    /// <para>
++    /// Read-only with respect to the database. No <c>Batch</c>, <c>ProductItem</c>, or
++    /// <c>Stock</c> row is written here — those are the upload side's business. There is
++    /// therefore no transaction and no unit-of-work commit in this pipeline.
++    /// </para>
++    /// </summary>
++    public interface ICardFileGenerationService
++    {
++        /// <summary>
++        /// Generates an encrypted card file for the tenant named in <paramref name="request"/>.
++        /// </summary>
++        /// <param name="request">Target tenant and the cards to include.</param>
++        /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
++        /// <returns>
++        /// The encrypted file plus the metadata the hand-off needs, or a failure. Unlike the
++        /// upload pipeline, per-card problems are <em>not</em> a collected outcome: a single bad
++        /// card fails the whole request with <c>CardFileErrors.CardsRejected</c> and nothing is
++        /// generated. Upload collects-and-continues because it processes an artifact it did not
++        /// create; generation creates one, so it can and should refuse to emit a broken file.
++        /// </returns>
++        Task<Result<CardFileGenerationResult>> GenerateAsync(
++            CardFileGenerationRequest request,
++            CancellationToken cancellationToken = default);
++    }
++}
+diff --git a/ApplicationLayer/ServicesContracts/IServiceManager.cs b/ApplicationLayer/ServicesContracts/IServiceManager.cs
+index 2a660a9..856c890 100644
+--- a/ApplicationLayer/ServicesContracts/IServiceManager.cs
++++ b/ApplicationLayer/ServicesContracts/IServiceManager.cs
+@@ -1,4 +1,4 @@
+-namespace ApplicationLayer.ServicesContracts
++﻿namespace ApplicationLayer.ServicesContracts
+ {
+     /// <summary>
+     /// Aggregates the application's service contracts behind a single injectable façade,
+@@ -19,5 +19,7 @@ namespace ApplicationLayer.ServicesContracts
+         IProductItemService ProductItems { get; }
+         /// <summary>Batch card-upload use case (Batch Upload Phased Plan, Phase 6).</summary>
+         IBatchUploadService BatchUpload { get; }
++        /// <summary>Card-file generation use case (Card File Generation, Phase 9.5).</summary>
++        ICardFileGenerationService CardFiles { get; }
+     }
+ }
+diff --git a/DomainLayer/Common/Error.cs b/DomainLayer/Common/Error.cs
+index 80b0f09..d0ae13a 100644
+--- a/DomainLayer/Common/Error.cs
++++ b/DomainLayer/Common/Error.cs
+@@ -1,3 +1,5 @@
++using System.Collections.Generic;
++
+ namespace DomainLayer.Common
+ {
+     /// <summary>
+@@ -38,6 +40,23 @@ namespace DomainLayer.Common
+         /// <summary>Returns a copy of this error tagged with a message argument for localization.</summary>
+         public Error WithArg(string arg) => this with { MessageArg = arg };
+ 
++        /// <summary>
++        /// Optional field-level detail, keyed by field or element path (e.g. <c>"cards[3]"</c>).
++        /// Surfaced by the presentation layer as <c>ApiError.ValidationErrors</c> — the same shape
++        /// model-state failures already produce, so clients parse one structure rather than two.
++        /// Null for the great majority of errors, and omitted from the serialized body when null.
++        /// <para>
++        /// Added in Card File Generation, Phase 9.2, because a rejected generation request has to
++        /// tell the caller <em>which</em> cards failed and why, and the success payload is null on
++        /// a failed <see cref="Result{TValue}"/> by design.
++        /// </para>
++        /// </summary>
++        public IReadOnlyDictionary<string, string[]>? Details { get; private init; }
++
++        /// <summary>Returns a copy of this error carrying field-level detail.</summary>
++        /// <param name="details">Failure detail keyed by field or element path.</param>
++        public Error WithDetails(IReadOnlyDictionary<string, string[]> details) => this with { Details = details };
++
+         /// <summary>Creates a <see cref="ErrorCategory.Validation"/> error (→ HTTP 422).</summary>
+         public static Error Validation(string code, string message) => new(code, message, ErrorCategory.Validation);
+ 
+diff --git a/InfrastructureLayer/InfrastructureServiceRegistration.cs b/InfrastructureLayer/InfrastructureServiceRegistration.cs
+index 77c1a6f..36e38d4 100644
+--- a/InfrastructureLayer/InfrastructureServiceRegistration.cs
++++ b/InfrastructureLayer/InfrastructureServiceRegistration.cs
+@@ -1,4 +1,5 @@
+-using ApplicationLayer.BatchUpload;
++﻿using ApplicationLayer.BatchUpload;
++using ApplicationLayer.CardFiles;
+ using ApplicationLayer.Contracts;
+ using ApplicationLayer.Options;
+ using ApplicationLayer.ServicesContracts;
+@@ -71,15 +72,29 @@ namespace InfrastructureLayer
+             services.AddScoped<IProductItemService, ProductItemService>();
+             services.AddScoped<System.Func<IProductItemService>>(sp => sp.GetRequiredService<IProductItemService>);
+ 
++            // Card File Generation, Phase 9.6: defaulted, so no configuration is required for the
++            // endpoint to be safe out of the box.
++            services.Configure<CardFileOptions>(configuration.GetSection(CardFileOptions.SectionName));
++
+             // Batch Upload Phased Plan, Phase 7.
+             // Stateless, no dependencies -> Singleton, matching Pbkdf2PasswordHasher's precedent.
+             services.AddSingleton<IBatchRowParser, BatchRowParser>();
++            services.AddSingleton<ICardFileWriter, CardFileWriter>();
+             services.AddSingleton<IFailedRowsReportBuilder, FailedRowsReportBuilder>();
+-            // Stateless per call but takes IOptions<T> -> Scoped, matching JwtTokenGenerator's precedent.
+-            services.AddScoped<IBatchFileCipher, BatchFileCipher>();
++
++            // Card File Generation, Phase 9.2/9.6: one implementation, two narrow contracts. Both
++            // resolve to the SAME registration lifetime and type so encrypt and decrypt can never
++            // drift apart in key derivation. Registered separately rather than via a shared
++            // instance because BatchFileCipher is stateless -- two instances behave identically.
++            services.AddScoped<IBatchFileDecryptor, BatchFileCipher>();
++            services.AddScoped<IBatchFileEncryptor, BatchFileCipher>();
++
+             services.AddScoped<IBatchUploadService, BatchUploadService>();
+             services.AddScoped<System.Func<IBatchUploadService>>(sp => sp.GetRequiredService<IBatchUploadService>);
+ 
++            services.AddScoped<ICardFileGenerationService, CardFileGenerationService>();
++            services.AddScoped<System.Func<ICardFileGenerationService>>(sp => sp.GetRequiredService<ICardFileGenerationService>);
++
+             return services;
+ 
+            
+diff --git a/InfrastructureLayer/Security/BatchFileCipher.cs b/InfrastructureLayer/Security/BatchFileCipher.cs
+index a6145ed..9ba5416 100644
+--- a/InfrastructureLayer/Security/BatchFileCipher.cs
++++ b/InfrastructureLayer/Security/BatchFileCipher.cs
+@@ -1,4 +1,4 @@
+-﻿using System;
++using System;
+ using System.Security.Cryptography;
+ using System.Text;
+ using ApplicationLayer.Contracts;
+@@ -10,13 +10,20 @@ using Microsoft.Extensions.Options;
+ namespace InfrastructureLayer.Security
+ {
+     /// <summary>
+-    /// AES-256-GCM implementation of <see cref="IBatchFileCipher"/> (Batch Upload Phased Plan,
+-    /// Phase 2). Derives a distinct key per tenant from the configured master secret via PBKDF2 —
+-    /// the derived key is computed on demand and never stored. Ciphertext layout matches
++    /// AES-256-GCM implementation of the batch-file cipher (Batch Upload Phased Plan, Phase 2;
++    /// encryption added in Card File Generation, Phase 9.3). Derives a distinct key per tenant
++    /// from the configured master secret via PBKDF2 — the derived key is computed on demand and
++    /// never stored. Ciphertext layout matches
+     /// <see cref="InfrastructureLayer.Logging.LogEncryptor"/>'s convention: [12-byte nonce]
+     /// [16-byte GCM tag][ciphertext].
++    /// <para>
++    /// One class implements both <see cref="IBatchFileEncryptor"/> and
++    /// <see cref="IBatchFileDecryptor"/> specifically so that <see cref="DeriveTenantKey"/> has
++    /// exactly one definition. A second derivation routine written independently for the
++    /// generation side would be a round-trip failure waiting to happen.
++    /// </para>
+     /// </summary>
+-    public sealed class BatchFileCipher : IBatchFileCipher
++    public sealed class BatchFileCipher : IBatchFileEncryptor, IBatchFileDecryptor
+     {
+         private const int NonceSize = 12;
+         private const int TagSize = 16;
+@@ -32,6 +39,46 @@ namespace InfrastructureLayer.Security
+             _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+         }
+ 
++        /// <inheritdoc />
++        public Result<byte[]> Encrypt(long tenantId, string plaintext)
++        {
++            try
++            {
++                byte[] key = DeriveTenantKey(tenantId);
++
++                // Encoding.UTF8.GetBytes never emits a preamble, so the file is BOM-free by
++                // construction. Building the plaintext through a StreamWriter would not be —
++                // see BatchFileFormat's remarks on why a stray BOM breaks every row-1 PAN.
++                byte[] plaintextBytes = Encoding.UTF8.GetBytes(plaintext ?? string.Empty);
++
++                byte[] output = new byte[NonceSize + TagSize + plaintextBytes.Length];
++
++                Span<byte> nonce = output.AsSpan(0, NonceSize);
++                Span<byte> tag = output.AsSpan(NonceSize, TagSize);
++                Span<byte> cipher = output.AsSpan(NonceSize + TagSize);
++
++                // Fresh random nonce per file. GCM nonce reuse under a fixed key is catastrophic:
++                // it discloses the XOR of the two plaintexts and, worse, the authentication
++                // subkey, which makes tag forgery possible. 96 random bits puts the collision
++                // bound near 2^32 files per tenant — far outside any realistic issuance volume.
++                RandomNumberGenerator.Fill(nonce);
++
++                using (var aes = new AesGcm(key, TagSize))
++                {
++                    aes.Encrypt(nonce, plaintextBytes, cipher, tag);
++                }
++
++                return Result.Success(output);
++            }
++            catch (Exception ex) when (ex is CryptographicException or FormatException or ArgumentException)
++            {
++                // Not caller-driven: reaching here means the configured master secret or salt is
++                // unusable (e.g. a non-base64 salt). Surfaced as an opaque internal failure so no
++                // key material detail leaks into the response.
++                return Result.Failure<byte[]>(BatchErrors.EncryptionFailed());
++            }
++        }
++
+         /// <inheritdoc />
+         public Result<string> Decrypt(long tenantId, byte[] ciphertext)
+         {
+@@ -68,6 +115,7 @@ namespace InfrastructureLayer.Security
+ 
+         // Combines the configured salt with the tenant id so the same master secret yields a
+         // distinct key per tenant. Computed fresh on every call — never cached, never persisted.
++        // Shared by both directions; changing it invalidates every previously issued file.
+         private byte[] DeriveTenantKey(long tenantId)
+         {
+             byte[] configuredSalt = Convert.FromBase64String(_options.Salt);
+diff --git a/InfrastructureLayer/Services/BatchUploadService.cs b/InfrastructureLayer/Services/BatchUploadService.cs
+index dab462e..de2564f 100644
+--- a/InfrastructureLayer/Services/BatchUploadService.cs
++++ b/InfrastructureLayer/Services/BatchUploadService.cs
+@@ -29,7 +29,7 @@ namespace InfrastructureLayer.Services
+     {
+         private readonly IUnitOfWork _unitOfWork;
+         private readonly ICurrentTenant _currentTenant;
+-        private readonly IBatchFileCipher _cipher;
++        private readonly IBatchFileDecryptor _decryptor;
+         private readonly IBatchRowParser _parser;
+         private readonly IFailedRowsReportBuilder _reportBuilder;
+         private readonly ILogger<BatchUploadService> _logger;
+@@ -37,14 +37,14 @@ namespace InfrastructureLayer.Services
+         public BatchUploadService(
+             IUnitOfWork unitOfWork,
+             ICurrentTenant currentTenant,
+-            IBatchFileCipher cipher,
++            IBatchFileDecryptor decryptor,
+             IBatchRowParser parser,
+             IFailedRowsReportBuilder reportBuilder,
+             ILogger<BatchUploadService> logger)
+         {
+             _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+             _currentTenant = currentTenant ?? throw new ArgumentNullException(nameof(currentTenant));
+-            _cipher = cipher ?? throw new ArgumentNullException(nameof(cipher));
++            _decryptor = decryptor ?? throw new ArgumentNullException(nameof(decryptor));
+             _parser = parser ?? throw new ArgumentNullException(nameof(parser));
+             _reportBuilder = reportBuilder ?? throw new ArgumentNullException(nameof(reportBuilder));
+             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+@@ -66,6 +66,15 @@ namespace InfrastructureLayer.Services
+                 return Result.Failure<BatchUploadResult>(BatchErrors.ActorNotResolved());
+             }
+ 
++            // Cheapest possible rejection: before the stream is read, before any key derivation.
++            // A wrong-extension or empty upload never touches the cipher.
++            Result fileCheck = ValidateUploadedFile(request.File);
++            if (fileCheck.IsFailure)
++            {
++                return Result.Failure<BatchUploadResult>(fileCheck.Error);
++            }
++
++            string originalFileName = SanitizeFileName(request.File.FileName);
+             string? fileMac = null;
+ 
+             try
+@@ -74,7 +83,7 @@ namespace InfrastructureLayer.Services
+ 
+                 byte[] rawBytes = await ReadAllBytesAsync(request.File, cancellationToken);
+ 
+-                Result<string> decryptResult = _cipher.Decrypt(tenantId, rawBytes);
++                Result<string> decryptResult = _decryptor.Decrypt(tenantId, rawBytes);
+                 if (decryptResult.IsFailure)
+                 {
+                     return Result.Failure<BatchUploadResult>(decryptResult.Error);
+@@ -155,7 +164,7 @@ namespace InfrastructureLayer.Services
+                         // already be set. The compiler can't narrow a captured nullable local
+                         // across this lambda boundary, hence the null-forgiving operator.
+                         FileMac = fileMac!,
+-                        OriginalFileName = request.File.FileName,
++                        OriginalFileName = originalFileName,
+                     };
+ 
+                     foreach ((ParsedBatchRow row, Product product, Branch branch, string maskedPan) in rowsToProcess)
+@@ -256,6 +265,40 @@ namespace InfrastructureLayer.Services
+             }
+         }
+ 
++        /// <summary>
++        /// Pre-flight guard on the uploaded file (Card File Generation, Phase 9.7): a file must be
++        /// present, non-empty, and named <c>*.dat</c>.
++        /// <para>
++        /// Enforced here rather than as a model-validation attribute for two reasons: the failure
++        /// has to travel the same localized <see cref="Result"/> path as every other batch error,
++        /// and the sanitized name it produces is what gets persisted as
++        /// <c>Batch.OriginalFileName</c>.
++        /// </para>
++        /// </summary>
++        private static Result ValidateUploadedFile(IFormFile? file)
++        {
++            if (file is null || file.Length == 0)
++            {
++                return Result.Failure(BatchErrors.FileMissing());
++            }
++
++            string fileName = SanitizeFileName(file.FileName);
++            string extension = Path.GetExtension(fileName);
++
++            if (!string.Equals(extension, BatchFileFormat.FileExtension, StringComparison.OrdinalIgnoreCase))
++            {
++                return Result.Failure(BatchErrors.InvalidFileExtension());
++            }
++
++            return Result.Success();
++        }
++
++        // The client controls FileName entirely, and it lands in the database. Path.GetFileName
++        // strips any directory component a hostile or careless client attaches ("..\..\x.dat"),
++        // so both the extension check and the stored value work on a bare name.
++        private static string SanitizeFileName(string? fileName) =>
++            Path.GetFileName(fileName ?? string.Empty);
++
+         private static void AddDelta(Dictionary<(long BranchId, long ProductId), int> deltas, long branchId, long productId, int amount)
+         {
+             (long BranchId, long ProductId) key = (branchId, productId);
+diff --git a/InfrastructureLayer/Services/CardFileGenerationService.cs b/InfrastructureLayer/Services/CardFileGenerationService.cs
+new file mode 100644
+index 0000000..93adf8b
+--- /dev/null
++++ b/InfrastructureLayer/Services/CardFileGenerationService.cs
+@@ -0,0 +1,295 @@
++using System;
++using System.Collections.Generic;
++using System.Globalization;
++using System.Linq;
++using System.Security.Cryptography;
++using System.Text;
++using System.Threading;
++using System.Threading.Tasks;
++using ApplicationLayer.BatchUpload;
++using ApplicationLayer.CardFiles;
++using ApplicationLayer.Contracts;
++using ApplicationLayer.DTOs.CardFiles;
++using ApplicationLayer.Errors;
++using ApplicationLayer.Options;
++using ApplicationLayer.Security;
++using ApplicationLayer.ServicesContracts;
++using DomainLayer.Common;
++using DomainLayer.Entities;
++using Microsoft.Extensions.Logging;
++using Microsoft.Extensions.Options;
++
++namespace InfrastructureLayer.Services
++{
++    /// <summary>
++    /// Orchestrates card-file generation (Card File Generation, Phase 9.5): authorize → resolve
++    /// and vet the target tenant → validate every card against that tenant's catalog → serialize
++    /// → SHA-256 fingerprint → AES-256-GCM encrypt.
++    /// <para>
++    /// Nothing is persisted and no transaction is opened; two catalog reads are the only database
++    /// contact. The clear PANs supplied by the caller exist in memory for the duration of the call
++    /// and nowhere else — not in a log, not in a temp file, not in the response.
++    /// </para>
++    /// </summary>
++    public sealed class CardFileGenerationService : ICardFileGenerationService
++    {
++        private const string FileNameTimestampFormat = "yyyyMMddHHmmss";
++
++        private readonly IUnitOfWork _unitOfWork;
++        private readonly ICurrentTenant _currentTenant;
++        private readonly IBatchFileEncryptor _encryptor;
++        private readonly ICardFileWriter _writer;
++        private readonly CardFileOptions _options;
++        private readonly ILogger<CardFileGenerationService> _logger;
++
++        public CardFileGenerationService(
++            IUnitOfWork unitOfWork,
++            ICurrentTenant currentTenant,
++            IBatchFileEncryptor encryptor,
++            ICardFileWriter writer,
++            IOptions<CardFileOptions> options,
++            ILogger<CardFileGenerationService> logger)
++        {
++            _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
++            _currentTenant = currentTenant ?? throw new ArgumentNullException(nameof(currentTenant));
++            _encryptor = encryptor ?? throw new ArgumentNullException(nameof(encryptor));
++            _writer = writer ?? throw new ArgumentNullException(nameof(writer));
++            _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
++            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
++        }
++
++        /// <inheritdoc />
++        public async Task<Result<CardFileGenerationResult>> GenerateAsync(
++            CardFileGenerationRequest request,
++            CancellationToken cancellationToken = default)
++        {
++            // The SystemAdminOnly policy already gated the route. Re-checking here keeps the rule
++            // enforced even if this service is ever called from somewhere other than the
++            // controller, and matches how ProductService/BranchService treat admin context.
++            if (!_currentTenant.IsSystemAdmin)
++            {
++                return Result.Failure<CardFileGenerationResult>(CardFileErrors.ActorNotResolved());
++            }
++
++            try
++            {
++                Tenant? tenant = await _unitOfWork.Tenants
++                    .GetByIdIncludingDeletedAsync(request.TenantId, cancellationToken);
++
++                if (tenant is null)
++                {
++                    return Result.Failure<CardFileGenerationResult>(TenantErrors.NotFound(request.TenantId));
++                }
++
++                if (tenant.IsDeleted || !tenant.IsActive)
++                {
++                    return Result.Failure<CardFileGenerationResult>(
++                        CardFileErrors.TenantUnavailable(request.TenantId));
++                }
++
++                IReadOnlyList<CardFileEntry> cards = request.Cards ?? Array.Empty<CardFileEntry>();
++
++                if (cards.Count == 0)
++                {
++                    return Result.Failure<CardFileGenerationResult>(CardFileErrors.NoCards());
++                }
++
++                if (cards.Count > _options.MaxCardsPerRequest)
++                {
++                    return Result.Failure<CardFileGenerationResult>(
++                        CardFileErrors.TooManyCards(_options.MaxCardsPerRequest));
++                }
++
++                // Two lookups total, not 2xN. Both maps are keyed OrdinalIgnoreCase, so the
++                // caller's casing does not have to match what is stored.
++                IReadOnlyDictionary<string, Product> productMap =
++                    await _unitOfWork.Products.GetTenantMapAsync(request.TenantId, cancellationToken);
++                IReadOnlyDictionary<string, Branch> branchMap =
++                    await _unitOfWork.Branches.GetTenantMapAsync(request.TenantId, cancellationToken);
++
++                (IReadOnlyList<CardFileLine> lines, IReadOnlyList<RejectedCardEntry> rejections) =
++                    ValidateCards(cards, productMap, branchMap);
++
++                if (rejections.Count > 0)
++                {
++                    _logger.LogWarning(
++                        "Card file generation rejected. TenantId={TenantId} CardCount={CardCount} RejectedCount={RejectedCount} Reasons={Reasons}",
++                        request.TenantId,
++                        cards.Count,
++                        rejections.Count,
++                        SummarizeReasons(rejections));
++
++                    return Result.Failure<CardFileGenerationResult>(CardFileErrors.CardsRejected(rejections));
++                }
++
++                // Built once, then both hashed and encrypted. Hashing a different string than the
++                // one encrypted would produce a FileMac the tenant can never reproduce.
++                string plaintext = _writer.Write(lines);
++                string fileMac = ComputeSha256Hex(plaintext);
++
++                Result<byte[]> encryptResult = _encryptor.Encrypt(request.TenantId, plaintext);
++                if (encryptResult.IsFailure)
++                {
++                    _logger.LogError(
++                        "Card file encryption failed. TenantId={TenantId} CardCount={CardCount} FileMac={FileMac}",
++                        request.TenantId, lines.Count, fileMac);
++
++                    return Result.Failure<CardFileGenerationResult>(encryptResult.Error);
++                }
++
++                byte[] cipherBytes = encryptResult.Value;
++                string fileName = BuildFileName(tenant.Code);
++
++                // Card count and fingerprint only. Never the card list, never a PAN.
++                _logger.LogInformation(
++                    "Card file generated. TenantId={TenantId} CardCount={CardCount} FileMac={FileMac} FileName={FileName} SizeBytes={SizeBytes}",
++                    request.TenantId, lines.Count, fileMac, fileName, cipherBytes.LongLength);
++
++                var result = new CardFileGenerationResult(
++                    fileName,
++                    fileMac,
++                    lines.Count,
++                    lines.Count,
++                    cipherBytes.LongLength,
++                    Convert.ToBase64String(cipherBytes));
++
++                return Result.Success(result);
++            }
++            catch (Exception ex)
++            {
++                // Logged where the context is, then surfaced opaquely. The exception message is
++                // never returned: with clear PANs in scope, an echoed message is a disclosure risk.
++                _logger.LogError(
++                    ex,
++                    "Unexpected failure generating card file. TenantId={TenantId} CardCount={CardCount}",
++                    request.TenantId, request.Cards?.Count ?? 0);
++
++                return Result.Failure<CardFileGenerationResult>(CardFileErrors.GenerationFailed());
++            }
++        }
++
++        /// <summary>
++        /// Validates every card and returns the serializable rows alongside the rejections.
++        /// Validation runs to completion rather than stopping at the first bad card, so the caller
++        /// gets one complete list to fix instead of discovering problems one request at a time.
++        /// </summary>
++        private static (IReadOnlyList<CardFileLine> Lines, IReadOnlyList<RejectedCardEntry> Rejections) ValidateCards(
++            IReadOnlyList<CardFileEntry> cards,
++            IReadOnlyDictionary<string, Product> productMap,
++            IReadOnlyDictionary<string, Branch> branchMap)
++        {
++            var lines = new List<CardFileLine>(cards.Count);
++            var rejections = new List<RejectedCardEntry>();
++            var seenPans = new HashSet<string>(StringComparer.Ordinal);
++
++            for (int index = 0; index < cards.Count; index++)
++            {
++                // Annotated nullable deliberately: the list is deserialized from JSON, where a
++                // null array element is entirely possible however the record is declared.
++                CardFileEntry? card = cards[index];
++
++                string pan = BatchFileFormat.NormalizePan(card?.ClearPan);
++                string productName = card?.ProductName?.Trim() ?? string.Empty;
++                string branchName = card?.BranchName?.Trim() ?? string.Empty;
++                string maskedPan = PanMasker.Mask(pan);
++
++                if (!BatchFileFormat.IsValidPan(pan))
++                {
++                    rejections.Add(new RejectedCardEntry(index, maskedPan, CardRejectionReason.InvalidPan));
++                    continue;
++                }
++
++                if (!seenPans.Add(pan))
++                {
++                    rejections.Add(new RejectedCardEntry(index, maskedPan, CardRejectionReason.DuplicatePan));
++                    continue;
++                }
++
++                if (productName.Length == 0 || branchName.Length == 0)
++                {
++                    rejections.Add(new RejectedCardEntry(index, maskedPan, CardRejectionReason.MissingField));
++                    continue;
++                }
++
++                // A name carrying '|' or a line break would silently split the row into the wrong
++                // number of fields, and the tenant would be the one to discover it.
++                if (BatchFileFormat.ContainsForbiddenCharacter(productName) ||
++                    BatchFileFormat.ContainsForbiddenCharacter(branchName))
++                {
++                    rejections.Add(new RejectedCardEntry(index, maskedPan, CardRejectionReason.ForbiddenCharacter));
++                    continue;
++                }
++
++                if (!productMap.TryGetValue(productName, out Product? product))
++                {
++                    rejections.Add(new RejectedCardEntry(index, maskedPan, CardRejectionReason.UnknownProduct));
++                    continue;
++                }
++
++                if (!branchMap.TryGetValue(branchName, out Branch? branch))
++                {
++                    rejections.Add(new RejectedCardEntry(index, maskedPan, CardRejectionReason.UnknownBranch));
++                    continue;
++                }
++
++                // Write the canonical stored names, not the caller's input. This normalizes casing
++                // and whitespace so the tenant-side lookup is guaranteed to resolve.
++                lines.Add(new CardFileLine(pan, product.Name, branch.Name));
++            }
++
++            return (lines, rejections);
++        }
++
++        /// <summary>
++        /// Builds a <c>.dat</c> file name from the tenant code. The extension is not cosmetic —
++        /// the upload endpoint rejects anything else, so a file named here must be uploadable
++        /// unchanged.
++        /// </summary>
++        private static string BuildFileName(string? tenantCode)
++        {
++            string safeCode = SanitizeForFileName(tenantCode);
++            string timestamp = DateTime.UtcNow.ToString(FileNameTimestampFormat, CultureInfo.InvariantCulture);
++
++            return $"{safeCode}-cards-{timestamp}{BatchFileFormat.FileExtension}";
++        }
++
++        // Tenant codes are URL-safe slugs by contract, but this file name reaches a
++        // Content-Disposition header and a client file system, so it is filtered rather than
++        // trusted.
++        private static string SanitizeForFileName(string? tenantCode)
++        {
++            if (string.IsNullOrWhiteSpace(tenantCode))
++            {
++                return "tenant";
++            }
++
++            var builder = new StringBuilder(tenantCode.Length);
++
++            foreach (char character in tenantCode)
++            {
++                if (char.IsLetterOrDigit(character) || character is '-' or '_')
++                {
++                    builder.Append(character);
++                }
++            }
++
++            return builder.Length == 0 ? "tenant" : builder.ToString();
++        }
++
++        // Must match BatchUploadService.ComputeSha256Hex exactly: SHA-256 over the UTF-8 bytes of
++        // the plaintext, uppercase hex. That equality is the whole point of returning FileMac.
++        private static string ComputeSha256Hex(string content)
++        {
++            byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(content));
++            return Convert.ToHexString(hash);
++        }
++
++        // Aggregated counts per reason, for the log line. Deliberately not per-card: the log must
++        // stay free of anything card-identifying.
++        private static string SummarizeReasons(IReadOnlyList<RejectedCardEntry> rejections) =>
++            string.Join(
++                ", ",
++                rejections.GroupBy(rejection => rejection.Reason)
++                          .Select(group => $"{group.Key}={group.Count()}"));
++    }
++}
+diff --git a/InfrastructureLayer/Services/ServiceManager.cs b/InfrastructureLayer/Services/ServiceManager.cs
+index 28909e2..6b1ed04 100644
+--- a/InfrastructureLayer/Services/ServiceManager.cs
++++ b/InfrastructureLayer/Services/ServiceManager.cs
+@@ -1,4 +1,4 @@
+-using ApplicationLayer.ServicesContracts;
++﻿using ApplicationLayer.ServicesContracts;
+ using System;
+ 
+ namespace InfrastructureLayer.Services
+@@ -16,6 +16,7 @@ namespace InfrastructureLayer.Services
+         private readonly Lazy<IStockService> _stocks;
+         private readonly Lazy<IProductItemService> _productItems;
+         private readonly Lazy<IBatchUploadService> _batchUpload;
++        private readonly Lazy<ICardFileGenerationService> _cardFiles;
+ 
+         public ServiceManager(
+             Func<IAuthService> authFactory,
+@@ -24,7 +25,8 @@ namespace InfrastructureLayer.Services
+             Func<IProductService> productFactory,
+             Func<IStockService> stockFactory,
+             Func<IProductItemService> productItemFactory,
+-            Func<IBatchUploadService> batchUploadFactory)
++            Func<IBatchUploadService> batchUploadFactory,
++            Func<ICardFileGenerationService> cardFileFactory)
+         {
+             _auth = new Lazy<IAuthService>(authFactory);
+             _tenants = new Lazy<ITenantService>(tenantFactory);
+@@ -33,6 +35,7 @@ namespace InfrastructureLayer.Services
+             _stocks = new Lazy<IStockService>(stockFactory);
+             _productItems = new Lazy<IProductItemService>(productItemFactory);
+             _batchUpload = new Lazy<IBatchUploadService>(batchUploadFactory);
++            _cardFiles = new Lazy<ICardFileGenerationService>(cardFileFactory);
+         }
+ 
+         public IAuthService Auth => _auth.Value;
+@@ -42,5 +45,6 @@ namespace InfrastructureLayer.Services
+         public IStockService Stocks => _stocks.Value;
+         public IProductItemService ProductItems => _productItems.Value;
+         public IBatchUploadService BatchUpload => _batchUpload.Value;
++        public ICardFileGenerationService CardFiles => _cardFiles.Value;
+     }
+ }
+\ No newline at end of file
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Common/ResultExtensions.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Common/ResultExtensions.cs
+index 071d6c6..adac12c 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Common/ResultExtensions.cs
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Common/ResultExtensions.cs
+@@ -52,7 +52,8 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Common
+                     Code = error.Code,
+                     Message = error.Message,        // English default → fallback when no resource key exists
+                     Category = error.Category.ToString(),
+-                    MessageArg = error.MessageArg   // substituted into the resource's {0} placeholder
++                    MessageArg = error.MessageArg,  // substituted into the resource's {0} placeholder
++                    ValidationErrors = error.Details // field-level detail; null for most errors, then omitted
+                 },
+                 traceId);
+ 
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/CardFilesController.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/CardFilesController.cs
+new file mode 100644
+index 0000000..1d4ab0e
+--- /dev/null
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/CardFilesController.cs
+@@ -0,0 +1,80 @@
++using System.Threading;
++using System.Threading.Tasks;
++using ApplicationLayer.DTOs.CardFiles;
++using ApplicationLayer.ServicesContracts;
++using InventoryManagmentAndInstanceIssuancePresentationLayer.Common;
++using InventoryManagmentAndInstanceIssuancePresentationLayer.Security;
++using Microsoft.AspNetCore.Authorization;
++using Microsoft.AspNetCore.Http;
++using Microsoft.AspNetCore.Mvc;
++
++namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
++{
++    /// <summary>
++    /// Card-file generation endpoint (Card File Generation, Phase 9.6). Restricted to the
++    /// bootstrap system admin via <see cref="AuthorizationPolicies.SystemAdminOnly"/>, following
++    /// <see cref="TenantsController"/>'s pattern.
++    /// <para>
++    /// Deliberately a separate controller from <see cref="InventoryController"/>: that one is
++    /// class-level <c>[Authorize]</c> and acts for the calling tenant, this one is admin-only and
++    /// acts <em>on behalf of</em> a tenant. Two authorization postures in one controller would be
++    /// legal and confusing.
++    /// </para>
++    /// </summary>
++    /// <response code="401">No valid bearer token was supplied.</response>
++    /// <response code="403">The token is valid but is not a system-admin token.</response>
++    [ApiController]
++    [Route("api/card-files")]
++    [Authorize(Policy = AuthorizationPolicies.SystemAdminOnly)]
++    [Produces("application/json")]
++    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
++    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
++    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
++    public sealed class CardFilesController : ControllerBase
++    {
++        private readonly IServiceManager _services;
++
++        /// <summary>Creates the controller from the service façade.</summary>
++        public CardFilesController(IServiceManager services)
++        {
++            _services = services;
++        }
++
++        /// <summary>
++        /// Generates an encrypted <c>.dat</c> card file for a tenant. The response carries the
++        /// file as base64 along with the <c>fileMac</c> and <c>expectedRowCount</c> the tenant
++        /// needs to upload it.
++        /// </summary>
++        /// <remarks>
++        /// The request body contains full PANs in the clear — the only endpoint in the platform
++        /// that accepts them. Callers must use TLS, and the file must be delivered to the tenant
++        /// over a channel at least as protected as the one it arrived on.
++        /// <para>
++        /// All-or-nothing: if any card fails validation the response is 422 and no file is
++        /// produced. The per-card reasons are in <c>error.validationErrors</c>, keyed by the
++        /// card's index in the request.
++        /// </para>
++        /// </remarks>
++        /// <param name="request">Target tenant and the cards to include.</param>
++        /// <param name="cancellationToken">Request cancellation token.</param>
++        /// <response code="200">The generated card file and its metadata.</response>
++        /// <response code="404">No tenant exists with the supplied id.</response>
++        /// <response code="409">The tenant is inactive or deleted.</response>
++        /// <response code="422">The card list is empty, exceeds the cap, or contains rejected cards.</response>
++        [HttpPost]
++        [ProducesResponseType(typeof(ApiResponse<CardFileGenerationResult>), StatusCodes.Status200OK)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
++        public async Task<IActionResult> Generate(
++            [FromBody] CardFileGenerationRequest request,
++            CancellationToken cancellationToken)
++        {
++            // The payload is cardholder data. Keep it out of every intermediary cache.
++            Response.Headers.CacheControl = "no-store";
++
++            return (await _services.CardFiles.GenerateAsync(request, cancellationToken))
++                .ToActionResult(this);
++        }
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+index 021cd98..8e478a4 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+@@ -177,4 +177,31 @@
+   <data name="Batch.ActorNotResolved" xml:space="preserve">
+     <value>مقدرناش نتعرف على المستخدم اللي بينفذ الطلب ده.</value>
+   </data>
+-</root>
+\ No newline at end of file
++  <data name="Batch.InvalidFileExtension" xml:space="preserve">
++    <value>مش مقبول غير ملفات بامتداد dat. بس.</value>
++  </data>
++  <data name="Batch.FileMissing" xml:space="preserve">
++    <value>مفيش ملف اتبعت، أو الملف فاضي.</value>
++  </data>
++  <data name="Batch.EncryptionFailed" xml:space="preserve">
++    <value>مقدرناش نشفر ملف الكروت. ابعتلنا رقم التتبع لما تبلغ عن المشكلة.</value>
++  </data>
++  <data name="CardFile.ActorNotResolved" xml:space="preserve">
++    <value>مقدرناش نتعرف على المستخدم اللي بينفذ الطلب ده.</value>
++  </data>
++  <data name="CardFile.TenantUnavailable" xml:space="preserve">
++    <value>الجهة رقم {0} موقوفة أو محذوفة، ومش هينفع نطلعلها ملف كروت.</value>
++  </data>
++  <data name="CardFile.NoCards" xml:space="preserve">
++    <value>لازم تبعت كارت واحد على الأقل.</value>
++  </data>
++  <data name="CardFile.TooManyCards" xml:space="preserve">
++    <value>ملف الكروت مينفعش يزيد عن {0} كارت.</value>
++  </data>
++  <data name="CardFile.CardsRejected" xml:space="preserve">
++    <value>فيه {0} كارت معدوش التحقق، وماتعملش أي ملف.</value>
++  </data>
++  <data name="CardFile.GenerationFailed" xml:space="preserve">
++    <value>حصل خطأ مش متوقع وإحنا بنعمل ملف الكروت. ابعتلنا رقم التتبع لما تبلغ عن المشكلة.</value>
++  </data>
++</root>
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+index d0353c9..37f98a5 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+@@ -177,4 +177,31 @@
+   <data name="Batch.ActorNotResolved" xml:space="preserve">
+     <value>The acting principal could not be resolved.</value>
+   </data>
+-</root>
+\ No newline at end of file
++  <data name="Batch.InvalidFileExtension" xml:space="preserve">
++    <value>Only .dat files can be uploaded.</value>
++  </data>
++  <data name="Batch.FileMissing" xml:space="preserve">
++    <value>No file was supplied.</value>
++  </data>
++  <data name="Batch.EncryptionFailed" xml:space="preserve">
++    <value>The card file could not be encrypted. Reference the trace id when reporting this.</value>
++  </data>
++  <data name="CardFile.ActorNotResolved" xml:space="preserve">
++    <value>The acting principal could not be resolved.</value>
++  </data>
++  <data name="CardFile.TenantUnavailable" xml:space="preserve">
++    <value>Tenant {0} is inactive or deleted and cannot be issued a card file.</value>
++  </data>
++  <data name="CardFile.NoCards" xml:space="preserve">
++    <value>At least one card is required.</value>
++  </data>
++  <data name="CardFile.TooManyCards" xml:space="preserve">
++    <value>A card file may contain at most {0} cards.</value>
++  </data>
++  <data name="CardFile.CardsRejected" xml:space="preserve">
++    <value>{0} card(s) failed validation. No file was generated.</value>
++  </data>
++  <data name="CardFile.GenerationFailed" xml:space="preserve">
++    <value>An unexpected error occurred while generating the card file. Reference the trace id when reporting this.</value>
++  </data>
++</root>
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/appsettings.json b/InventoryManagmentAndInstanceIssuancePresentationLayer/appsettings.json
+index cf45c7a..e2b2ccf 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/appsettings.json
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/appsettings.json
+@@ -9,6 +9,9 @@
+     "AccessTokenMinutes": 480,
+     "RefreshTokenDays": 7
+   },
++  "CardFile": {
++    "MaxCardsPerRequest": 50000
++  },
+   "Logging": {
+     "LogLevel": {
+       "Default": "Information",
+-- 
+2.43.0
+
