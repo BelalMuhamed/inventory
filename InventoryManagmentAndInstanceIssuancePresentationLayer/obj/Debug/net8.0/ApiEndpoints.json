@@ -676,7 +676,7 @@
         "StatusCode": 500
       },
       {
-        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[ApplicationLayer.DTOs.CardFiles.CardFileGenerationResult, ApplicationLayer, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "Type": "Microsoft.AspNetCore.Mvc.FileContentResult",
         "MediaTypes": [
           "application/json"
         ],

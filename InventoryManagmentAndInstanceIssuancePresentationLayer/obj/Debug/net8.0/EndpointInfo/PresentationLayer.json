@@ -1163,7 +1163,8 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CardFileGenerationResultApiResponse"
+                  "type": "string",
+                  "format": "binary"
                 }
               }
             }
@@ -3575,51 +3576,6 @@
               "$ref": "#/components/schemas/CardFileEntry"
             },
             "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "CardFileGenerationResult": {
-        "type": "object",
-        "properties": {
-          "fileName": {
-            "type": "string",
-            "nullable": true
-          },
-          "fileMac": {
-            "type": "string",
-            "nullable": true
-          },
-          "cardCount": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "expectedRowCount": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "fileSizeBytes": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "fileContentBase64": {
-            "type": "string",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "CardFileGenerationResultApiResponse": {
-        "type": "object",
-        "properties": {
-          "success": {
-            "type": "boolean"
-          },
-          "data": {
-            "$ref": "#/components/schemas/CardFileGenerationResult"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ApiError"
           }
         },
         "additionalProperties": false

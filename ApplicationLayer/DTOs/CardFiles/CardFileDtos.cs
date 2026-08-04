@@ -53,13 +53,17 @@ namespace ApplicationLayer.DTOs.CardFiles
     /// construction; returned separately because supplying it wrongly is the single most likely
     /// operator error in the whole hand-off.
     /// </param>
-    /// <param name="FileSizeBytes">Size of the encrypted file in bytes, before base64 expansion.</param>
-    /// <param name="FileContentBase64">The encrypted <c>.dat</c> file, base64-encoded.</param>
+    /// <param name="FileSizeBytes">Size of the encrypted file in bytes.</param>
+    /// <param name="FileContent">
+    /// The encrypted <c>.dat</c> file's raw bytes. Streamed back to the caller as the HTTP
+    /// response body (<c>application/octet-stream</c>) rather than embedded in a JSON payload, so
+    /// this carries the plain byte array — no base64 encoding.
+    /// </param>
     public sealed record CardFileGenerationResult(
         string FileName,
         string FileMac,
         int    CardCount,
         int    ExpectedRowCount,
         long   FileSizeBytes,
-        string FileContentBase64);
+        byte[] FileContent);
 }

@@ -1,7 +1,9 @@
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using ApplicationLayer.DTOs.CardFiles;
 using ApplicationLayer.ServicesContracts;
+using DomainLayer.Common;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Common;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Security;
 using Microsoft.AspNetCore.Authorization;
@@ -32,6 +34,18 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
     public sealed class CardFilesController : ControllerBase
     {
+        /// <summary>Binary content type used for the generated <c>.dat</c> file download.</summary>
+        private const string DatFileContentType = "application/octet-stream";
+
+        /// <summary>Response header carrying the file's SHA-256 fingerprint (uppercase hex).</summary>
+        private const string FileMacHeader = "X-File-Mac";
+
+        /// <summary>Response header carrying the number of cards written to the file.</summary>
+        private const string CardCountHeader = "X-Card-Count";
+
+        /// <summary>Response header carrying the row count the tenant must declare on upload.</summary>
+        private const string ExpectedRowCountHeader = "X-Expected-Row-Count";
+
         private readonly IServiceManager _services;
 
         /// <summary>Creates the controller from the service façade.</summary>
@@ -41,9 +55,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         }
 
         /// <summary>
-        /// Generates an encrypted <c>.dat</c> card file for a tenant. The response carries the
-        /// file as base64 along with the <c>fileMac</c> and <c>expectedRowCount</c> the tenant
-        /// needs to upload it.
+        /// Generates an encrypted <c>.dat</c> card file for a tenant and streams it back as a raw
+        /// binary download. Because the response body <em>is</em> the file, the hand-off metadata
+        /// the tenant needs (<c>fileMac</c>, <c>cardCount</c>, <c>expectedRowCount</c>) travels in
+        /// the <see cref="FileMacHeader"/>, <see cref="CardCountHeader"/>, and
+        /// <see cref="ExpectedRowCountHeader"/> response headers instead of a JSON body.
         /// </summary>
         /// <remarks>
         /// The request body contains full PANs in the clear — the only endpoint in the platform
@@ -57,12 +73,17 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// </remarks>
         /// <param name="request">Target tenant and the cards to include.</param>
         /// <param name="cancellationToken">Request cancellation token.</param>
-        /// <response code="200">The generated card file and its metadata.</response>
+        /// <response code="200">
+        /// The generated <c>.dat</c> file as <c>application/octet-stream</c>, with
+        /// <c>Content-Disposition: attachment</c> naming it. <c>X-File-Mac</c>,
+        /// <c>X-Card-Count</c>, and <c>X-Expected-Row-Count</c> headers carry the hand-off
+        /// metadata previously returned in the JSON body.
+        /// </response>
         /// <response code="404">No tenant exists with the supplied id.</response>
         /// <response code="409">The tenant is inactive or deleted.</response>
         /// <response code="422">The card list is empty, exceeds the cap, or contains rejected cards.</response>
         [HttpPost]
-        [ProducesResponseType(typeof(ApiResponse<CardFileGenerationResult>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
@@ -73,8 +94,24 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
             // The payload is cardholder data. Keep it out of every intermediary cache.
             Response.Headers.CacheControl = "no-store";
 
-            return (await _services.CardFiles.GenerateAsync(request, cancellationToken))
-                .ToActionResult(this);
+            Result<CardFileGenerationResult> result =
+                await _services.CardFiles.GenerateAsync(request, cancellationToken);
+
+            if (result.IsFailure)
+            {
+                // Same JSON ApiResponse envelope and status-code mapping as every other endpoint;
+                // only the success path returns a raw file.
+                return result.ToActionResult(this);
+            }
+
+            CardFileGenerationResult file = result.Value;
+
+            Response.Headers[FileMacHeader] = file.FileMac;
+            Response.Headers[CardCountHeader] = file.CardCount.ToString(CultureInfo.InvariantCulture);
+            Response.Headers[ExpectedRowCountHeader] =
+                file.ExpectedRowCount.ToString(CultureInfo.InvariantCulture);
+
+            return File(file.FileContent, DatFileContentType, file.FileName);
         }
     }
 }

@@ -151,7 +151,7 @@ namespace InfrastructureLayer.Services
                     lines.Count,
                     lines.Count,
                     cipherBytes.LongLength,
-                    Convert.ToBase64String(cipherBytes));
+                    cipherBytes);
 
                 return Result.Success(result);
             }
