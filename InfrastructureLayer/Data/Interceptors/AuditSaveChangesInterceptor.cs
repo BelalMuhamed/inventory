@@ -22,6 +22,9 @@ namespace InfrastructureLayer.Data.Interceptors
     /// </summary>
     public sealed class AuditSaveChangesInterceptor : SaveChangesInterceptor
     {
+        /// <summary>Convention-based name of the owning-tenant column on tenant-scoped entities.</summary>
+        private const string TenantIdPropertyName = "TenantId";
+
         private readonly ICurrentTenant _currentTenant;
         private readonly IHttpContextAccessor _httpContextAccessor;
 
@@ -51,6 +54,10 @@ namespace InfrastructureLayer.Data.Interceptors
             string? ip = _httpContextAccessor.HttpContext?.Connection.RemoteIpAddress?.ToString();
             DateTime now = DateTime.UtcNow;
 
+            // Null for a system admin (ERD §5.1: "NULL for system-admin global actions") and for
+            // unauthenticated paths such as seeding.
+            long? actorTenantId = _currentTenant.IsSystemAdmin ? null : _currentTenant.TenantId;
+
             // Snapshot changed auditable entries first; adding AuditLogs mutates the change tracker.
             List<(EntityEntry Entry, string Action)> targets = context.ChangeTracker
                 .Entries<AuditableEntity>()
@@ -62,8 +69,13 @@ namespace InfrastructureLayer.Data.Interceptors
             {
                 context.Set<AuditLog>().Add(new AuditLog
                 {
-                    TenantId = _currentTenant.IsSystemAdmin ? null : null, // owning tenant set per-entity when tenant-owned tables exist
-                    ActorTenantId = _currentTenant.IsSystemAdmin ? null : null,
+                    // Owning tenant of the affected row, resolved per entity — not the actor's.
+                    // A system admin editing a tenant's data produces a row attributed to that
+                    // tenant with a null ActorTenantId, which is what makes the tenant-scoped
+                    // audit view (API §4.11) able to show "what happened to my data" including
+                    // administrative actions.
+                    TenantId = ResolveOwningTenantId(entry) ?? actorTenantId,
+                    ActorTenantId = actorTenantId,
                     ActorUsername = actor,
                     Action = action,
                     EntityName = entry.Entity.GetType().Name,
@@ -85,6 +97,34 @@ namespace InfrastructureLayer.Data.Interceptors
                 entry.Property(nameof(AuditableEntity.IsDeleted)).IsModified => "Deleted",
             _ => "Updated"
         };
+
+        /// <summary>
+        /// Reads the owning tenant off the affected entity, or <c>null</c> when it has no tenant
+        /// (e.g. <see cref="SystemAdmin"/>, <see cref="RefreshToken"/>).
+        /// <para>
+        /// <see cref="Tenant"/> is the special case: it carries no <c>TenantId</c> column because
+        /// it <em>is</em> the tenant, so its own primary key is the owning tenant. Everything else
+        /// is discovered by convention on a <c>TenantId</c> property, which keeps this working for
+        /// entities added later without touching the interceptor.
+        /// </para>
+        /// </summary>
+        private static long? ResolveOwningTenantId(EntityEntry entry)
+        {
+            if (entry.Entity is Tenant tenant)
+            {
+                return tenant.Id == default ? null : tenant.Id;
+            }
+
+            PropertyEntry? tenantIdProperty = entry.Properties
+                .FirstOrDefault(p => p.Metadata.Name == TenantIdPropertyName);
+
+            return tenantIdProperty?.CurrentValue switch
+            {
+                long value => value,
+                int value => (long)value,
+                _ => null
+            };
+        }
 
         private static string TryGetKey(EntityEntry entry)
         {

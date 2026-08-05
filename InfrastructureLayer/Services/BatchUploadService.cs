@@ -149,6 +149,27 @@ namespace InfrastructureLayer.Services
                         continue;
                     }
 
+                    // Transactions §4.10 (T0). A card that has left inventory, or that is committed
+                    // to an in-flight transfer, must not be quietly rewritten by a re-upload. The
+                    // re-sight below would otherwise reassign BranchID and reset Status to
+                    // Available, stranding the transfer's hold quantity with no card behind it.
+                    // Rejected per row so the rest of the file still imports, and reported to the
+                    // uploader in the failed-rows workbook.
+                    if (existingItems.TryGetValue(Convert.ToHexString(fingerprint), out ProductItem? sightedItem))
+                    {
+                        if (sightedItem.Status == CardStatus.Disposed)
+                        {
+                            failedRows.Add(new FailedBatchRow(row.RowNumber, maskedPan, FailureReason.CardDisposed));
+                            continue;
+                        }
+
+                        if (sightedItem.BranchID is null)
+                        {
+                            failedRows.Add(new FailedBatchRow(row.RowNumber, maskedPan, FailureReason.CardInTransit));
+                            continue;
+                        }
+                    }
+
                     rowsToProcess.Add((row, product, branch, maskedPan, fingerprint));
                 }
 
@@ -181,9 +202,13 @@ namespace InfrastructureLayer.Services
                         {
                             // Re-sight (§6.4): update Branch/Status only. BatchId is left as the
                             // batch that first introduced the item — not reassigned here.
-                            if (existingItem.BranchID != branch.Id)
+                            // BranchID is non-null here: rows whose card is in transit or disposed
+                            // were filtered into failedRows during validation above and never
+                            // reach rowsToProcess. Pattern-matched rather than null-forgiven so a
+                            // future change to that filter breaks loudly instead of silently.
+                            if (existingItem.BranchID is long currentBranchId && currentBranchId != branch.Id)
                             {
-                                AddDelta(stockDeltas, existingItem.BranchID, existingItem.ProductId, -1);
+                                AddDelta(stockDeltas, currentBranchId, existingItem.ProductId, -1);
                                 AddDelta(stockDeltas, branch.Id, product.Id, +1);
                                 existingItem.BranchID = branch.Id;
                             }

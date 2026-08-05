@@ -204,4 +204,25 @@
   <data name="CardFile.GenerationFailed" xml:space="preserve">
     <value>حصل خطأ مش متوقع وإحنا بنعمل ملف الكروت. ابعتلنا رقم التتبع لما تبلغ عن المشكلة.</value>
   </data>
+  <data name="Batch.FailureReason.CardInTransit" xml:space="preserve">
+    <value>الكارت ده لسه في الطريق أو مش متسلم لفرع، فمينفعش الملف يعدله.</value>
+  </data>
+  <data name="Batch.FailureReason.CardDisposed" xml:space="preserve">
+    <value>الكارت ده اتعدم وخلاص، مينفعش يتعدل تاني.</value>
+  </data>
+  <data name="Batch.Report.ColumnRowNumber" xml:space="preserve">
+    <value>رقم السطر</value>
+  </data>
+  <data name="ProductItem.InTransit" xml:space="preserve">
+    <value>الكارت رقم {0} لسه في الطريق أو مش متسلم لفرع، ومينفعش يتعدل غير لما التحويل يخلص.</value>
+  </data>
+  <data name="ProductItem.Disposed" xml:space="preserve">
+    <value>الكارت رقم {0} اتعدم، ومينفعش يتعدل تاني.</value>
+  </data>
+  <data name="ProductItem.DisposeNotAllowedHere" xml:space="preserve">
+    <value>مينفعش تعدم الكروت من إندبوينت تغيير الحالة. استخدم إندبوينت الإعدام، وهو محتاج سبب والفرع اللي بيعدم.</value>
+  </data>
+  <data name="Product.TransactionWayImmutable" xml:space="preserve">
+    <value>مينفعش تغير طريقة تحويل المنتج رقم {0} لأن فيه كروت متسجلة عليه بالفعل.</value>
+  </data>
 </root>

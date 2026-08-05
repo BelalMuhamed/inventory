@@ -8,6 +8,11 @@ namespace ApplicationLayer.DTOs.ProductItems
     /// <see cref="MaskedPan"/> is the persisted display value — ten masking characters followed
     /// by the last six PAN digits (e.g. <c>**********123456</c>). The card's identity/dedup
     /// fingerprint is never included on this or any other DTO.
+    /// <para>
+    /// <see cref="BranchId"/> is nullable (Transactions §4.10, Q4): <c>null</c> means the card is
+    /// in transit under a transfer, or sits in the tenant's unassigned pool awaiting a branch at
+    /// print time. Clients must render that case rather than assuming a branch is always present.
+    /// </para>
     /// </summary>
     public sealed record ProductItemResponse(
         long Id,
@@ -15,7 +20,7 @@ namespace ApplicationLayer.DTOs.ProductItems
         string MaskedPan,
         long ProductId,
         string ProductName,
-        long BranchId,
+        long? BranchId,
         long BatchId,
         CardStatus Status,
         string? HolderName,

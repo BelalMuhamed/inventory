@@ -68,6 +68,8 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
                 [FailureReason.DuplicatePanInFile] = _localizer["Batch.FailureReason.DuplicatePanInFile"],
                 [FailureReason.UnknownProduct] = _localizer["Batch.FailureReason.UnknownProduct"],
                 [FailureReason.UnknownBranch] = _localizer["Batch.FailureReason.UnknownBranch"],
+                [FailureReason.CardInTransit] = _localizer["Batch.FailureReason.CardInTransit"],
+                [FailureReason.CardDisposed] = _localizer["Batch.FailureReason.CardDisposed"],
             };
 
             return new FailedRowsReportLabels(

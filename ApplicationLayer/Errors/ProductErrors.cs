@@ -25,7 +25,17 @@ namespace ApplicationLayer.Errors
         public static Error TargetTenantNotFound(long tenantId) =>
             Error.Validation("Product.TargetTenantNotFound", $"No tenant exists with id {tenantId}.").WithArg(tenantId.ToString());
 
-       
+        /// <summary>
+        /// <c>ProductTransactionWay</c> was changed on a product that already has cards in
+        /// inventory (→ 409). The value is snapshotted onto every transfer line, and Known and
+        /// Unknown products track their cards differently — flipping it mid-life would leave
+        /// existing cards tracked one way and new transfers assuming the other, with no way to
+        /// tell them apart afterwards.
+        /// </summary>
+        public static Error TransactionWayImmutable(long id) =>
+            Error.Conflict("Product.TransactionWayImmutable",
+                $"The transaction way of product {id} cannot be changed because cards already exist for it.")
+                .WithArg(id.ToString());
 
         // NOTE (stock seam): when Stock/Transactions exist, add Product.HasStock / Product.HasOpenTransactions
         // (Conflict → 409) to enforce the API §4.6 delete-guard "blocked if open transactions or non-zero stock".

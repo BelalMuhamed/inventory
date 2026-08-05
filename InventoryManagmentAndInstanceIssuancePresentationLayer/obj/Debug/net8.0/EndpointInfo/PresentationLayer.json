@@ -3586,7 +3586,8 @@
           1,
           2,
           3,
-          4
+          4,
+          5
         ],
         "type": "integer",
         "format": "int32"
@@ -3750,7 +3751,8 @@
           },
           "branchId": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "nullable": true
           },
           "batchId": {
             "type": "integer",

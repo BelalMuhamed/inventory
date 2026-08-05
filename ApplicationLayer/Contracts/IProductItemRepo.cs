@@ -36,5 +36,18 @@ namespace ApplicationLayer.Contracts
         /// </summary>
         Task<IReadOnlyDictionary<string, ProductItem>> GetExistingByFingerprintsAsync(
             long tenantId, IEnumerable<byte[]> fingerprints, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// True when at least one card exists for the product, including soft-deleted and disposed
+        /// ones. Backs the <c>ProductTransactionWay</c> immutability rule (Transactions §4.10, P6):
+        /// once any card has ever been tracked under a given way, the way is frozen — a
+        /// soft-deleted card can be restored and a disposed one still appears in history, so
+        /// neither may unfreeze it.
+        /// </summary>
+        /// <param name="tenantId">Owning tenant of the product.</param>
+        /// <param name="productId">Product to test.</param>
+        /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
+        Task<bool> ExistsForProductAsync(
+            long tenantId, long productId, CancellationToken cancellationToken = default);
     }
 }

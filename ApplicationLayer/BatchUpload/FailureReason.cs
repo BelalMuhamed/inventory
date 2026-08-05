@@ -21,6 +21,20 @@
         UnknownProduct,
 
         /// <summary>The row's branch name does not match any branch in the tenant's catalog.</summary>
-        UnknownBranch
+        UnknownBranch,
+
+        /// <summary>
+        /// The card exists but is currently in transit or unassigned (<c>BranchID IS NULL</c>), so
+        /// the re-sight was refused (Transactions §4.10, T0). Silently honouring the file's branch
+        /// would yank the card out of an in-flight transfer and desynchronize the hold quantities
+        /// on both sides; the uploader is told instead, and the rest of the file still processes.
+        /// </summary>
+        CardInTransit,
+
+        /// <summary>
+        /// The card exists but has been disposed (written off) and has permanently left inventory
+        /// (Transactions §4.10, Addendum A). A disposed card is never resurrected by a re-upload.
+        /// </summary>
+        CardDisposed
     }
 }

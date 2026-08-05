@@ -327,6 +327,21 @@ namespace InfrastructureLayer.Data
                       .WithMany(b => b.CardsInBatch)
                       .HasForeignKey(x => x.BatchId)
                       .OnDelete(DeleteBehavior.Cascade);
+
+                // BranchID is optional (Transactions §4.10, Q4): null = in transit or unassigned.
+                // Declared explicitly rather than left to convention for two reasons: an optional
+                // relationship would otherwise default to ClientSetNull, and NoAction is what the
+                // ERD (§3.3) specifies — deleting a branch must never delete or silently detach
+                // the cards that were sitting at it.
+                entity.HasOne(x => x.Branch)
+                      .WithMany()
+                      .HasForeignKey(x => x.BranchID)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                // Supports the unassigned-pool query (BranchID IS NULL) that the transfer and
+                // print paths both need, and the per-branch availability count.
+                entity.HasIndex(x => new { x.TenantId, x.BranchID, x.Status })
+                      .HasDatabaseName("IX_Cards_TenantId_BranchId_Status");
             });
         }
         private static void ConfigureBatches(ModelBuilder modelBuilder)

@@ -3,8 +3,12 @@
   "WorkspaceRootPath": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260804111708_PanFingerprintRedesign.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:InfrastructureLayer\\Migrations\\20260804111708_PanFingerprintRedesign.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260805090617_T0-NullableCardBranch-DisposedStatus.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:InfrastructureLayer\\Migrations\\20260805090617_T0-NullableCardBranch-DisposedStatus.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\infrastructurelayer\\migrations\\20260804111708_panfingerprintredesign.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|solutionrelative:infrastructurelayer\\migrations\\20260804111708_panfingerprintredesign.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{F16A81A9-3E11-4D6B-B0F0-4C4F2397FF6F}|InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\inventorymanagmentandinstanceissuancepresentationlayer\\controllers\\inventorycontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
@@ -49,10 +53,6 @@
     {
       "AbsoluteMoniker": "D:0:0:{0DA6AE52-F73A-474A-84A2-F6109E2987AE}|DomainLayer\\DomainLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\domainlayer\\enums\\producttransactionway.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{0DA6AE52-F73A-474A-84A2-F6109E2987AE}|DomainLayer\\DomainLayer.csproj|solutionrelative:domainlayer\\enums\\producttransactionway.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260804075043_reback.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:InfrastructureLayer\\Migrations\\20260804075043_reback.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{F16A81A9-3E11-4D6B-B0F0-4C4F2397FF6F}|InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\inventorymanagmentandinstanceissuancepresentationlayer\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
@@ -141,6 +141,10 @@
     {
       "AbsoluteMoniker": "D:0:0:{0DA6AE52-F73A-474A-84A2-F6109E2987AE}|DomainLayer\\DomainLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\domainlayer\\entities\\branch.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{0DA6AE52-F73A-474A-84A2-F6109E2987AE}|DomainLayer\\DomainLayer.csproj|solutionrelative:domainlayer\\entities\\branch.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\infrastructurelayer\\migrations\\20260804075043_reback.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|solutionrelative:infrastructurelayer\\migrations\\20260804075043_reback.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     }
   ],
   "DocumentGroupContainers": [
@@ -159,6 +163,23 @@
             {
               "$type": "Document",
               "DocumentIndex": 0,
+              "Title": "20260805090617_T0-NullableCardBranch-DisposedStatus.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260805090617_T0-NullableCardBranch-DisposedStatus.cs",
+              "RelativeDocumentMoniker": "InfrastructureLayer\\Migrations\\20260805090617_T0-NullableCardBranch-DisposedStatus.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260805090617_T0-NullableCardBranch-DisposedStatus.cs",
+              "RelativeToolTip": "InfrastructureLayer\\Migrations\\20260805090617_T0-NullableCardBranch-DisposedStatus.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-08-05T09:06:17.53Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{0ad07096-bba9-4900-a651-0598d26f6d24}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
               "Title": "20260804111708_PanFingerprintRedesign.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260804111708_PanFingerprintRedesign.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Migrations\\20260804111708_PanFingerprintRedesign.cs",
@@ -170,12 +191,8 @@
               "EditorCaption": ""
             },
             {
-              "$type": "Bookmark",
-              "Name": "ST:0:0:{0ad07096-bba9-4900-a651-0598d26f6d24}"
-            },
-            {
               "$type": "Document",
-              "DocumentIndex": 4,
+              "DocumentIndex": 5,
               "Title": "CardStatus.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Enums\\CardStatus.cs",
               "RelativeDocumentMoniker": "DomainLayer\\Enums\\CardStatus.cs",
@@ -183,12 +200,11 @@
               "RelativeToolTip": "DomainLayer\\Enums\\CardStatus.cs",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-04T09:39:57.624Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-04T09:39:57.624Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 3,
+              "DocumentIndex": 4,
               "Title": "CardFilesController.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\CardFilesController.cs",
               "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\CardFilesController.cs",
@@ -196,12 +212,11 @@
               "RelativeToolTip": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\CardFilesController.cs",
               "ViewState": "AgIAAE4AAAAAAAAAAAAQwFwAAAAIAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-04T08:05:13.983Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-04T08:05:13.983Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 9,
+              "DocumentIndex": 10,
               "Title": "ActivationStatus.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Enums\\ActivationStatus.cs",
               "RelativeDocumentMoniker": "DomainLayer\\Enums\\ActivationStatus.cs",
@@ -209,12 +224,11 @@
               "RelativeToolTip": "DomainLayer\\Enums\\ActivationStatus.cs",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-04T07:54:37.207Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-04T07:54:37.207Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 10,
+              "DocumentIndex": 11,
               "Title": "UsingPrinterType.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Enums\\UsingPrinterType.cs",
               "RelativeDocumentMoniker": "DomainLayer\\Enums\\UsingPrinterType.cs",
@@ -222,12 +236,11 @@
               "RelativeToolTip": "DomainLayer\\Enums\\UsingPrinterType.cs",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-04T07:54:27.227Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-04T07:54:27.227Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 11,
+              "DocumentIndex": 12,
               "Title": "ProductTransactionWay.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Enums\\ProductTransactionWay.cs",
               "RelativeDocumentMoniker": "DomainLayer\\Enums\\ProductTransactionWay.cs",
@@ -235,12 +248,11 @@
               "RelativeToolTip": "DomainLayer\\Enums\\ProductTransactionWay.cs",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-04T07:54:11.964Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-04T07:54:11.964Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 2,
               "Title": "InventoryController.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\InventoryController.cs",
               "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\InventoryController.cs",
@@ -248,12 +260,11 @@
               "RelativeToolTip": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\InventoryController.cs",
               "ViewState": "AgIAACgAAAAAAAAAAAAQwDMAAAAIAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-03T11:42:40.678Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-03T11:42:40.678Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 5,
+              "DocumentIndex": 6,
               "Title": "Program.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Program.cs",
               "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Program.cs",
@@ -261,12 +272,11 @@
               "RelativeToolTip": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Program.cs",
               "ViewState": "AgIAABUAAAAAAAAAAIA2wDEAAAAxAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-03T11:41:40.03Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-03T11:41:40.03Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 2,
+              "DocumentIndex": 3,
               "Title": "CardFileGenerationService.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\CardFileGenerationService.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Services\\CardFileGenerationService.cs",
@@ -274,12 +284,11 @@
               "RelativeToolTip": "InfrastructureLayer\\Services\\CardFileGenerationService.cs",
               "ViewState": "AgIAAKEAAAAAAAAAAAAewLMAAAAIAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-04T08:17:53.043Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-04T08:17:53.043Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 8,
+              "DocumentIndex": 9,
               "Title": "BranchController.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\BranchController.cs",
               "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\BranchController.cs",
@@ -287,12 +296,11 @@
               "RelativeToolTip": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\BranchController.cs",
               "ViewState": "AgIAABoAAAAAAAAAAAAAwDAAAAAuAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-04T08:01:50.088Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-04T08:01:50.088Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 6,
+              "DocumentIndex": 7,
               "Title": "BatchFileFormat.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\BatchUpload\\BatchFileFormat.cs",
               "RelativeDocumentMoniker": "ApplicationLayer\\BatchUpload\\BatchFileFormat.cs",
@@ -300,12 +308,11 @@
               "RelativeToolTip": "ApplicationLayer\\BatchUpload\\BatchFileFormat.cs",
               "ViewState": "AgIAADwAAAAAAAAAAAAnwFEAAAAoAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-04T08:11:00.85Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-04T08:11:00.85Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 12,
+              "DocumentIndex": 35,
               "Title": "20260804075043_reback.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260804075043_reback.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Migrations\\20260804075043_reback.cs",
@@ -313,12 +320,11 @@
               "RelativeToolTip": "InfrastructureLayer\\Migrations\\20260804075043_reback.cs",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-04T07:50:43.792Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-04T07:50:43.792Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 7,
+              "DocumentIndex": 8,
               "Title": "BranchService.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\BranchService.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Services\\BranchService.cs",
@@ -326,8 +332,7 @@
               "RelativeToolTip": "InfrastructureLayer\\Services\\BranchService.cs",
               "ViewState": "AgIAACUAAAAAAAAAAADgvzMAAAAyAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-07-22T08:51:17.912Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-07-22T08:51:17.912Z"
             },
             {
               "$type": "Document",
@@ -351,8 +356,7 @@
               "RelativeToolTip": "InventoryManagmentAndInstanceIssuancePresentationLayer\\appsettings.json",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAIAAAA8AAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
-              "WhenOpened": "2026-07-28T07:44:00.053Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-07-28T07:44:00.053Z"
             },
             {
               "$type": "Document",

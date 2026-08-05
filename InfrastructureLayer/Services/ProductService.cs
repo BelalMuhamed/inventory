@@ -99,6 +99,19 @@ namespace InfrastructureLayer.Services
                 await _unitOfWork.Products.NameExistsAsync(product.TenantId, request.Name, id, cancellationToken))
                 return Result.Failure<ProductResponse>(ProductErrors.NameAlreadyExists(request.Name));
 
+            // Transactions §4.10 (P6): ProductTransactionWay is frozen once any card exists for the
+            // product. Known and Unknown track cards differently — Known enumerates them per
+            // transfer, Unknown moves quantities against a shared pool — and every transfer line
+            // snapshots the value at creation time. Flipping it mid-life would leave existing cards
+            // tracked one way while new transfers assume the other, with nothing in the data to
+            // distinguish them afterwards. The check is skipped when the value is unchanged, so an
+            // ordinary rename or threshold edit never pays for the query.
+            if (product.ProductTransactionWay != request.ProductTransactionWay &&
+                await _unitOfWork.ProductItems.ExistsForProductAsync(product.TenantId, id, cancellationToken))
+            {
+                return Result.Failure<ProductResponse>(ProductErrors.TransactionWayImmutable(id));
+            }
+
             product.Name = request.Name;
             product.ActivationStatus = request.ActivationStatus;
             product.LowProductThreshold = request.LowProductThreshold;

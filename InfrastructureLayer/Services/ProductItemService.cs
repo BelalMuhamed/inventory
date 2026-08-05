@@ -65,6 +65,25 @@ namespace InfrastructureLayer.Services
             if (item is null) return Result.Failure<ProductItemResponse>(ProductItemErrors.NotFound(id));
             if (scope is long s && item.TenantId != s) return Result.Failure<ProductItemResponse>(ProductItemErrors.NotFound(id));
 
+            // Transactions §4.10 (T0). Three guards, in order of terminality.
+            //
+            // Disposed is terminal: the card has left inventory and its quantity is in no Stock
+            // column, so there is nothing coherent an edit could do.
+            if (item.Status == CardStatus.Disposed)
+                return Result.Failure<ProductItemResponse>(ProductItemErrors.Disposed(id));
+
+            // Disposal is not a status edit. It requires a mandatory reason and a disposing branch
+            // for the CardDisposals record, neither of which this payload carries.
+            if (request.Status == CardStatus.Disposed)
+                return Result.Failure<ProductItemResponse>(ProductItemErrors.DisposeNotAllowedHere());
+
+            // A null branch means the card is in transit or unassigned: its quantity is committed
+            // to some branch's HoldQuantity under a transfer this module knows nothing about, and
+            // there is no Stock row keyed on a null branch for the delta below to land on. Without
+            // this guard ApplyAvailableDeltaAsync would dereference a null BranchID.
+            if (item.BranchID is not long branchId)
+                return Result.Failure<ProductItemResponse>(ProductItemErrors.InTransit(id));
+
             CardStatus previousStatus = item.Status;
 
             item.Status = request.Status;
@@ -77,7 +96,7 @@ namespace InfrastructureLayer.Services
             int delta = AvailableDelta(previousStatus, request.Status);
             if (delta != 0)
             {
-                Error? stockError = await ApplyAvailableDeltaAsync(item, delta, cancellationToken);
+                Error? stockError = await ApplyAvailableDeltaAsync(item, branchId, delta, cancellationToken);
                 if (stockError is not null) return Result.Failure<ProductItemResponse>(stockError);
             }
 
@@ -103,19 +122,25 @@ namespace InfrastructureLayer.Services
 
         // Applies the signed delta to the branch stock row, creating the row on a positive delta if
         // it is missing. Returns an Error (not thrown) on an inconsistent state.
-        private async Task<Error?> ApplyAvailableDeltaAsync(ProductItem item, int delta, CancellationToken cancellationToken)
+        //
+        // branchId is passed in rather than read off the item because ProductItem.BranchID is
+        // nullable (Transactions §4.10, Q4). The caller has already established it is non-null;
+        // taking it as a plain long keeps that guarantee visible in the signature instead of
+        // relying on a null-forgiving operator here.
+        private async Task<Error?> ApplyAvailableDeltaAsync(
+            ProductItem item, long branchId, int delta, CancellationToken cancellationToken)
         {
             Stock? stock = await _unitOfWork.Stocks.GetForUpdateAsync(
-                item.TenantId, item.BranchID, item.ProductId, cancellationToken);
+                item.TenantId, branchId, item.ProductId, cancellationToken);
 
             if (stock is null)
             {
-                if (delta < 0) return StockErrors.RowNotFound(item.BranchID, item.ProductId);
+                if (delta < 0) return StockErrors.RowNotFound(branchId, item.ProductId);
 
                 stock = new Stock
                 {
                     TenantId = item.TenantId,
-                    BranchId = item.BranchID,
+                    BranchId = branchId,
                     ProductId = item.ProductId,
                     AvailableQuantity = 0,
                     HoldQuantity = 0,
@@ -125,7 +150,7 @@ namespace InfrastructureLayer.Services
             }
 
             int updated = stock.AvailableQuantity + delta;
-            if (updated < 0) return StockErrors.InsufficientAvailable(item.BranchID, item.ProductId);
+            if (updated < 0) return StockErrors.InsufficientAvailable(branchId, item.ProductId);
 
             stock.AvailableQuantity = updated;
             stock.UpdatedAt = DateTime.UtcNow;      // Stock's own UpdatedAt (base one is shadowed)

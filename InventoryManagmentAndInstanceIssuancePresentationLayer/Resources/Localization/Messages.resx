@@ -204,4 +204,25 @@
   <data name="CardFile.GenerationFailed" xml:space="preserve">
     <value>An unexpected error occurred while generating the card file. Reference the trace id when reporting this.</value>
   </data>
+  <data name="Batch.FailureReason.CardInTransit" xml:space="preserve">
+    <value>This card is currently in transit or unassigned and cannot be updated by an upload.</value>
+  </data>
+  <data name="Batch.FailureReason.CardDisposed" xml:space="preserve">
+    <value>This card has been disposed and can no longer be updated.</value>
+  </data>
+  <data name="Batch.Report.ColumnRowNumber" xml:space="preserve">
+    <value>Row</value>
+  </data>
+  <data name="ProductItem.InTransit" xml:space="preserve">
+    <value>Product item {0} is in transit or unassigned and cannot be modified until the transfer is settled.</value>
+  </data>
+  <data name="ProductItem.Disposed" xml:space="preserve">
+    <value>Product item {0} has been disposed and can no longer be modified.</value>
+  </data>
+  <data name="ProductItem.DisposeNotAllowedHere" xml:space="preserve">
+    <value>Cards cannot be disposed through the status endpoint. Use the dispose endpoint, which requires a reason and a branch.</value>
+  </data>
+  <data name="Product.TransactionWayImmutable" xml:space="preserve">
+    <value>The transaction way of product {0} cannot be changed because cards already exist for it.</value>
+  </data>
 </root>

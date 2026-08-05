@@ -101,5 +101,11 @@ namespace InfrastructureLayer.Repositories
 
             return map;
         }
+
+        public async Task<bool> ExistsForProductAsync(
+            long tenantId, long productId, CancellationToken cancellationToken = default)
+            => await Set
+                .AsNoTracking()
+                .AnyAsync(x => x.TenantId == tenantId && x.ProductId == productId, cancellationToken);
     }
 }

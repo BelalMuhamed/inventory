@@ -68,11 +68,42 @@ namespace DomainLayer.Entities
         /// <summary>Free-text operational notes.</summary>
         public string? Notes { get; set; }
 
-        /// <summary>Branch id (FK → Branches.Id).</summary>
+        /// <summary>
+        /// Branch the card physically sits at (FK → Branches.Id), or <c>null</c> when it sits at
+        /// no branch at all (Transactions §4.10, decision Q4).
+        /// <para>
+        /// <c>null</c> covers exactly two situations, both of which pair with
+        /// <see cref="CardStatus.OnHold"/>:
+        /// <list type="bullet">
+        ///   <item><description>
+        ///     <b>In transit</b> — the card has left the source branch under an in-flight transfer
+        ///     and has not been received yet. Its quantity sits in the holding branch's
+        ///     <c>Stock.HoldQuantity</c>.
+        ///   </description></item>
+        ///   <item><description>
+        ///     <b>Unassigned pool</b> — an Unknown-way card that has been received but not yet
+        ///     printed. Its quantity is already counted in the receiving branch's
+        ///     <c>Stock.AvailableQuantity</c>; which pool card backs which branch's entitlement is
+        ///     only resolved when the card is printed.
+        ///   </description></item>
+        /// </list>
+        /// </para>
+        /// <para>
+        /// <b>Invariant, Known way:</b> <c>count(items WHERE BranchID = X AND Status = Available
+        /// AND ProductId = P) == Stock[X,P].AvailableQuantity</c>.
+        /// <b>Unknown way:</b> that equality does not hold — <c>Stock</c> is the branch's
+        /// entitlement and the backing cards live in the tenant-wide unassigned pool.
+        /// </para>
+        /// <para>
+        /// A card with a <c>null</c> branch is immutable to the rest of the system: batch-upload
+        /// re-sight, status updates, and soft delete all refuse to touch it, so an in-flight
+        /// transfer can never be corrupted from outside the Transactions module.
+        /// </para>
+        /// </summary>
         [ForeignKey(nameof(Branch))]
-        public long BranchID { get; set; }
+        public long? BranchID { get; set; }
 
-        /// <summary>Navigation to the branch.</summary>
-        public Branch Branch { get; set; } = null!;
+        /// <summary>Navigation to the branch, or <c>null</c> while the card sits at no branch.</summary>
+        public Branch? Branch { get; set; }
     }
 }
