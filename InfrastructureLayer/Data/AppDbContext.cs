@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -51,6 +51,21 @@ namespace InfrastructureLayer.Data
         public DbSet<ProductItem> Cards => Set<ProductItem>();
         public DbSet<Batch> Batches => Set<Batch>();
 
+        /// <summary>Card transfers between branches (ERD §4.3, table CardsTransferHistory).</summary>
+        public DbSet<CardTransfer> CardTransfers => Set<CardTransfer>();
+
+        /// <summary>Per-product lines on a transfer (ERD §4.4).</summary>
+        public DbSet<CardTransferProduct> CardTransferProducts => Set<CardTransferProduct>();
+
+        /// <summary>Individually tracked cards on a Known-way transfer (ERD §4.5).</summary>
+        public DbSet<CardTransferItem> CardTransferItems => Set<CardTransferItem>();
+
+        /// <summary>Card write-offs (API §4.10, Addendum A).</summary>
+        public DbSet<CardDisposal> CardDisposals => Set<CardDisposal>();
+
+        /// <summary>Cards written off under a disposal (API §4.10, Addendum A).</summary>
+        public DbSet<CardDisposalItem> CardDisposalItems => Set<CardDisposalItem>();
+
 
 
 
@@ -66,6 +81,8 @@ namespace InfrastructureLayer.Data
             ConfigureStock(modelBuilder);
             ConfigureCards(modelBuilder);
             ConfigureBatches(modelBuilder);
+            ConfigureCardTransfers(modelBuilder);
+            ConfigureCardDisposals(modelBuilder);
 
         }
 
@@ -370,6 +387,242 @@ namespace InfrastructureLayer.Data
                 // Batch list queries, newest first (API §4.8 GET /api/inventory/batches).
                 entity.HasIndex(b => new { b.UploadedByTenantId, b.UploadedTime })
                       .HasDatabaseName("IX_Batches_UploadedByTenantId_UploadedTime");
+            });
+        }
+
+        /// <summary>
+        /// Configures the transfer aggregate (ERD §4.3–§4.5, API §4.10).
+        /// <para>
+        /// Every foreign key out of this aggregate is <c>NoAction</c> except the two that point at
+        /// the transfer header itself. That is not caution for its own sake: <c>SourceBranchId</c>
+        /// and <c>TargetBranchId</c> both reference <c>Branches</c>, so anything other than
+        /// <c>NoAction</c> is a guaranteed multiple-cascade-path error at migration time. It is
+        /// also correct on the merits — deleting a branch or a product must never silently erase
+        /// the movement history that references it.
+        /// </para>
+        /// <para>
+        /// No soft-delete query filter and no <c>AuditableEntity</c>: these tables are append-only
+        /// (ERD §6.5).
+        /// </para>
+        /// </summary>
+        private static void ConfigureCardTransfers(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<CardTransfer>(entity =>
+            {
+                // Name and check constraint in one ToTable call: a second, name-less ToTable
+                // overload would reconfigure the table mapping rather than add to it.
+                entity.ToTable("CardsTransferHistory", t => t.HasCheckConstraint(   // ERD §4.3 table name
+                    "CK_CardsTransferHistory_SourceNotTarget",
+                    "[SourceBranchId] <> [TargetBranchId]"));
+                entity.HasKey(t => t.Id);
+
+                entity.Property(t => t.TransactionStatus).HasConversion<byte>().IsRequired();
+                entity.Property(t => t.Origin).HasConversion<byte>().IsRequired();
+                entity.Property(t => t.ActionNotes).HasMaxLength(500);
+
+                entity.HasOne(t => t.Tenant)
+                      .WithMany()
+                      .HasForeignKey(t => t.TenantId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne(t => t.CreatedByTenant)
+                      .WithMany()
+                      .HasForeignKey(t => t.CreatedByTenantId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne(t => t.SourceBranch)
+                      .WithMany()
+                      .HasForeignKey(t => t.SourceBranchId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne(t => t.TargetBranch)
+                      .WithMany()
+                      .HasForeignKey(t => t.TargetBranchId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                // Self-reference: an auto-generated return points back at the transfer whose
+                // partial receipt produced it.
+                entity.HasOne(t => t.ParentTransfer)
+                      .WithMany()
+                      .HasForeignKey(t => t.ParentTransferId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                // ERD §4.3 index set, plus two for the origin/parent queries added by decision Q5.
+                entity.HasIndex(t => new { t.TenantId, t.CreatedAt })
+                      .HasDatabaseName("IX_CardsTransferHistory_TenantId_CreatedAt");
+                entity.HasIndex(t => new { t.TenantId, t.BranchRequestId })
+                      .HasDatabaseName("IX_CardsTransferHistory_TenantId_BranchRequestId");
+                entity.HasIndex(t => t.SourceBranchId)
+                      .HasDatabaseName("IX_CardsTransferHistory_SourceBranchId");
+                entity.HasIndex(t => t.TargetBranchId)
+                      .HasDatabaseName("IX_CardsTransferHistory_TargetBranchId");
+                entity.HasIndex(t => new { t.TenantId, t.TransactionStatus })
+                      .HasDatabaseName("IX_CardsTransferHistory_TenantId_TransactionStatus");
+                entity.HasIndex(t => new { t.TenantId, t.Origin })
+                      .HasDatabaseName("IX_CardsTransferHistory_TenantId_Origin");
+                entity.HasIndex(t => t.ParentTransferId)
+                      .HasDatabaseName("IX_CardsTransferHistory_ParentTransferId");
+            });
+
+            modelBuilder.Entity<CardTransferProduct>(entity =>
+            {
+                entity.HasKey(p => p.Id);
+
+                entity.Property(p => p.ProductTransactionWay).HasConversion<byte>().IsRequired();
+
+                entity.HasOne(p => p.CardTransfer)
+                      .WithMany(t => t.Products)
+                      .HasForeignKey(p => p.CardTransferId)
+                      .OnDelete(DeleteBehavior.Cascade);   // lines belong to the transfer (ERD §4.4)
+
+                entity.HasOne(p => p.Product)
+                      .WithMany()
+                      .HasForeignKey(p => p.ProductId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne<Tenant>()
+                      .WithMany()
+                      .HasForeignKey(p => p.TenantId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasIndex(p => new { p.TenantId, p.CardTransferId })
+                      .HasDatabaseName("IX_CardTransferProducts_TenantId_CardTransferId");
+                entity.HasIndex(p => new { p.CardTransferId, p.ProductId })
+                      .IsUnique()
+                      .HasDatabaseName("UX_CardTransferProducts_CardTransferId_ProductId");
+
+                entity.ToTable("CardTransferProducts", t =>
+                {
+                    t.HasCheckConstraint(
+                        "CK_CardTransferProducts_TransactedQuantity_Positive",
+                        "[TransactedQuantity] > 0");
+
+                    t.HasCheckConstraint(
+                        "CK_CardTransferProducts_RealQuantityReceived_NonNegative",
+                        "[RealQuantityReceived] IS NULL OR [RealQuantityReceived] >= 0");
+
+                    t.HasCheckConstraint(
+                        "CK_CardTransferProducts_DisposedQuantity_NonNegative",
+                        "[DisposedQuantity] IS NULL OR [DisposedQuantity] >= 0");
+
+                    // The settlement identity (Addendum A §2.3): what was received plus what was
+                    // written off can never exceed what was sent. The returned remainder is
+                    // whatever is left over, so this one constraint keeps all three honest and
+                    // makes an arithmetic slip in the service layer fail loudly at the database
+                    // rather than quietly manufacturing stock.
+                    t.HasCheckConstraint(
+                        "CK_CardTransferProducts_SettlementWithinTransacted",
+                        "ISNULL([RealQuantityReceived], 0) + ISNULL([DisposedQuantity], 0) <= [TransactedQuantity]");
+                });
+            });
+
+            modelBuilder.Entity<CardTransferItem>(entity =>
+            {
+                entity.ToTable("CardTransferItems");
+                entity.HasKey(i => i.Id);
+
+                entity.Property(i => i.ReceiveStatus).HasConversion<byte>().IsRequired();
+
+                entity.HasOne(i => i.CardTransfer)
+                      .WithMany(t => t.Items)
+                      .HasForeignKey(i => i.CardTransferId)
+                      .OnDelete(DeleteBehavior.Cascade);   // items belong to the transfer (ERD §4.5)
+
+                // NoAction, which also means a batch cannot be deleted while its cards are in
+                // flight: Batch → ProductItem cascades, and this constraint blocks that cascade.
+                // That is the intended behaviour, not an accident of configuration.
+                entity.HasOne(i => i.ProductItem)
+                      .WithMany()
+                      .HasForeignKey(i => i.ProductItemId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne<Tenant>()
+                      .WithMany()
+                      .HasForeignKey(i => i.TenantId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasIndex(i => new { i.TenantId, i.CardTransferId })
+                      .HasDatabaseName("IX_CardTransferItems_TenantId_CardTransferId");
+                entity.HasIndex(i => i.ProductItemId)
+                      .HasDatabaseName("IX_CardTransferItems_ProductItemId");
+                entity.HasIndex(i => new { i.CardTransferId, i.ProductItemId })
+                      .IsUnique()
+                      .HasDatabaseName("UX_CardTransferItems_CardTransferId_ProductItemId");
+            });
+        }
+
+        /// <summary>
+        /// Configures the disposal aggregate (API §4.10, Addendum A). Append-only, same rationale
+        /// as transfers: no audit block, no soft delete, no query filter.
+        /// </summary>
+        private static void ConfigureCardDisposals(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<CardDisposal>(entity =>
+            {
+                entity.ToTable("CardDisposals");
+                entity.HasKey(d => d.Id);
+
+                // Required at the database level too, not only in validation: a write-off with no
+                // stated reason is the exact scenario this table exists to make impossible.
+                entity.Property(d => d.Reason).IsRequired().HasMaxLength(500);
+
+                entity.HasOne(d => d.Tenant)
+                      .WithMany()
+                      .HasForeignKey(d => d.TenantId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne(d => d.DisposedByTenant)
+                      .WithMany()
+                      .HasForeignKey(d => d.DisposedByTenantId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne(d => d.Branch)
+                      .WithMany()
+                      .HasForeignKey(d => d.BranchId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne(d => d.CardTransfer)
+                      .WithMany()
+                      .HasForeignKey(d => d.CardTransferId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasIndex(d => new { d.TenantId, d.DisposedAt })
+                      .HasDatabaseName("IX_CardDisposals_TenantId_DisposedAt");
+                entity.HasIndex(d => new { d.TenantId, d.BranchId })
+                      .HasDatabaseName("IX_CardDisposals_TenantId_BranchId");
+                entity.HasIndex(d => d.CardTransferId)
+                      .HasDatabaseName("IX_CardDisposals_CardTransferId");
+            });
+
+            modelBuilder.Entity<CardDisposalItem>(entity =>
+            {
+                entity.ToTable("CardDisposalItems");
+                entity.HasKey(i => i.Id);
+
+                entity.HasOne(i => i.CardDisposal)
+                      .WithMany(d => d.Items)
+                      .HasForeignKey(i => i.CardDisposalId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(i => i.ProductItem)
+                      .WithMany()
+                      .HasForeignKey(i => i.ProductItemId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne<Tenant>()
+                      .WithMany()
+                      .HasForeignKey(i => i.TenantId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasIndex(i => new { i.TenantId, i.CardDisposalId })
+                      .HasDatabaseName("IX_CardDisposalItems_TenantId_CardDisposalId");
+
+                // A card can only ever be written off once, so this unique index is a safety net
+                // rather than a real constraint on the domain — the service layer refuses to
+                // dispose an already-disposed card long before this fires.
+                entity.HasIndex(i => new { i.CardDisposalId, i.ProductItemId })
+                      .IsUnique()
+                      .HasDatabaseName("UX_CardDisposalItems_CardDisposalId_ProductItemId");
             });
         }
     }

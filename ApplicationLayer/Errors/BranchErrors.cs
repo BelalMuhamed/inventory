@@ -28,5 +28,24 @@ namespace ApplicationLayer.Errors
         /// <summary>The caller's principal could not be resolved (no tenant context / unknown admin) (→ 401).</summary>
         public static Error ActorNotResolved() =>
             Error.Unauthorized("Branch.ActorNotResolved", "The acting principal could not be resolved.");
+
+        /// <summary>
+        /// The branch holds non-zero stock (→ 409, API §4.5: "Blocked if branch holds non-zero
+        /// stock; caller must transfer or write off first"). Transactions §4.10, fix F3 — the spec
+        /// note existed before this check enforced it.
+        /// </summary>
+        public static Error HasStock(long id) =>
+            Error.Conflict("Branch.HasStock",
+                $"Branch {id} holds non-zero stock and cannot be deleted. Transfer or dispose of it first.")
+                .WithArg(id.ToString());
+
+        /// <summary>
+        /// The branch is the source or target of a transfer that is still in progress (→ 409).
+        /// Deleting it here would strand cards mid-flight with nowhere to be received or returned.
+        /// </summary>
+        public static Error HasInProgressTransfer(long id) =>
+            Error.Conflict("Branch.HasInProgressTransfer",
+                $"Branch {id} has a transfer in progress and cannot be deleted until it is settled.")
+                .WithArg(id.ToString());
     }
 }

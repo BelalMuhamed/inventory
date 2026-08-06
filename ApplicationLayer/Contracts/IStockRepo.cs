@@ -56,5 +56,30 @@ namespace ApplicationLayer.Contracts
         /// </summary>
         Task<Stock> GetOrCreateForUpdateAsync(
             long tenantId, long branchId, long productId, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Tracked, multi-key lookup of existing Stock rows in one query (Transactions §4.10, T3;
+        /// fix pattern shared with <c>IProductItemRepo.GetManyForUpdateAsync</c>). Settling a
+        /// transfer with several product lines touches up to two Stock rows per line — this
+        /// avoids one round trip per row.
+        /// <para>
+        /// Returns only rows that already exist. A <c>(branchId, productId)</c> pair with no row
+        /// is simply absent from the result; the caller falls back to
+        /// <see cref="GetOrCreateForUpdateAsync"/> for exactly those pairs, the same two-step
+        /// pattern <c>ProductItemService.ApplyAvailableDeltaAsync</c> already uses for a single
+        /// key.
+        /// </para>
+        /// </summary>
+        Task<IReadOnlyDictionary<(long BranchId, long ProductId), Stock>> GetManyForUpdateAsync(
+            long tenantId, IEnumerable<(long BranchId, long ProductId)> keys, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// True when the branch holds any non-zero <c>AvailableQuantity</c> or
+        /// <c>HoldQuantity</c> across any product (Transactions §4.10, fix F3). Backs
+        /// <c>BranchService.SoftDeleteAsync</c>'s stock guard — API §4.5 requires the caller to
+        /// transfer or write off stock before a branch can be deleted; without this check that
+        /// requirement was unenforced.
+        /// </summary>
+        Task<bool> HasNonZeroStockAsync(long tenantId, long branchId, CancellationToken cancellationToken = default);
     }
 }

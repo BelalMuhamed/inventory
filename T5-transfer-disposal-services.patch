@@ -1,0 +1,1717 @@
+From c7abc51a6b20e1c446b76901ec673f1ac8f876cb Mon Sep 17 00:00:00 2001
+From: T0 <dev@local>
+Date: Wed, 5 Aug 2026 15:30:12 +0000
+Subject: [PATCH] T5: transfer and disposal orchestration services
+
+ITransferService/TransferService and IDisposalService/DisposalService for
+API 4.10, wired into ServiceManager and DI. No controllers yet (T6).
+
+Settlement rule (documented once on TransferService, applied per line):
+create moves the full quantity from source Available into source Hold.
+Settlement always releases the full quantity from source Hold regardless
+of split, adds the received portion to target Available, and - if
+anything is left over - adds it to target Hold and carries it on an
+auto-generated return transfer, which settles through the exact same path
+recursively. Disposed quantity touches no further stock: it already left
+source Hold and never entered target Available.
+
+TransferService.CreateAsync: validates both branches (inactive target
+blocks, inactive source doesn't - EC-04) and every product line before
+writing anything; selects Known-way cards by explicit id, Unknown-way by
+FIFO; one DB transaction for the whole request.
+
+TransferService.ReceiveAsync/DisposeAsync share one settlement path.
+Receive carries a full per-product disposition (received/disposed, with
+the remainder derived, never supplied); Dispose is receive with every
+line's full quantity marked disposed. Both go through the same
+SettleAsync, so a return transfer settles exactly like any other transfer.
+
+DisposalService.CreateAsync: standalone write-off of cards sitting at a
+branch (Available/FailedPrinting/Expired), named by id or FIFO quantity.
+Rejects system admin outright - no read-only path for this one, unlike
+transfers.
+
+Corrections made during this phase, each explained where it lives:
+- CardTransfer.ParentTransferId: chains are not capped at one level: a
+  return settles through the same disposition model as any transfer, so
+  a partial receipt on a return can spawn a further return.
+- TransferErrors.ReturnMustBeSettledInFull removed (and its resx keys)
+  superseded by the above - no longer a real restriction.
+- TransferService's stock-rule doc corrects Addendum A 2.2: the Hold
+  release on disposal is always the line's own source, for the full
+  transacted quantity in one release - not a decrement keyed to whichever
+  branch performs the write-off.
+- CardTransferItem (T1 doc comment) corrected in T3: rows exist for
+  Unknown-way lines too, system-selected, never caller-visible.
+
+Bugs caught in review before commit, not after:
+- SettleAsync originally returned a value-DTO built inside the transaction
+  lambda, capturing returnTransfer.Id/disposal.Id as 0 (unset until
+  SaveChanges runs, which happens after the lambda returns). Fixed by
+  lifting those references to outer scope and building the result after
+  commit - the same pattern BatchUploadService already uses for its own
+  counters.
+- The Hold-release-underrun check reused StockErrors.InsufficientAvailable,
+  whose message is specifically about Available going negative. Replaced
+  with TransferErrors.StockInconsistency, matching what the condition
+  actually represents (a should-be-unreachable bookkeeping divergence).
+- DisposalService leaked TransferErrors.NotFound/ItemNotFound/
+  PersistenceConflict to its own callers. Added DisposalErrors.NotFound/
+  CardNotFound/PersistenceConflict and fixed the three call sites - a
+  disposal-endpoint caller has no reason to see a Transfer.* code.
+
+ICardTransferRepo.GetForUpdateAsync now includes Items.ProductItem
+(T3 gap): settlement needs it to group items by product line and to
+mutate card Status/BranchID without a second round trip.
+
+CardDisposalRepo.GetPagedAsync now includes Items (T3 gap): the list
+projection's CardCount was silently always zero without it.
+
+IAuditLogger gained StageAction: CardTransfer/CardTransferProduct/
+CardTransferItem/CardDisposal/CardDisposalItem deliberately don't derive
+AuditableEntity (append-only, ERD 6.5), so the interceptor never sees
+them and these actions had no audit trail at all otherwise. Staged, not
+saved, inside the method - committed via a second SaveChanges call after
+the entity's own transaction, since the entity's correctness never
+depends on the audit row.
+
+90 localized keys total across both languages, cross-checked: every error
+code has a key in both files, no orphans, every {0} matches a WithArg call.
+---
+ ApplicationLayer/Contracts/IAuditLogger.cs    |  35 +
+ .../Contracts/ICardTransferRepo.cs            |   6 +-
+ ApplicationLayer/Errors/DisposalErrors.cs     |  31 +
+ ApplicationLayer/Errors/TransferErrors.cs     |  43 +-
+ .../ServicesContracts/IDisposalService.cs     |  33 +
+ .../ServicesContracts/IServiceManager.cs      |   4 +
+ .../ServicesContracts/ITransferService.cs     |  51 ++
+ DomainLayer/Entities/CardTransfer.cs          |   8 +-
+ .../InfrastructureServiceRegistration.cs      |   5 +
+ .../Repositories/CardDisposalRepo.cs          |   4 +-
+ .../Repositories/CardTransferRepo.cs          |   2 +-
+ InfrastructureLayer/Services/AuditLogger.cs   |  26 +
+ .../Services/DisposalService.cs               | 264 ++++++
+ .../Services/ServiceManager.cs                |  10 +-
+ .../Services/TransferService.cs               | 816 ++++++++++++++++++
+ .../Resources/Localization/Messages.ar.resx   |  30 +-
+ .../Resources/Localization/Messages.resx      |  30 +-
+ 17 files changed, 1381 insertions(+), 17 deletions(-)
+ create mode 100644 ApplicationLayer/ServicesContracts/IDisposalService.cs
+ create mode 100644 ApplicationLayer/ServicesContracts/ITransferService.cs
+ create mode 100644 InfrastructureLayer/Services/DisposalService.cs
+ create mode 100644 InfrastructureLayer/Services/TransferService.cs
+
+diff --git a/ApplicationLayer/Contracts/IAuditLogger.cs b/ApplicationLayer/Contracts/IAuditLogger.cs
+index 07dfa77..5db29ae 100644
+--- a/ApplicationLayer/Contracts/IAuditLogger.cs
++++ b/ApplicationLayer/Contracts/IAuditLogger.cs
+@@ -13,5 +13,40 @@ namespace ApplicationLayer.Contracts
+         /// <param name="tenantId">Owning tenant id, or null for a system admin.</param>
+         /// <param name="cancellationToken">Cancellation token.</param>
+         Task LogLoginAsync(string username, bool isSystemAdmin, long? tenantId, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Stages a non-CRUD audit row without saving (Transactions §4.10). Needed because
++        /// <c>CardTransfer</c>, <c>CardTransferProduct</c>, <c>CardTransferItem</c>,
++        /// <c>CardDisposal</c> and <c>CardDisposalItem</c> deliberately do not derive from
++        /// <c>AuditableEntity</c> (ERD §6.5: append-only, no soft delete), so the
++        /// <c>AuditSaveChangesInterceptor</c> never sees them — actions like "Transfer",
++        /// "Received", and "Disposed" would otherwise leave no audit trail at all.
++        /// <para>
++        /// Unlike <see cref="LogLoginAsync"/>, this method does not call <c>SaveChanges</c>. Call
++        /// it after committing the entity it describes — the id it needs to record does not exist
++        /// until the insert has happened — then persist it with a normal
++        /// <see cref="IUnitOfWork.SaveChangesAsync"/> call. That second save is not wrapped in the
++        /// same DB transaction as the entity it describes: the entity's own correctness never
++        /// depends on the audit row, so a crash in the narrow window between the two would lose an
++        /// audit line, not corrupt inventory data — an acceptable trade against the alternative of
++        /// writing an audit row with an <c>EntityId</c> of <c>"0"</c>, which the interceptor's own
++        /// generic path already does today for every other entity's <c>Created</c> row.
++        /// </para>
++        /// </summary>
++        /// <param name="tenantId">Owning tenant of the affected row, or <c>null</c> if none.</param>
++        /// <param name="actorTenantId">Acting tenant, or <c>null</c> for a system admin.</param>
++        /// <param name="actorUsername">Acting principal's username.</param>
++        /// <param name="action">Action name (e.g. <c>"Transfer"</c>, <c>"Received"</c>, <c>"Disposed"</c>).</param>
++        /// <param name="entityName">Name of the affected entity type.</param>
++        /// <param name="entityId">Affected entity's key, already known (post-commit).</param>
++        /// <param name="newValue">Optional free-text detail — a disposal reason, a settlement summary.</param>
++        void StageAction(
++            long? tenantId,
++            long? actorTenantId,
++            string actorUsername,
++            string action,
++            string entityName,
++            string entityId,
++            string? newValue = null);
+     }
+ }
+\ No newline at end of file
+diff --git a/ApplicationLayer/Contracts/ICardTransferRepo.cs b/ApplicationLayer/Contracts/ICardTransferRepo.cs
+index 7775e92..eddab6e 100644
+--- a/ApplicationLayer/Contracts/ICardTransferRepo.cs
++++ b/ApplicationLayer/Contracts/ICardTransferRepo.cs
+@@ -35,7 +35,11 @@ namespace ApplicationLayer.Contracts
+ 
+         /// <summary>
+         /// Loads one tracked transfer by id, with its product lines and item rows included, for
+-        /// in-transaction settlement. <see cref="CardTransfer.RowVersion"/> comes along for the
++        /// in-transaction settlement. Item rows come with their <c>ProductItem</c> also included
++        /// and tracked — settlement needs it two ways: to group items by the product line they
++        /// belong to (a <c>CardTransferItem</c> carries no <c>ProductId</c> of its own, only a
++        /// card id), and to mutate the card's <c>Status</c>/<c>BranchID</c> directly without a
++        /// second round trip. <see cref="CardTransfer.RowVersion"/> comes along for the
+         /// optimistic-concurrency check the caller performs before mutating.
+         /// </summary>
+         /// <param name="id">Transfer id.</param>
+diff --git a/ApplicationLayer/Errors/DisposalErrors.cs b/ApplicationLayer/Errors/DisposalErrors.cs
+index c2e4ba1..84684b5 100644
+--- a/ApplicationLayer/Errors/DisposalErrors.cs
++++ b/ApplicationLayer/Errors/DisposalErrors.cs
+@@ -13,6 +13,37 @@ namespace ApplicationLayer.Errors
+     /// </summary>
+     public static class DisposalErrors
+     {
++        /// <summary>The caller's principal could not be resolved to a tenant (→ 401).</summary>
++        public static Error ActorNotResolved() =>
++            Error.Unauthorized("Disposal.ActorNotResolved", "The acting principal could not be resolved.");
++
++        /// <summary>The same card id appears more than once in the request (→ 422).</summary>
++        public static Error DuplicateItem(long productItemId) =>
++            Error.Validation("Disposal.DuplicateItem",
++                $"Card {productItemId} is listed more than once.")
++                .WithArg(productItemId.ToString());
++
++        /// <summary>No disposal with that id in the caller's scope (→ 404, no existence leak).</summary>
++        public static Error NotFound(long id) =>
++            Error.NotFound("Disposal.NotFound", $"No disposal was found with id {id}.")
++                 .WithArg(id.ToString());
++
++        /// <summary>A named card does not exist, is deleted, or belongs to another tenant (→ 404).</summary>
++        public static Error CardNotFound(long productItemId) =>
++            Error.NotFound("Disposal.CardNotFound", $"No card was found with id {productItemId}.")
++                 .WithArg(productItemId.ToString());
++
++        /// <summary>
++        /// A write reached the database and failed a check constraint that the service layer's
++        /// own validation did not anticipate (→ 409). See <c>TransferErrors.PersistenceConflict</c>
++        /// for the identical reasoning — kept as a separate code here rather than reused across
++        /// modules, unlike the genuinely shared <see cref="StockErrors.ConcurrencyConflict"/>,
++        /// because a disposal-endpoint caller has no reason to learn a "Transfer.*" code.
++        /// </summary>
++        public static Error PersistenceConflict() =>
++            Error.Conflict("Disposal.PersistenceConflict",
++                "The disposal could not be saved because of a conflicting change. Please retry.");
++
+         /// <summary>
+         /// No reason was supplied (→ 422). Mandatory by design: a write-off without a stated
+         /// reason is indistinguishable from stock going missing, which is precisely what the
+diff --git a/ApplicationLayer/Errors/TransferErrors.cs b/ApplicationLayer/Errors/TransferErrors.cs
+index 884593c..f62e02b 100644
+--- a/ApplicationLayer/Errors/TransferErrors.cs
++++ b/ApplicationLayer/Errors/TransferErrors.cs
+@@ -19,6 +19,16 @@ namespace ApplicationLayer.Errors
+     /// </summary>
+     public static class TransferErrors
+     {
++        // ---- Actor resolution ---------------------------------------------------------------
++
++        /// <summary>
++        /// The caller's principal could not be resolved to a tenant (→ 401). In practice
++        /// unreachable behind <c>[Authorize]</c> with a valid tenant token; guarded anyway,
++        /// matching every other service's convention.
++        /// </summary>
++        public static Error ActorNotResolved() =>
++            Error.Unauthorized("Transfer.ActorNotResolved", "The acting principal could not be resolved.");
++
+         // ---- Lookup / authorization -------------------------------------------------------
+ 
+         /// <summary>No transfer with that id in the caller's scope (→ 404, no existence leak).</summary>
+@@ -93,6 +103,12 @@ namespace ApplicationLayer.Errors
+                 $"A transfer may move at most {maximum} cards.")
+                 .WithArg(maximum.ToString());
+ 
++        /// <summary>The supplied note exceeds the stored length (→ 422).</summary>
++        public static Error ActionNotesTooLong(int maximum) =>
++            Error.Validation("Transfer.ActionNotesTooLong",
++                $"The note cannot exceed {maximum} characters.")
++                .WithArg(maximum.ToString());
++
+         // ---- Creation: Known-way card selection -------------------------------------------
+ 
+         /// <summary>A Known-way line supplied no card ids (→ 422, decision Q3).</summary>
+@@ -218,13 +234,30 @@ namespace ApplicationLayer.Errors
+                 $"Branch {branchId} is unavailable, so the remaining cards cannot be returned to it.")
+                 .WithArg(branchId.ToString());
+ 
++        // NOTE: an earlier draft of this catalogue had a ReturnMustBeSettledInFull error here,
++        // forbidding partial receipt on an auto-generated return. Removed — the clarified design
++        // treats a return exactly like any other transfer (T5), including partial receipt, so the
++        // restriction no longer applies. Chains are unbounded in principle; see the correction on
++        // CardTransfer.ParentTransferId's doc comment.
++
++        /// <summary>
++        /// A quantity was disposed of but no disposing branch was named (→ 422). Required because
++        /// settled cards sit at no branch of their own — there is nothing to infer it from.
++        /// </summary>
++        public static Error DisposingBranchRequired() =>
++            Error.Validation("Transfer.DisposingBranchRequired",
++                "A disposing branch is required when any quantity is disposed of.");
++
+         /// <summary>
+-        /// An auto-generated return cannot itself be partially settled (→ 422). Allowing it would
+-        /// let a return spawn a return without bound; a return is received or written off.
++        /// A write reached the database and failed a check constraint that the service layer's
++        /// own validation did not anticipate (→ 409) — for example a settlement race this
++        /// method's optimistic-concurrency check did not catch. Surfaced as a clear, logged
++        /// conflict rather than an opaque 500, per the same reasoning as
++        /// <see cref="StockErrors.ConcurrencyConflict"/>.
+         /// </summary>
+-        public static Error ReturnMustBeSettledInFull() =>
+-            Error.Validation("Transfer.ReturnMustBeSettledInFull",
+-                "A returned shipment must be fully received or fully disposed.");
++        public static Error PersistenceConflict() =>
++            Error.Conflict("Transfer.PersistenceConflict",
++                "The transfer could not be saved because of a conflicting change. Please retry.");
+ 
+         /// <summary>
+         /// The stock aggregate and the card rows disagree — fewer cards are actually available
+diff --git a/ApplicationLayer/ServicesContracts/IDisposalService.cs b/ApplicationLayer/ServicesContracts/IDisposalService.cs
+new file mode 100644
+index 0000000..40eb918
+--- /dev/null
++++ b/ApplicationLayer/ServicesContracts/IDisposalService.cs
+@@ -0,0 +1,33 @@
++using System.Threading;
++using System.Threading.Tasks;
++using ApplicationLayer.Common;
++using ApplicationLayer.DTOs.Disposals;
++using DomainLayer.Common;
++
++namespace ApplicationLayer.ServicesContracts
++{
++    /// <summary>
++    /// Standalone card disposal (API §4.10, Addendum A §2.4): writing off cards that are sitting
++    /// at a branch — damaged, spoiled, or discontinued — outside of any transfer. Disposal that
++    /// happens while settling a transfer goes through <see cref="ITransferService"/> instead; this
++    /// service is for cards that were never in flight.
++    /// </summary>
++    public interface IDisposalService
++    {
++        /// <summary>Lists disposals in the caller's scope.</summary>
++        Task<Result<PaginatedResponse<DisposalListItemResponse>>> GetAllAsync(
++            DisposalListFilter filter, CancellationToken cancellationToken = default);
++
++        /// <summary>Reads one disposal's full detail, including every card written off under it.</summary>
++        Task<Result<DisposalDetailResponse>> GetByIdAsync(
++            long id, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Writes off cards at a branch, named either by explicit id or by per-product quantity
++        /// (FIFO selection). Rejects a system-admin caller outright (never permitted to dispose of
++        /// cards) and requires a non-empty reason.
++        /// </summary>
++        Task<Result<DisposalDetailResponse>> CreateAsync(
++            DisposeCardsRequest request, CancellationToken cancellationToken = default);
++    }
++}
+diff --git a/ApplicationLayer/ServicesContracts/IServiceManager.cs b/ApplicationLayer/ServicesContracts/IServiceManager.cs
+index 856c890..bfd67ed 100644
+--- a/ApplicationLayer/ServicesContracts/IServiceManager.cs
++++ b/ApplicationLayer/ServicesContracts/IServiceManager.cs
+@@ -21,5 +21,9 @@
+         IBatchUploadService BatchUpload { get; }
+         /// <summary>Card-file generation use case (Card File Generation, Phase 9.5).</summary>
+         ICardFileGenerationService CardFiles { get; }
++        /// <summary>Card-transfer use cases: create, receive (disposition model), dispose (API §4.10).</summary>
++        ITransferService Transfers { get; }
++        /// <summary>Standalone card disposal use case (API §4.10, Addendum A).</summary>
++        IDisposalService Disposals { get; }
+     }
+ }
+diff --git a/ApplicationLayer/ServicesContracts/ITransferService.cs b/ApplicationLayer/ServicesContracts/ITransferService.cs
+new file mode 100644
+index 0000000..23bc79b
+--- /dev/null
++++ b/ApplicationLayer/ServicesContracts/ITransferService.cs
+@@ -0,0 +1,51 @@
++using System.Threading;
++using System.Threading.Tasks;
++using ApplicationLayer.Common;
++using ApplicationLayer.DTOs.Transfers;
++using DomainLayer.Common;
++
++namespace ApplicationLayer.ServicesContracts
++{
++    /// <summary>
++    /// Card-transfer use cases (API §4.10): create a direct transfer, settle it through the
++    /// disposition model, or write off everything it still carries. Reads are available to a
++    /// system admin across tenants (Q7); every write requires an authenticated tenant and rejects
++    /// a system-admin caller outright, since a transfer's <c>CreatedByTenantId</c> has nowhere to
++    /// point for an admin token.
++    /// </summary>
++    public interface ITransferService
++    {
++        /// <summary>Lists transfers in the caller's scope (API §4.10 list and history endpoints).</summary>
++        Task<Result<PaginatedResponse<TransferListItemResponse>>> GetAllAsync(
++            TransferListFilter filter, CancellationToken cancellationToken = default);
++
++        /// <summary>Reads one transfer's full detail, including product lines and card-level items.</summary>
++        Task<Result<TransferDetailResponse>> GetByIdAsync(
++            long id, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Creates a direct transfer (no underlying branch request): validates both branches and
++        /// every product line, selects the cards leaving the source (explicitly for Known-way
++        /// lines, FIFO for Unknown-way), and moves the source's stock from Available into Hold.
++        /// </summary>
++        Task<Result<TransferDetailResponse>> CreateAsync(
++            CreateTransferRequest request, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Settles an in-progress transfer against a per-product disposition: received, disposed,
++        /// or (implicitly, for whatever is left over) returned. A non-empty remainder spawns a new
++        /// transfer back to the original source, which that branch settles in its own right —
++        /// through this same method, since a return has no separate workflow.
++        /// </summary>
++        Task<Result<SettleTransferResult>> ReceiveAsync(
++            long id, ReceiveTransferRequest request, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Writes off everything an in-progress transfer still carries, in one step, without
++        /// receiving any of it. Equivalent to calling <see cref="ReceiveAsync"/> with every line's
++        /// full quantity disposed of and nothing received.
++        /// </summary>
++        Task<Result<SettleTransferResult>> DisposeAsync(
++            long id, DisposeTransferRequest request, CancellationToken cancellationToken = default);
++    }
++}
+diff --git a/DomainLayer/Entities/CardTransfer.cs b/DomainLayer/Entities/CardTransfer.cs
+index fe3214d..2f75d9d 100644
+--- a/DomainLayer/Entities/CardTransfer.cs
++++ b/DomainLayer/Entities/CardTransfer.cs
+@@ -110,8 +110,12 @@ namespace DomainLayer.Entities
+         /// The transfer whose partial receipt produced this one (self-FK → CardsTransferHistory.Id),
+         /// or <c>null</c> for an ordinary transfer.
+         /// <para>
+-        /// Chains are capped at one level by construction: a return is settled by receive-or-dispose
+-        /// and never spawns a further return, so <c>Parent.Parent</c> is always <c>null</c>.
++        /// <b>Correction from the original T1 note on this property:</b> chains are <em>not</em>
++        /// capped at one level. A return transfer is settled through the exact same code path as
++        /// any other transfer — receive with a per-line disposition of received, disposed, or
++        /// returned — and a partial receipt on a return spawns a further return exactly as a
++        /// partial receipt on an ordinary transfer does. <c>Parent.Parent</c> can be non-null.
++        /// Nothing about the entity assumes a bound on chain depth; it is a plain linked list.
+         /// </para>
+         /// </summary>
+         public long? ParentTransferId { get; set; }
+diff --git a/InfrastructureLayer/InfrastructureServiceRegistration.cs b/InfrastructureLayer/InfrastructureServiceRegistration.cs
+index 29ac13e..f61a930 100644
+--- a/InfrastructureLayer/InfrastructureServiceRegistration.cs
++++ b/InfrastructureLayer/InfrastructureServiceRegistration.cs
+@@ -112,6 +112,11 @@ namespace InfrastructureLayer
+             services.AddScoped<ICardFileGenerationService, CardFileGenerationService>();
+             services.AddScoped<System.Func<ICardFileGenerationService>>(sp => sp.GetRequiredService<ICardFileGenerationService>);
+ 
++            services.AddScoped<ITransferService, TransferService>();
++            services.AddScoped<System.Func<ITransferService>>(sp => sp.GetRequiredService<ITransferService>);
++            services.AddScoped<IDisposalService, DisposalService>();
++            services.AddScoped<System.Func<IDisposalService>>(sp => sp.GetRequiredService<IDisposalService>);
++
+             return services;
+ 
+            
+diff --git a/InfrastructureLayer/Repositories/CardDisposalRepo.cs b/InfrastructureLayer/Repositories/CardDisposalRepo.cs
+index a041ec4..6ce78b8 100644
+--- a/InfrastructureLayer/Repositories/CardDisposalRepo.cs
++++ b/InfrastructureLayer/Repositories/CardDisposalRepo.cs
+@@ -19,7 +19,9 @@ namespace InfrastructureLayer.Repositories
+         public async Task<(IReadOnlyList<CardDisposal> Items, int TotalCount)> GetPagedAsync(
+             long? tenantScopeId, DisposalListFilter filter, CancellationToken cancellationToken = default)
+         {
+-            IQueryable<CardDisposal> query = Set.AsNoTracking().Include(d => d.Branch);
++            IQueryable<CardDisposal> query = Set.AsNoTracking()
++                .Include(d => d.Branch)
++                .Include(d => d.Items);
+ 
+             if (tenantScopeId is long scope)
+                 query = query.Where(d => d.TenantId == scope);
+diff --git a/InfrastructureLayer/Repositories/CardTransferRepo.cs b/InfrastructureLayer/Repositories/CardTransferRepo.cs
+index df27e03..aa14256 100644
+--- a/InfrastructureLayer/Repositories/CardTransferRepo.cs
++++ b/InfrastructureLayer/Repositories/CardTransferRepo.cs
+@@ -106,7 +106,7 @@ namespace InfrastructureLayer.Repositories
+         {
+             IQueryable<CardTransfer> query = Set
+                 .Include(t => t.Products)
+-                .Include(t => t.Items);
++                .Include(t => t.Items).ThenInclude(i => i.ProductItem);
+ 
+             if (tenantScopeId is long scope)
+                 query = query.Where(t => t.TenantId == scope);
+diff --git a/InfrastructureLayer/Services/AuditLogger.cs b/InfrastructureLayer/Services/AuditLogger.cs
+index 02c4fb5..1b15834 100644
+--- a/InfrastructureLayer/Services/AuditLogger.cs
++++ b/InfrastructureLayer/Services/AuditLogger.cs
+@@ -39,5 +39,31 @@ namespace InfrastructureLayer.Services
+ 
+             await _context.SaveChangesAsync(cancellationToken);
+         }
++
++        /// <inheritdoc />
++        public void StageAction(
++            long? tenantId,
++            long? actorTenantId,
++            string actorUsername,
++            string action,
++            string entityName,
++            string entityId,
++            string? newValue = null)
++        {
++            // Staged only — no SaveChanges here. The caller commits alongside its own
++            // subsequent SaveChangesAsync call, per the contract's documented trade-off.
++            _context.Set<AuditLog>().Add(new AuditLog
++            {
++                TenantId = tenantId,
++                ActorTenantId = actorTenantId,
++                ActorUsername = actorUsername,
++                Action = action,
++                EntityName = entityName,
++                EntityId = entityId,
++                NewValue = newValue,
++                IpAddress = _httpContextAccessor.HttpContext?.Connection.RemoteIpAddress?.ToString(),
++                Timestamp = DateTime.UtcNow
++            });
++        }
+     }
+ }
+\ No newline at end of file
+diff --git a/InfrastructureLayer/Services/DisposalService.cs b/InfrastructureLayer/Services/DisposalService.cs
+new file mode 100644
+index 0000000..77b4d07
+--- /dev/null
++++ b/InfrastructureLayer/Services/DisposalService.cs
+@@ -0,0 +1,264 @@
++using System;
++using System.Collections.Generic;
++using System.Linq;
++using System.Threading;
++using System.Threading.Tasks;
++using ApplicationLayer.Common;
++using ApplicationLayer.Contracts;
++using ApplicationLayer.DTOs.Disposals;
++using ApplicationLayer.Errors;
++using ApplicationLayer.ServicesContracts;
++using DomainLayer.Common;
++using DomainLayer.Entities;
++using DomainLayer.Enums;
++using Microsoft.EntityFrameworkCore;
++
++namespace InfrastructureLayer.Services
++{
++    /// <summary>
++    /// Standalone card disposal (API §4.10, Addendum A §2.4) — writing off cards that are sitting
++    /// at a branch (<c>Status = Available</c>, a real <c>BranchID</c>) outside of any transfer.
++    /// Disposal that happens while settling a transfer is <see cref="TransferService"/>'s
++    /// responsibility, not this class's — those cards sit at no branch
++    /// (<c>BranchID IS NULL</c>) and their write-off is one line in a larger settlement, not a
++    /// standalone act.
++    /// </summary>
++    public sealed class DisposalService : IDisposalService
++    {
++        private readonly IUnitOfWork _unitOfWork;
++        private readonly ICurrentTenant _currentTenant;
++        private readonly IAuditLogger _auditLogger;
++
++        public DisposalService(IUnitOfWork unitOfWork, ICurrentTenant currentTenant, IAuditLogger auditLogger)
++        {
++            _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
++            _currentTenant = currentTenant ?? throw new ArgumentNullException(nameof(currentTenant));
++            _auditLogger = auditLogger ?? throw new ArgumentNullException(nameof(auditLogger));
++        }
++
++        public async Task<Result<PaginatedResponse<DisposalListItemResponse>>> GetAllAsync(
++            DisposalListFilter filter, CancellationToken cancellationToken = default)
++        {
++            long? scope = ResolveReadScope(out Error? error);
++            if (error is not null) return Result.Failure<PaginatedResponse<DisposalListItemResponse>>(error);
++
++            (IReadOnlyList<CardDisposal> items, int total) =
++                await _unitOfWork.CardDisposals.GetPagedAsync(scope, filter, cancellationToken);
++
++            IReadOnlyList<DisposalListItemResponse> data = items.Select(MapListItem).ToList();
++            return PaginatedResponse<DisposalListItemResponse>.Create(data, filter.Page, filter.PageSize, total);
++        }
++
++        public async Task<Result<DisposalDetailResponse>> GetByIdAsync(
++            long id, CancellationToken cancellationToken = default)
++        {
++            long? scope = ResolveReadScope(out Error? error);
++            if (error is not null) return Result.Failure<DisposalDetailResponse>(error);
++
++            CardDisposal? disposal = await _unitOfWork.CardDisposals.GetDetailAsync(id, scope, cancellationToken);
++            if (disposal is null) return Result.Failure<DisposalDetailResponse>(DisposalErrors.NotFound(id));
++
++            return MapDetail(disposal);
++        }
++
++        public async Task<Result<DisposalDetailResponse>> CreateAsync(
++            DisposeCardsRequest request, CancellationToken cancellationToken = default)
++        {
++            // Never permitted, no exceptions (unlike TransferService's read side, there is no
++            // read-only admin path here at all — disposal has none).
++            if (_currentTenant.IsSystemAdmin)
++                return Result.Failure<DisposalDetailResponse>(DisposalErrors.SystemAdminNotAllowed());
++            if (_currentTenant.TenantId is not long tenantId)
++                return Result.Failure<DisposalDetailResponse>(DisposalErrors.ActorNotResolved());
++
++            string reason = request.Reason?.Trim() ?? string.Empty;
++            if (reason.Length == 0) return Result.Failure<DisposalDetailResponse>(DisposalErrors.ReasonRequired());
++            if (reason.Length > 500) return Result.Failure<DisposalDetailResponse>(DisposalErrors.ReasonTooLong(500));
++
++            bool hasIds = request.ProductItemIds is { Count: > 0 };
++            bool hasQuantities = request.Items is { Count: > 0 };
++            if (hasIds == hasQuantities)
++            {
++                return Result.Failure<DisposalDetailResponse>(
++                    hasIds ? DisposalErrors.SelectionAmbiguous() : DisposalErrors.NothingToDispose());
++            }
++
++            List<long>? cardIds = null;
++            if (hasIds)
++            {
++                cardIds = request.ProductItemIds!.ToList();
++                var duplicate = cardIds.GroupBy(x => x).FirstOrDefault(g => g.Count() > 1);
++                if (duplicate is not null)
++                    return Result.Failure<DisposalDetailResponse>(DisposalErrors.DuplicateItem(duplicate.Key));
++            }
++            else
++            {
++                var duplicateProduct = request.Items!.GroupBy(l => l.ProductId).FirstOrDefault(g => g.Count() > 1);
++                if (duplicateProduct is not null)
++                    return Result.Failure<DisposalDetailResponse>(DisposalErrors.DuplicateProduct(duplicateProduct.Key));
++
++                foreach (DisposeCardsLine line in request.Items!)
++                {
++                    if (line.Quantity <= 0)
++                        return Result.Failure<DisposalDetailResponse>(DisposalErrors.InvalidQuantity(line.ProductId));
++                }
++            }
++
++            Branch? branch = await _unitOfWork.Branches.GetByIdIncludingDeletedAsync(request.BranchId, cancellationToken);
++            if (branch is null || branch.TenantId != tenantId)
++                return Result.Failure<DisposalDetailResponse>(DisposalErrors.BranchNotFound(request.BranchId));
++            if (branch.IsDeleted)
++                return Result.Failure<DisposalDetailResponse>(DisposalErrors.BranchDeleted(request.BranchId));
++            // IsActive is deliberately not checked: writing off damaged stock at a branch that is
++            // being wound down is exactly the scenario this endpoint exists for (mirrors
++            // TransferErrors.TargetBranchInactive's reasoning, applied the other way — "inactive"
++            // means "accepts nothing new," not "frozen").
++
++            // disposal, and the running per-product stock deltas, are declared here — outside the
++            // transaction lambda — for the same reason as TransferService.SettleAsync: disposal.Id
++            // is 0 until SaveChanges runs, which happens after the lambda returns.
++            CardDisposal? disposal = null;
++
++            Result transactionResult;
++            try
++            {
++                transactionResult = await _unitOfWork.ExecuteInTransactionAsync(async () =>
++                {
++                    disposal = new CardDisposal
++                    {
++                        TenantId = tenantId,
++                        BranchId = branch.Id,
++                        CardTransferId = null,
++                        DisposedByTenantId = tenantId,
++                        DisposedAt = DateTime.UtcNow,
++                        Reason = reason,
++                    };
++
++                    var stockDeltas = new Dictionary<long, int>();   // productId -> Available to subtract
++
++                    if (hasIds)
++                    {
++                        IReadOnlyDictionary<long, ProductItem> found =
++                            await _unitOfWork.ProductItems.GetManyForUpdateAsync(tenantId, cardIds!, cancellationToken);
++
++                        foreach (long cardId in cardIds!)
++                        {
++                            if (!found.TryGetValue(cardId, out ProductItem? card))
++                                return Result.Failure(DisposalErrors.CardNotFound(cardId));
++
++                            Result cardCheck = ValidateStandaloneCard(card, branch.Id);
++                            if (cardCheck.IsFailure) return cardCheck;
++
++                            bool wasAvailable = card.Status == CardStatus.Available;
++                            card.Status = CardStatus.Disposed;
++                            // BranchID stays as-is — already == branch.Id (final resting location).
++                            disposal.Items.Add(new CardDisposalItem { TenantId = tenantId, ProductItemId = card.ID });
++
++                            if (wasAvailable)
++                                stockDeltas[card.ProductId] = stockDeltas.GetValueOrDefault(card.ProductId) + 1;
++                        }
++                    }
++                    else
++                    {
++                        foreach (DisposeCardsLine line in request.Items!)
++                        {
++                            IReadOnlyList<ProductItem> picked = await _unitOfWork.ProductItems.GetAvailableForUpdateAsync(
++                                tenantId, branch.Id, line.ProductId, line.Quantity, cancellationToken);
++
++                            if (picked.Count < line.Quantity)
++                                return Result.Failure(DisposalErrors.InsufficientAvailable(branch.Id, line.ProductId));
++
++                            foreach (ProductItem card in picked)
++                            {
++                                card.Status = CardStatus.Disposed;
++                                disposal.Items.Add(new CardDisposalItem { TenantId = tenantId, ProductItemId = card.ID });
++                            }
++
++                            // GetAvailableForUpdateAsync only ever returns Available-status cards,
++                            // so every picked card counted toward Stock.AvailableQuantity.
++                            stockDeltas[line.ProductId] = stockDeltas.GetValueOrDefault(line.ProductId) + picked.Count;
++                        }
++                    }
++
++                    foreach (KeyValuePair<long, int> delta in stockDeltas)
++                    {
++                        if (delta.Value == 0) continue;
++
++                        Stock stock = await _unitOfWork.Stocks.GetOrCreateForUpdateAsync(
++                            tenantId, branch.Id, delta.Key, cancellationToken);
++
++                        int updated = stock.AvailableQuantity - delta.Value;
++                        if (updated < 0)
++                            return Result.Failure(StockErrors.InsufficientAvailable(branch.Id, delta.Key));
++
++                        stock.AvailableQuantity = updated;
++                        stock.UpdatedAt = DateTime.UtcNow;
++                    }
++
++                    await _unitOfWork.CardDisposals.AddAsync(disposal, cancellationToken);
++                    return Result.Success();
++                }, cancellationToken);
++            }
++            catch (DbUpdateConcurrencyException)
++            {
++                return Result.Failure<DisposalDetailResponse>(StockErrors.ConcurrencyConflict());
++            }
++            catch (DbUpdateException)
++            {
++                return Result.Failure<DisposalDetailResponse>(DisposalErrors.PersistenceConflict());
++            }
++
++            if (transactionResult.IsFailure)
++                return Result.Failure<DisposalDetailResponse>(transactionResult.Error);
++
++            long disposalId = disposal!.Id;   // trustworthy now — SaveChanges has run.
++
++            _auditLogger.StageAction(
++                tenantId, tenantId, _currentTenant.Username ?? "unknown",
++                "Disposed", nameof(CardDisposal), disposalId.ToString(), reason);
++            await _unitOfWork.SaveChangesAsync(cancellationToken);
++
++            CardDisposal? detail = await _unitOfWork.CardDisposals.GetDetailAsync(disposalId, tenantId, cancellationToken);
++            return MapDetail(detail!);
++        }
++
++        /// <summary>
++        /// Validates a card explicitly named by id is actually disposable, standalone, at the
++        /// named branch. Card identity appears in error messages only via its masked PAN.
++        /// </summary>
++        private static Result ValidateStandaloneCard(ProductItem card, long branchId)
++        {
++            if (card.Status == CardStatus.Disposed)
++                return Result.Failure(DisposalErrors.AlreadyDisposed(card.MaskedPan));
++            if (card.Status == CardStatus.SuccessPrinted)
++                return Result.Failure(DisposalErrors.NotDisposable(card.MaskedPan));
++            if (card.BranchID is null || card.Status == CardStatus.OnHold)
++                return Result.Failure(DisposalErrors.CardInTransfer(card.MaskedPan));
++            if (card.BranchID != branchId)
++                return Result.Failure(DisposalErrors.CardNotAtBranch(card.MaskedPan));
++
++            // Available, FailedPrinting, and Expired all reach here — every status that
++            // represents inventory genuinely sitting at this branch (EC-92).
++            return Result.Success();
++        }
++
++        private long? ResolveReadScope(out Error? error)
++        {
++            error = null;
++            if (_currentTenant.IsSystemAdmin) return null;
++            if (_currentTenant.TenantId is long tenantId) return tenantId;
++            error = DisposalErrors.ActorNotResolved();
++            return null;
++        }
++
++        private static DisposalListItemResponse MapListItem(CardDisposal d) => new(
++            d.Id, d.TenantId, d.BranchId, d.Branch.Name, d.CardTransferId, d.Reason, d.Items.Count, d.DisposedAt);
++
++        private static DisposalDetailResponse MapDetail(CardDisposal d) => new(
++            d.Id, d.TenantId, d.BranchId, d.Branch.Name, d.CardTransferId, d.DisposedByTenantId,
++            d.Reason, d.DisposedAt,
++            d.Items.Select(i => new DisposalItemResponse(
++                i.ProductItemId, i.ProductItem.MaskedPan, i.ProductItem.ProductId, i.ProductItem.Product.Name))
++                .ToList());
++    }
++}
+diff --git a/InfrastructureLayer/Services/ServiceManager.cs b/InfrastructureLayer/Services/ServiceManager.cs
+index 6b1ed04..8940d68 100644
+--- a/InfrastructureLayer/Services/ServiceManager.cs
++++ b/InfrastructureLayer/Services/ServiceManager.cs
+@@ -17,6 +17,8 @@ namespace InfrastructureLayer.Services
+         private readonly Lazy<IProductItemService> _productItems;
+         private readonly Lazy<IBatchUploadService> _batchUpload;
+         private readonly Lazy<ICardFileGenerationService> _cardFiles;
++        private readonly Lazy<ITransferService> _transfers;
++        private readonly Lazy<IDisposalService> _disposals;
+ 
+         public ServiceManager(
+             Func<IAuthService> authFactory,
+@@ -26,7 +28,9 @@ namespace InfrastructureLayer.Services
+             Func<IStockService> stockFactory,
+             Func<IProductItemService> productItemFactory,
+             Func<IBatchUploadService> batchUploadFactory,
+-            Func<ICardFileGenerationService> cardFileFactory)
++            Func<ICardFileGenerationService> cardFileFactory,
++            Func<ITransferService> transferFactory,
++            Func<IDisposalService> disposalFactory)
+         {
+             _auth = new Lazy<IAuthService>(authFactory);
+             _tenants = new Lazy<ITenantService>(tenantFactory);
+@@ -36,6 +40,8 @@ namespace InfrastructureLayer.Services
+             _productItems = new Lazy<IProductItemService>(productItemFactory);
+             _batchUpload = new Lazy<IBatchUploadService>(batchUploadFactory);
+             _cardFiles = new Lazy<ICardFileGenerationService>(cardFileFactory);
++            _transfers = new Lazy<ITransferService>(transferFactory);
++            _disposals = new Lazy<IDisposalService>(disposalFactory);
+         }
+ 
+         public IAuthService Auth => _auth.Value;
+@@ -46,5 +52,7 @@ namespace InfrastructureLayer.Services
+         public IProductItemService ProductItems => _productItems.Value;
+         public IBatchUploadService BatchUpload => _batchUpload.Value;
+         public ICardFileGenerationService CardFiles => _cardFiles.Value;
++        public ITransferService Transfers => _transfers.Value;
++        public IDisposalService Disposals => _disposals.Value;
+     }
+ }
+\ No newline at end of file
+diff --git a/InfrastructureLayer/Services/TransferService.cs b/InfrastructureLayer/Services/TransferService.cs
+new file mode 100644
+index 0000000..f1f1855
+--- /dev/null
++++ b/InfrastructureLayer/Services/TransferService.cs
+@@ -0,0 +1,816 @@
++using System;
++using System.Collections.Generic;
++using System.Linq;
++using System.Threading;
++using System.Threading.Tasks;
++using ApplicationLayer.Common;
++using ApplicationLayer.Contracts;
++using ApplicationLayer.DTOs.Transfers;
++using ApplicationLayer.Errors;
++using ApplicationLayer.ServicesContracts;
++using DomainLayer.Common;
++using DomainLayer.Entities;
++using DomainLayer.Enums;
++using Microsoft.EntityFrameworkCore;
++
++namespace InfrastructureLayer.Services
++{
++    /// <summary>
++    /// Card-transfer orchestration (API §4.10).
++    /// <para>
++    /// <b>The settlement rule, once, precisely — everything in <see cref="SettleAsync"/> is this
++    /// rule applied per product line:</b> a line ships <c>Q</c> cards. At creation, the source's
++    /// <c>Available</c> drops by <c>Q</c> and its <c>Hold</c> rises by <c>Q</c> — the shipment is
++    /// now "in flight," accounted for at the source alone. At settlement the caller states
++    /// <c>Received (R)</c> and <c>Disposed (D)</c>; the remainder <c>Returned = Q − R − D</c> is
++    /// derived, never supplied. Settlement always releases the source's <c>Hold</c> by the full
++    /// <c>Q</c> — the shipment is no longer in flight regardless of how it was split — and adds
++    /// <c>R</c> to the target's <c>Available</c>. If <c>Returned &gt; 0</c>, the target's
++    /// <c>Hold</c> rises by that amount and a transfer running the other way (target → source)
++    /// carries it: this is the auto-generated return, and its own future settlement applies the
++    /// exact same rule with the branches swapped. <c>Disposed</c> touches no further stock
++    /// anywhere — it already left the source's <c>Hold</c> above and never entered the target's
++    /// <c>Available</c>, so writing it off has nothing further to undo.
++    /// </para>
++    /// <para>
++    /// <b>Correction to Addendum A §2.2's stock table:</b> that note described disposal as
++    /// "<c>Hold −n</c> at the disposing branch." The rule above is more precise: the hold release
++    /// is always the source's, for the line's full <c>Q</c>, in one release — not a separate
++    /// decrement keyed to whichever branch happens to perform the write-off. The disposing branch
++    /// supplied by the caller is accountability metadata for the <c>CardDisposal</c> record; it
++    /// does not correspond to a stock column of its own.
++    /// </para>
++    /// <para>
++    /// A return transfer is never passed through <see cref="CreateAsync"/> — it is built directly
++    /// inside a settlement, because the stock movement it represents (the target's <c>Hold</c>
++    /// rising) has already happened as part of that same settlement. Running it through the normal
++    /// create path afterwards would double-count it.
++    /// </para>
++    /// </summary>
++    public sealed class TransferService : ITransferService
++    {
++        private readonly IUnitOfWork _unitOfWork;
++        private readonly ICurrentTenant _currentTenant;
++        private readonly IAuditLogger _auditLogger;
++
++        public TransferService(IUnitOfWork unitOfWork, ICurrentTenant currentTenant, IAuditLogger auditLogger)
++        {
++            _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
++            _currentTenant = currentTenant ?? throw new ArgumentNullException(nameof(currentTenant));
++            _auditLogger = auditLogger ?? throw new ArgumentNullException(nameof(auditLogger));
++        }
++
++        // =====================================================================================
++        //  Reads
++        // =====================================================================================
++
++        public async Task<Result<PaginatedResponse<TransferListItemResponse>>> GetAllAsync(
++            TransferListFilter filter, CancellationToken cancellationToken = default)
++        {
++            long? scope = ResolveReadScope(out Error? error);
++            if (error is not null) return Result.Failure<PaginatedResponse<TransferListItemResponse>>(error);
++
++            (IReadOnlyList<CardTransfer> items, int total) =
++                await _unitOfWork.CardTransfers.GetPagedAsync(scope, filter, cancellationToken);
++
++            IReadOnlyList<TransferListItemResponse> data = items.Select(MapListItem).ToList();
++            return PaginatedResponse<TransferListItemResponse>.Create(data, filter.Page, filter.PageSize, total);
++        }
++
++        public async Task<Result<TransferDetailResponse>> GetByIdAsync(
++            long id, CancellationToken cancellationToken = default)
++        {
++            long? scope = ResolveReadScope(out Error? error);
++            if (error is not null) return Result.Failure<TransferDetailResponse>(error);
++
++            CardTransfer? transfer = await _unitOfWork.CardTransfers.GetDetailAsync(id, scope, cancellationToken);
++            if (transfer is null) return Result.Failure<TransferDetailResponse>(TransferErrors.NotFound(id));
++
++            return MapDetail(transfer);
++        }
++
++        // =====================================================================================
++        //  Create
++        // =====================================================================================
++
++        public async Task<Result<TransferDetailResponse>> CreateAsync(
++            CreateTransferRequest request, CancellationToken cancellationToken = default)
++        {
++            Result<long> actor = ResolveWritingTenant();
++            if (actor.IsFailure) return Result.Failure<TransferDetailResponse>(actor.Error);
++            long tenantId = actor.Value;
++
++            Result validation = ValidateCreateShape(request);
++            if (validation.IsFailure) return Result.Failure<TransferDetailResponse>(validation.Error);
++
++            if (request.SourceBranchId == request.TargetBranchId)
++                return Result.Failure<TransferDetailResponse>(TransferErrors.SameSourceAndTarget());
++
++            (Branch? source, Error? sourceError) = await LoadBranchAsync(request.SourceBranchId, tenantId, cancellationToken);
++            if (sourceError is not null) return Result.Failure<TransferDetailResponse>(sourceError);
++
++            (Branch? target, Error? targetError) = await LoadBranchAsync(request.TargetBranchId, tenantId, cancellationToken);
++            if (targetError is not null) return Result.Failure<TransferDetailResponse>(targetError);
++            // Deliberately asymmetric (EC-04): an inactive source may still ship out — that is
++            // how a branch being wound down gets emptied. An inactive target may not receive.
++            if (!target!.IsActive) return Result.Failure<TransferDetailResponse>(TransferErrors.TargetBranchInactive(target.Id));
++
++            // Load and validate every product line before writing anything. A bad line anywhere
++            // in the request fails the whole create — nothing is partially applied.
++            var lines = new List<(CreateTransferLine Request, Product Product)>();
++            foreach (CreateTransferLine line in request.Items!)
++            {
++                Product? product = await _unitOfWork.Products.GetByIdIncludingDeletedAsync(line.ProductId, cancellationToken);
++                if (product is null || product.TenantId != tenantId || product.IsDeleted)
++                    return Result.Failure<TransferDetailResponse>(TransferErrors.ProductNotFound(line.ProductId));
++
++                bool hasItemIds = line.ProductItemIds is { Count: > 0 };
++                if (product.ProductTransactionWay == ProductTransactionWay.Known)
++                {
++                    if (!hasItemIds)
++                        return Result.Failure<TransferDetailResponse>(TransferErrors.ItemIdsRequired(line.ProductId));
++                    if (line.ProductItemIds!.Count != line.TransactedQuantity)
++                        return Result.Failure<TransferDetailResponse>(TransferErrors.ItemCountMismatch(line.ProductId));
++                    if (line.ProductItemIds.GroupBy(x => x).Any(g => g.Count() > 1))
++                        return Result.Failure<TransferDetailResponse>(
++                            TransferErrors.DuplicateItem(line.ProductItemIds.First(id => line.ProductItemIds.Count(x => x == id) > 1)));
++                }
++                else if (hasItemIds)
++                {
++                    return Result.Failure<TransferDetailResponse>(TransferErrors.ItemIdsNotAllowedForUnknown(line.ProductId));
++                }
++
++                lines.Add((line, product));
++            }
++
++            CardTransfer? transfer = null;
++
++            Result<CardTransfer> transactionResult;
++            try
++            {
++                transactionResult = await _unitOfWork.ExecuteInTransactionAsync<CardTransfer>(async () =>
++                {
++                    transfer = new CardTransfer
++                    {
++                        TenantId = tenantId,
++                        BranchRequestId = null,   // Q2: always null until API §4.9 exists.
++                        CreatedAt = DateTime.UtcNow,
++                        CreatedByTenantId = tenantId,
++                        SourceBranchId = source!.Id,
++                        TargetBranchId = target.Id,
++                        TransactionStatus = TransactionStatus.InProgress,
++                        Origin = TransactionOrigin.UserCreated,
++                        ParentTransferId = null,
++                        ActionNotes = request.ActionNotes,
++                    };
++
++                    foreach ((CreateTransferLine line, Product product) in lines)
++                    {
++                        IReadOnlyList<ProductItem> selected;
++
++                        if (product.ProductTransactionWay == ProductTransactionWay.Known)
++                        {
++                            IReadOnlyDictionary<long, ProductItem> found = await _unitOfWork.ProductItems
++                                .GetManyForUpdateAsync(tenantId, line.ProductItemIds!, cancellationToken);
++
++                            var picked = new List<ProductItem>(line.ProductItemIds!.Count);
++                            foreach (long itemId in line.ProductItemIds)
++                            {
++                                if (!found.TryGetValue(itemId, out ProductItem? card))
++                                    return Result.Failure<CardTransfer>(TransferErrors.ItemNotFound(itemId));
++                                if (card.ProductId != product.Id)
++                                    return Result.Failure<CardTransfer>(TransferErrors.ItemProductMismatch(card.MaskedPan));
++                                if (card.BranchID != source.Id)
++                                    return Result.Failure<CardTransfer>(TransferErrors.ItemNotAtSourceBranch(card.MaskedPan));
++                                if (card.Status != CardStatus.Available)
++                                    return Result.Failure<CardTransfer>(TransferErrors.ItemNotAvailable(card.MaskedPan));
++                                picked.Add(card);
++                            }
++                            selected = picked;
++                        }
++                        else
++                        {
++                            selected = await _unitOfWork.ProductItems.GetAvailableForUpdateAsync(
++                                tenantId, source.Id, product.Id, line.TransactedQuantity, cancellationToken);
++
++                            if (selected.Count < line.TransactedQuantity)
++                                return Result.Failure<CardTransfer>(TransferErrors.StockInconsistency(source.Id, product.Id));
++                        }
++
++                        // Pull every selected card out of the source: it is in transit now, at no
++                        // branch, until settlement pins it somewhere (decision Q4).
++                        foreach (ProductItem card in selected)
++                        {
++                            card.BranchID = null;
++                            card.Status = CardStatus.OnHold;
++                        }
++
++                        var productLine = new CardTransferProduct
++                        {
++                            TenantId = tenantId,
++                            ProductId = product.Id,
++                            TransactedQuantity = line.TransactedQuantity,
++                            ProductTransactionWay = product.ProductTransactionWay,   // snapshot
++                        };
++                        transfer.Products.Add(productLine);
++
++                        foreach (ProductItem card in selected)
++                        {
++                            transfer.Items.Add(new CardTransferItem
++                            {
++                                TenantId = tenantId,
++                                ProductItemId = card.ID,
++                                ReceiveStatus = TransactionItemReceiveStatus.Pending,
++                            });
++                        }
++
++                        // The only stock movement at create time: the whole line leaves the
++                        // source's Available and enters its Hold. The target is untouched until
++                        // settlement — nothing is "received" yet.
++                        Stock sourceStock = await _unitOfWork.Stocks.GetOrCreateForUpdateAsync(
++                            tenantId, source.Id, product.Id, cancellationToken);
++
++                        int updatedAvailable = sourceStock.AvailableQuantity - line.TransactedQuantity;
++                        if (updatedAvailable < 0)
++                            return Result.Failure<CardTransfer>(StockErrors.InsufficientAvailable(source.Id, product.Id));
++
++                        sourceStock.AvailableQuantity = updatedAvailable;
++                        sourceStock.HoldQuantity += line.TransactedQuantity;
++                        sourceStock.UpdatedAt = DateTime.UtcNow;
++                    }
++
++                    await _unitOfWork.CardTransfers.AddAsync(transfer, cancellationToken);
++                    return Result.Success(transfer);
++                }, cancellationToken);
++            }
++            catch (DbUpdateConcurrencyException)
++            {
++                return Result.Failure<TransferDetailResponse>(StockErrors.ConcurrencyConflict());
++            }
++            catch (DbUpdateException)
++            {
++                return Result.Failure<TransferDetailResponse>(TransferErrors.PersistenceConflict());
++            }
++
++            if (transactionResult.IsFailure)
++                return Result.Failure<TransferDetailResponse>(transactionResult.Error);
++
++            CardTransfer committed = transactionResult.Value;
++
++            // Audit second, after the id exists — see IAuditLogger.StageAction's doc comment for
++            // why this is a deliberately separate save rather than inside the transaction above.
++            _auditLogger.StageAction(
++                tenantId, tenantId, _currentTenant.Username ?? "unknown",
++                "Transfer", nameof(CardTransfer), committed.Id.ToString());
++            await _unitOfWork.SaveChangesAsync(cancellationToken);
++
++            CardTransfer? detail = await _unitOfWork.CardTransfers.GetDetailAsync(committed.Id, tenantId, cancellationToken);
++            return MapDetail(detail!);
++        }
++
++        // =====================================================================================
++        //  Receive / Dispose (settlement)
++        // =====================================================================================
++
++        public async Task<Result<SettleTransferResult>> ReceiveAsync(
++            long id, ReceiveTransferRequest request, CancellationToken cancellationToken = default)
++        {
++            Result<long> actor = ResolveWritingTenant();
++            if (actor.IsFailure) return Result.Failure<SettleTransferResult>(actor.Error);
++            long tenantId = actor.Value;
++
++            if (request.Items is null || request.Items.Count == 0)
++                return Result.Failure<SettleTransferResult>(TransferErrors.NoItems());
++
++            var settlements = new Dictionary<long, LineSettlement>();
++            foreach (ReceiveTransferLine line in request.Items)
++            {
++                if (!settlements.TryAdd(line.ProductId,
++                    new LineSettlement(line.RealQuantityReceived, line.DisposedQuantity, line.ItemDispositions)))
++                {
++                    return Result.Failure<SettleTransferResult>(TransferErrors.DuplicateProduct(line.ProductId));
++                }
++            }
++
++            return await SettleAsync(
++                id, tenantId, settlements, request.DisposeReason, request.DisposingBranchId,
++                request.ActionNotes, cancellationToken);
++        }
++
++        public async Task<Result<SettleTransferResult>> DisposeAsync(
++            long id, DisposeTransferRequest request, CancellationToken cancellationToken = default)
++        {
++            Result<long> actor = ResolveWritingTenant();
++            if (actor.IsFailure) return Result.Failure<SettleTransferResult>(actor.Error);
++            long tenantId = actor.Value;
++
++            string reason = request.Reason?.Trim() ?? string.Empty;
++            if (reason.Length == 0) return Result.Failure<SettleTransferResult>(DisposalErrors.ReasonRequired());
++            if (reason.Length > 500) return Result.Failure<SettleTransferResult>(DisposalErrors.ReasonTooLong(500));
++
++            // Loaded once here so the "dispose everything" settlement plan can be built from the
++            // transfer's own lines and items — the caller states no quantities at all.
++            CardTransfer? transfer = await _unitOfWork.CardTransfers.GetForUpdateAsync(id, tenantId, cancellationToken);
++            if (transfer is null) return Result.Failure<SettleTransferResult>(TransferErrors.NotFound(id));
++            if (transfer.TransactionStatus != TransactionStatus.InProgress)
++                return Result.Failure<SettleTransferResult>(TransferErrors.NotInProgress(id));
++
++            var settlements = new Dictionary<long, LineSettlement>();
++            foreach (CardTransferProduct line in transfer.Products)
++            {
++                IReadOnlyList<CardDispositionEntry>? dispositions = line.ProductTransactionWay == ProductTransactionWay.Known
++                    ? transfer.Items
++                        .Where(i => i.ProductItem.ProductId == line.ProductId)
++                        .Select(i => new CardDispositionEntry(i.ProductItemId, TransactionItemReceiveStatus.Disposed))
++                        .ToList()
++                    : null;
++
++                settlements[line.ProductId] = new LineSettlement(0, line.TransactedQuantity, dispositions);
++            }
++
++            return await SettleAsync(
++                transfer, tenantId, settlements, reason, request.BranchId, null, cancellationToken);
++        }
++
++        /// <summary>
++        /// Shared settlement path for <see cref="ReceiveAsync"/> and <see cref="DisposeAsync"/>.
++        /// Loads the transfer, then delegates to the tracked-entity overload.
++        /// </summary>
++        private async Task<Result<SettleTransferResult>> SettleAsync(
++            long id, long tenantId, IReadOnlyDictionary<long, LineSettlement> settlements,
++            string? disposeReason, long? disposingBranchId, string? actionNotes, CancellationToken cancellationToken)
++        {
++            CardTransfer? transfer = await _unitOfWork.CardTransfers.GetForUpdateAsync(id, tenantId, cancellationToken);
++            if (transfer is null) return Result.Failure<SettleTransferResult>(TransferErrors.NotFound(id));
++            if (transfer.TransactionStatus != TransactionStatus.InProgress)
++                return Result.Failure<SettleTransferResult>(TransferErrors.NotInProgress(id));
++
++            return await SettleAsync(transfer, tenantId, settlements, disposeReason, disposingBranchId, actionNotes, cancellationToken);
++        }
++
++        /// <summary>
++        /// The settlement itself. See the class-level doc comment for the stock rule this method
++        /// applies uniformly, per line, regardless of whether <paramref name="transfer"/> is an
++        /// ordinary transfer or an auto-generated return.
++        /// </summary>
++        private async Task<Result<SettleTransferResult>> SettleAsync(
++            CardTransfer transfer, long tenantId, IReadOnlyDictionary<long, LineSettlement> settlements,
++            string? disposeReason, long? disposingBranchId, string? actionNotes, CancellationToken cancellationToken)
++        {
++            // Both current callers already check this before reaching here; kept as a defensive
++            // guard so a future third caller can't silently re-settle a closed transfer.
++            if (transfer.TransactionStatus != TransactionStatus.InProgress)
++                return Result.Failure<SettleTransferResult>(TransferErrors.NotInProgress(transfer.Id));
++
++            // ---- Validate the settlement covers exactly the transfer's lines, one-to-one. -----
++            foreach (long productId in settlements.Keys)
++            {
++                if (transfer.Products.All(p => p.ProductId != productId))
++                    return Result.Failure<SettleTransferResult>(TransferErrors.UnknownProductInSettlement(productId));
++            }
++            foreach (CardTransferProduct line in transfer.Products)
++            {
++                if (!settlements.ContainsKey(line.ProductId))
++                    return Result.Failure<SettleTransferResult>(TransferErrors.MissingProductInSettlement(line.ProductId));
++            }
++
++            // ---- Validate quantities and build a per-line plan. No writes yet. -----------------
++            bool anyDisposed = settlements.Values.Any(s => s.Disposed > 0);
++            if (anyDisposed)
++            {
++                if (string.IsNullOrWhiteSpace(disposeReason))
++                    return Result.Failure<SettleTransferResult>(DisposalErrors.ReasonRequired());
++                if (disposeReason.Trim().Length > 500)
++                    return Result.Failure<SettleTransferResult>(DisposalErrors.ReasonTooLong(500));
++                if (disposingBranchId is null)
++                    return Result.Failure<SettleTransferResult>(TransferErrors.DisposingBranchRequired());
++            }
++
++            Branch? disposingBranch = null;
++            if (anyDisposed)
++            {
++                (disposingBranch, Error? branchError) = await LoadDisposingBranchAsync(
++                    disposingBranchId!.Value, tenantId, transfer, cancellationToken);
++                if (branchError is not null) return Result.Failure<SettleTransferResult>(branchError);
++            }
++
++            bool anyReturned = false;
++            var plans = new List<LinePlan>();
++
++            foreach (CardTransferProduct line in transfer.Products)
++            {
++                LineSettlement s = settlements[line.ProductId];
++                int received = s.Received;
++                int disposed = s.Disposed;
++
++                if (received < 0 || disposed < 0 || received + disposed > line.TransactedQuantity)
++                    return Result.Failure<SettleTransferResult>(TransferErrors.SettlementQuantityOutOfRange(line.ProductId));
++
++                int returned = line.TransactedQuantity - received - disposed;
++                if (returned > 0) anyReturned = true;
++
++                List<CardTransferItem> lineItems = transfer.Items
++                    .Where(i => i.ProductItem.ProductId == line.ProductId)
++                    .ToList();
++
++                if (line.ProductTransactionWay == ProductTransactionWay.Known)
++                {
++                    if (s.ItemDispositions is null || s.ItemDispositions.Count == 0)
++                        return Result.Failure<SettleTransferResult>(TransferErrors.DispositionsRequired(line.ProductId));
++                    if (s.ItemDispositions.Count != lineItems.Count)
++                        return Result.Failure<SettleTransferResult>(TransferErrors.DispositionCountMismatch(line.ProductId));
++
++                    var lineItemIds = lineItems.Select(i => i.ProductItemId).ToHashSet();
++                    var seen = new HashSet<long>();
++                    int dr = 0, dd = 0, dx = 0;
++
++                    foreach (CardDispositionEntry entry in s.ItemDispositions)
++                    {
++                        if (!lineItemIds.Contains(entry.ProductItemId))
++                            return Result.Failure<SettleTransferResult>(TransferErrors.DispositionItemNotInTransfer(entry.ProductItemId));
++                        if (!seen.Add(entry.ProductItemId))
++                            return Result.Failure<SettleTransferResult>(TransferErrors.DuplicateItem(entry.ProductItemId));
++
++                        switch (entry.Disposition)
++                        {
++                            case TransactionItemReceiveStatus.Received: dr++; break;
++                            case TransactionItemReceiveStatus.Disposed: dd++; break;
++                            case TransactionItemReceiveStatus.NotReceived: dx++; break;
++                            default:
++                                return Result.Failure<SettleTransferResult>(
++                                    TransferErrors.PendingDispositionNotAllowed(entry.ProductItemId));
++                        }
++                    }
++
++                    if (dr != received || dd != disposed || dx != returned)
++                        return Result.Failure<SettleTransferResult>(TransferErrors.DispositionCountMismatch(line.ProductId));
++
++                    plans.Add(new LinePlan(line, received, disposed, returned, lineItems, s.ItemDispositions));
++                }
++                else
++                {
++                    if (s.ItemDispositions is { Count: > 0 })
++                        return Result.Failure<SettleTransferResult>(TransferErrors.ItemIdsNotAllowedForUnknown(line.ProductId));
++
++                    // System-assigned order for the pool: received first, then disposed, then
++                    // returned. Individual card identity is not caller-visible for Unknown-way, so
++                    // any deterministic order is correct — this one is simplest to implement and
++                    // to reason about when reading the code later.
++                    var dispositions = new List<CardDispositionEntry>(lineItems.Count);
++                    for (int i = 0; i < lineItems.Count; i++)
++                    {
++                        TransactionItemReceiveStatus outcome =
++                            i < received ? TransactionItemReceiveStatus.Received :
++                            i < received + disposed ? TransactionItemReceiveStatus.Disposed :
++                            TransactionItemReceiveStatus.NotReceived;
++                        dispositions.Add(new CardDispositionEntry(lineItems[i].ProductItemId, outcome));
++                    }
++
++                    plans.Add(new LinePlan(line, received, disposed, returned, lineItems, dispositions));
++                }
++            }
++
++            // A remainder needs somewhere to go back to. Refused up front, before any write,
++            // rather than receiving part of the shipment and stranding the rest.
++            Branch? returnTargetBranch = null;
++            if (anyReturned)
++            {
++                returnTargetBranch = await _unitOfWork.Branches.GetByIdIncludingDeletedAsync(
++                    transfer.SourceBranchId, cancellationToken);
++                if (returnTargetBranch is null || returnTargetBranch.IsDeleted || !returnTargetBranch.IsActive)
++                    return Result.Failure<SettleTransferResult>(TransferErrors.ReturnBranchUnavailable(transfer.SourceBranchId));
++            }
++
++            // ---- Apply. Everything above was read-only; everything below writes. --------------
++            // disposal, returnTransfer and the running totals are declared here — outside the
++            // transaction lambda — and only mutated inside it (closure capture, the same pattern
++            // BatchUploadService uses for its own counters). This is not a style preference: a
++            // newly inserted entity's Id is 0 until SaveChanges actually runs, which happens
++            // *after* the lambda returns, so reading returnTransfer.Id or disposal.Id from inside
++            // the lambda — or baking either into a value returned from it — would capture 0. The
++            // non-generic ExecuteInTransactionAsync is used for exactly this reason: nothing
++            // meaningful needs to come out of the lambda's return value here.
++            CardDisposal? disposal = null;
++            CardTransfer? returnTransfer = null;
++            int totalReceived = 0, totalDisposed = 0, totalReturned = 0;
++
++            Result transactionResult;
++            try
++            {
++                transactionResult = await _unitOfWork.ExecuteInTransactionAsync(async () =>
++                {
++                    foreach (LinePlan plan in plans)
++                    {
++                        CardTransferProduct line = plan.Line;
++                        line.RealQuantityReceived = plan.Received;
++                        line.DisposedQuantity = plan.Disposed;
++
++                        totalReceived += plan.Received;
++                        totalDisposed += plan.Disposed;
++                        totalReturned += plan.Returned;
++
++                        var byId = plan.Dispositions.ToDictionary(d => d.ProductItemId, d => d.Disposition);
++                        var returningItems = new List<ProductItem>();
++
++                        foreach (CardTransferItem item in plan.Items)
++                        {
++                            TransactionItemReceiveStatus outcome = byId[item.ProductItemId];
++                            item.ReceiveStatus = outcome;
++                            ProductItem card = item.ProductItem;
++
++                            switch (outcome)
++                            {
++                                case TransactionItemReceiveStatus.Received:
++                                    card.BranchID = transfer.TargetBranchId;
++                                    card.Status = CardStatus.Available;
++                                    break;
++
++                                case TransactionItemReceiveStatus.Disposed:
++                                    card.Status = CardStatus.Disposed;
++                                    card.BranchID = disposingBranch!.Id;   // final resting location
++                                    disposal ??= new CardDisposal
++                                    {
++                                        TenantId = tenantId,
++                                        BranchId = disposingBranch.Id,
++                                        CardTransferId = transfer.Id,
++                                        DisposedByTenantId = tenantId,
++                                        DisposedAt = DateTime.UtcNow,
++                                        Reason = disposeReason!.Trim(),
++                                    };
++                                    disposal.Items.Add(new CardDisposalItem { TenantId = tenantId, ProductItemId = card.ID });
++                                    break;
++
++                                case TransactionItemReceiveStatus.NotReceived:
++                                    // Stays BranchID = null, Status = OnHold — already was, since
++                                    // create time. This row is the historical record of the
++                                    // outbound leg; the return transfer gets a fresh row below.
++                                    returningItems.Add(card);
++                                    break;
++                            }
++                        }
++
++                        // ---- Stock: the rule from the class doc, applied to this line. --------
++                        Stock sourceStock = await _unitOfWork.Stocks.GetOrCreateForUpdateAsync(
++                            tenantId, transfer.SourceBranchId, line.ProductId, cancellationToken);
++
++                        int releasedHold = sourceStock.HoldQuantity - line.TransactedQuantity;
++                        if (releasedHold < 0)
++                        {
++                            // Should be unreachable: Hold was incremented by exactly this amount
++                            // at create time and nothing else touches it before this release. A
++                            // negative result here means the stock aggregate and this transfer's
++                            // own bookkeeping have diverged — a StockInconsistency, not an
++                            // ordinary availability shortfall (StockErrors.InsufficientAvailable
++                            // is about Available going negative, a different column and a
++                            // different, caller-triggerable condition).
++                            return Result.Failure(
++                                TransferErrors.StockInconsistency(transfer.SourceBranchId, line.ProductId));
++                        }
++                        sourceStock.HoldQuantity = releasedHold;
++                        sourceStock.UpdatedAt = DateTime.UtcNow;
++
++                        if (plan.Received > 0 || plan.Returned > 0)
++                        {
++                            Stock targetStock = await _unitOfWork.Stocks.GetOrCreateForUpdateAsync(
++                                tenantId, transfer.TargetBranchId, line.ProductId, cancellationToken);
++                            targetStock.AvailableQuantity += plan.Received;
++                            targetStock.HoldQuantity += plan.Returned;
++                            targetStock.UpdatedAt = DateTime.UtcNow;
++                        }
++
++                        // ---- Return leg: fresh line + fresh item rows on the return transfer. -
++                        if (plan.Returned > 0)
++                        {
++                            returnTransfer ??= new CardTransfer
++                            {
++                                TenantId = tenantId,
++                                BranchRequestId = null,
++                                CreatedAt = DateTime.UtcNow,
++                                CreatedByTenantId = tenantId,
++                                SourceBranchId = transfer.TargetBranchId,
++                                TargetBranchId = transfer.SourceBranchId,
++                                TransactionStatus = TransactionStatus.InProgress,
++                                Origin = TransactionOrigin.AutoGeneratedReturn,
++                                ParentTransferId = transfer.Id,
++                            };
++
++                            returnTransfer.Products.Add(new CardTransferProduct
++                            {
++                                TenantId = tenantId,
++                                ProductId = line.ProductId,
++                                TransactedQuantity = plan.Returned,
++                                ProductTransactionWay = line.ProductTransactionWay,   // carried forward
++                            });
++
++                            foreach (ProductItem card in returningItems)
++                            {
++                                returnTransfer.Items.Add(new CardTransferItem
++                                {
++                                    TenantId = tenantId,
++                                    ProductItemId = card.ID,
++                                    ReceiveStatus = TransactionItemReceiveStatus.Pending,
++                                });
++                            }
++                        }
++                    }
++
++                    // ---- This transfer's own final status. ------------------------------------
++                    transfer.TransactionStatus =
++                        totalReturned == 0 && totalDisposed == 0 ? TransactionStatus.Received :
++                        totalReceived == 0 && totalReturned == 0 ? TransactionStatus.Disposed :
++                        totalReceived == 0 && totalDisposed == 0 ? TransactionStatus.ReturnedBack :
++                        TransactionStatus.PartiallyReceived;
++                    transfer.StatusChangedAt = DateTime.UtcNow;
++                    if (!string.IsNullOrWhiteSpace(actionNotes)) transfer.ActionNotes = actionNotes;
++
++                    if (disposal is not null) await _unitOfWork.CardDisposals.AddAsync(disposal, cancellationToken);
++                    if (returnTransfer is not null) await _unitOfWork.CardTransfers.AddAsync(returnTransfer, cancellationToken);
++
++                    return Result.Success();
++                }, cancellationToken);
++            }
++            catch (DbUpdateConcurrencyException)
++            {
++                return Result.Failure<SettleTransferResult>(TransferErrors.ConcurrencyConflict());
++            }
++            catch (DbUpdateException)
++            {
++                return Result.Failure<SettleTransferResult>(TransferErrors.PersistenceConflict());
++            }
++
++            if (transactionResult.IsFailure)
++                return Result.Failure<SettleTransferResult>(transactionResult.Error);
++
++            // disposal.Id and returnTransfer.Id are trustworthy now — SaveChanges has run.
++            var result = new SettleTransferResult(
++                transfer.Id, transfer.TransactionStatus,
++                returnTransfer?.Id, disposal?.Id,
++                totalReceived, totalDisposed, totalReturned);
++
++            string action = result.TransactionStatus switch
++            {
++                TransactionStatus.Received => "Received",
++                TransactionStatus.Disposed => "Disposed",
++                TransactionStatus.ReturnedBack => "Returned",
++                _ => "PartiallyReceived",
++            };
++            _auditLogger.StageAction(
++                tenantId, tenantId, _currentTenant.Username ?? "unknown",
++                action, nameof(CardTransfer), transfer.Id.ToString(),
++                anyDisposed ? disposeReason!.Trim() : null);
++            await _unitOfWork.SaveChangesAsync(cancellationToken);
++
++            return result;
++        }
++
++        // =====================================================================================
++        //  Validation helpers
++        // =====================================================================================
++
++        private static Result ValidateCreateShape(CreateTransferRequest request)
++        {
++            if (request.Items is null || request.Items.Count == 0)
++                return Result.Failure(TransferErrors.NoItems());
++
++            if (request.ActionNotes is { Length: > 500 })
++                return Result.Failure(TransferErrors.ActionNotesTooLong(500));
++
++            var seenProducts = new HashSet<long>();
++            foreach (CreateTransferLine line in request.Items)
++            {
++                if (!seenProducts.Add(line.ProductId))
++                    return Result.Failure(TransferErrors.DuplicateProduct(line.ProductId));
++                if (line.TransactedQuantity <= 0)
++                    return Result.Failure(TransferErrors.InvalidQuantity(line.ProductId));
++            }
++
++            // The per-transfer card cap (EC-25) is enforced against the sum of quantities, not
++            // the line count — a transfer with one line moving 500 cards is the same load on the
++            // system as one with 500 single-card lines.
++            const int maxCardsPerTransfer = 500;
++            int totalQuantity = request.Items.Sum(i => i.TransactedQuantity);
++            if (totalQuantity > maxCardsPerTransfer)
++                return Result.Failure(TransferErrors.TooManyItems(maxCardsPerTransfer));
++
++            return Result.Success();
++        }
++
++        private async Task<(Branch? Branch, Error? Error)> LoadBranchAsync(
++            long branchId, long tenantId, CancellationToken cancellationToken)
++        {
++            Branch? branch = await _unitOfWork.Branches.GetByIdIncludingDeletedAsync(branchId, cancellationToken);
++            if (branch is null || branch.TenantId != tenantId)
++                return (null, TransferErrors.BranchNotFound(branchId));
++            if (branch.IsDeleted)
++                return (null, TransferErrors.BranchDeleted(branchId));
++            return (branch, null);
++        }
++
++        private async Task<(Branch? Branch, Error? Error)> LoadDisposingBranchAsync(
++            long branchId, long tenantId, CardTransfer transfer, CancellationToken cancellationToken)
++        {
++            Branch? branch = await _unitOfWork.Branches.GetByIdIncludingDeletedAsync(branchId, cancellationToken);
++            if (branch is null || branch.TenantId != tenantId)
++                return (null, DisposalErrors.BranchNotFound(branchId));
++            if (branch.IsDeleted)
++                return (null, DisposalErrors.BranchDeleted(branchId));
++            // Closest enforceable form of "only a party to the transfer may dispose of its cards"
++            // (decision Q6) — the JWT carries no branch claim to check against directly.
++            if (branch.Id != transfer.SourceBranchId && branch.Id != transfer.TargetBranchId)
++                return (null, DisposalErrors.BranchNotPartyToTransfer(branchId));
++            return (branch, null);
++        }
++
++        // null scope => system admin (read-only, decision Q7); otherwise the tenant caller's id.
++        private long? ResolveReadScope(out Error? error)
++        {
++            error = null;
++            if (_currentTenant.IsSystemAdmin) return null;
++            if (_currentTenant.TenantId is long tenantId) return tenantId;
++            error = TransferErrors.ActorNotResolved();
++            return null;
++        }
++
++        // Every write in this service rejects a system admin outright (decision Q7): a transfer's
++        // CreatedByTenantId has no admin id to point to, and admin access here is read-only by design.
++        private Result<long> ResolveWritingTenant()
++        {
++            if (_currentTenant.IsSystemAdmin) return Result.Failure<long>(TransferErrors.SystemAdminNotAllowed());
++            if (_currentTenant.TenantId is long tenantId) return tenantId;
++            return Result.Failure<long>(TransferErrors.ActorNotResolved());
++        }
++
++        // =====================================================================================
++        //  Mapping
++        // =====================================================================================
++
++        private static TransferListItemResponse MapListItem(CardTransfer t) => new(
++            t.Id, t.TenantId,
++            t.SourceBranchId, t.SourceBranch.Name,
++            t.TargetBranchId, t.TargetBranch.Name,
++            t.TransactionStatus, t.Origin, t.ParentTransferId, t.BranchRequestId,
++            t.Products.Count, t.Products.Sum(p => p.TransactedQuantity),
++            t.CreatedAt, t.StatusChangedAt);
++
++        private static TransferDetailResponse MapDetail(CardTransfer t)
++        {
++            var knownProductIds = t.Products
++                .Where(p => p.ProductTransactionWay == ProductTransactionWay.Known)
++                .Select(p => p.ProductId)
++                .ToHashSet();
++
++            IReadOnlyList<TransferItemResponse> items = t.Items
++                .Where(i => knownProductIds.Contains(i.ProductItem.ProductId))
++                .Select(i => new TransferItemResponse(
++                    i.ProductItemId, i.ProductItem.MaskedPan, i.ProductItem.ProductId, i.ReceiveStatus))
++                .ToList();
++
++            return new TransferDetailResponse(
++                t.Id, t.TenantId,
++                t.SourceBranchId, t.SourceBranch.Name,
++                t.TargetBranchId, t.TargetBranch.Name,
++                t.TransactionStatus, t.Origin, t.ParentTransferId, t.BranchRequestId,
++                t.ActionNotes, t.CreatedAt, t.CreatedByTenantId, t.StatusChangedAt,
++                Convert.ToBase64String(t.RowVersion),
++                t.Products.Select(MapProductLine).ToList(),
++                items);
++        }
++
++        private static TransferProductResponse MapProductLine(CardTransferProduct p)
++        {
++            if (p.RealQuantityReceived is null)
++            {
++                return new TransferProductResponse(
++                    p.ProductId, p.Product?.Name ?? string.Empty, p.TransactedQuantity,
++                    null, null, 0, p.ProductTransactionWay, ProductReceiveOutcome.Pending);
++            }
++
++            int received = p.RealQuantityReceived.Value;
++            int disposed = p.DisposedQuantity ?? 0;
++            int returned = p.TransactedQuantity - received - disposed;
++
++            ProductReceiveOutcome outcome =
++                disposed == p.TransactedQuantity ? ProductReceiveOutcome.FullyDisposed :
++                received == p.TransactedQuantity ? ProductReceiveOutcome.FullyReceived :
++                received == 0 ? ProductReceiveOutcome.NotReceived :
++                ProductReceiveOutcome.PartialReceived;
++
++            return new TransferProductResponse(
++                p.ProductId, p.Product?.Name ?? string.Empty, p.TransactedQuantity,
++                received, disposed, returned, p.ProductTransactionWay, outcome);
++        }
++
++        /// <summary>Caller-stated settlement for one product line, before validation.</summary>
++        private readonly record struct LineSettlement(
++            int Received, int Disposed, IReadOnlyList<CardDispositionEntry>? ItemDispositions);
++
++        /// <summary>Validated, ready-to-apply settlement plan for one product line.</summary>
++        private sealed record LinePlan(
++            CardTransferProduct Line,
++            int Received,
++            int Disposed,
++            int Returned,
++            IReadOnlyList<CardTransferItem> Items,
++            IReadOnlyList<CardDispositionEntry> Dispositions);
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+index 3c0c959..ac9245a 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+@@ -312,9 +312,6 @@
+   <data name="Transfer.ReturnBranchUnavailable" xml:space="preserve">
+     <value>الفرع رقم {0} مش متاح، فمينفعش نرجعله الكروت الباقية.</value>
+   </data>
+-  <data name="Transfer.ReturnMustBeSettledInFull" xml:space="preserve">
+-    <value>الشحنة المرتجعة لازم تتستلم كلها أو تتعدم كلها.</value>
+-  </data>
+   <data name="Transfer.StockInconsistency" xml:space="preserve">
+     <value>رصيد الفرع/المنتج {0} مش مطابق للكروت المسجلة. التحويل ماتمش.</value>
+   </data>
+@@ -363,4 +360,31 @@
+   <data name="Disposal.DuplicateProduct" xml:space="preserve">
+     <value>المنتج رقم {0} متكرر أكتر من مرة. اجمع الكميات في سطر واحد.</value>
+   </data>
++  <data name="Transfer.ActorNotResolved" xml:space="preserve">
++    <value>معرفناش مين اللي بيستخدم النظام دلوقتي.</value>
++  </data>
++  <data name="Transfer.DisposingBranchRequired" xml:space="preserve">
++    <value>لازم تحدد الفرع اللي عامل الإعدام لو في كمية هتتعدم.</value>
++  </data>
++  <data name="Transfer.PersistenceConflict" xml:space="preserve">
++    <value>التحويل ماتحفظش بسبب تعارض في التعديلات. جرب تاني.</value>
++  </data>
++  <data name="Transfer.ActionNotesTooLong" xml:space="preserve">
++    <value>الملاحظة مينفعش تزيد عن {0} حرف.</value>
++  </data>
++  <data name="Disposal.ActorNotResolved" xml:space="preserve">
++    <value>معرفناش مين اللي بيستخدم النظام دلوقتي.</value>
++  </data>
++  <data name="Disposal.DuplicateItem" xml:space="preserve">
++    <value>الكارت رقم {0} متكرر أكتر من مرة.</value>
++  </data>
++  <data name="Disposal.NotFound" xml:space="preserve">
++    <value>مفيش عملية إعدام بالرقم {0}.</value>
++  </data>
++  <data name="Disposal.CardNotFound" xml:space="preserve">
++    <value>مفيش كارت بالرقم {0}.</value>
++  </data>
++  <data name="Disposal.PersistenceConflict" xml:space="preserve">
++    <value>عملية الإعدام ماتحفظتش بسبب تعارض في التعديلات. جرب تاني.</value>
++  </data>
+ </root>
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+index 3466d7a..443d61e 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+@@ -312,9 +312,6 @@
+   <data name="Transfer.ReturnBranchUnavailable" xml:space="preserve">
+     <value>Branch {0} is unavailable, so the remaining cards cannot be returned to it.</value>
+   </data>
+-  <data name="Transfer.ReturnMustBeSettledInFull" xml:space="preserve">
+-    <value>A returned shipment must be fully received or fully disposed.</value>
+-  </data>
+   <data name="Transfer.StockInconsistency" xml:space="preserve">
+     <value>Stock for branch/product {0} does not match the cards on record. The transfer was not applied.</value>
+   </data>
+@@ -363,4 +360,31 @@
+   <data name="Disposal.DuplicateProduct" xml:space="preserve">
+     <value>Product {0} appears more than once. Combine the quantities into a single line.</value>
+   </data>
++  <data name="Transfer.ActorNotResolved" xml:space="preserve">
++    <value>The acting principal could not be resolved.</value>
++  </data>
++  <data name="Transfer.DisposingBranchRequired" xml:space="preserve">
++    <value>A disposing branch is required when any quantity is disposed of.</value>
++  </data>
++  <data name="Transfer.PersistenceConflict" xml:space="preserve">
++    <value>The transfer could not be saved because of a conflicting change. Please retry.</value>
++  </data>
++  <data name="Transfer.ActionNotesTooLong" xml:space="preserve">
++    <value>The note cannot exceed {0} characters.</value>
++  </data>
++  <data name="Disposal.ActorNotResolved" xml:space="preserve">
++    <value>The acting principal could not be resolved.</value>
++  </data>
++  <data name="Disposal.DuplicateItem" xml:space="preserve">
++    <value>Card {0} is listed more than once.</value>
++  </data>
++  <data name="Disposal.NotFound" xml:space="preserve">
++    <value>No disposal was found with id {0}.</value>
++  </data>
++  <data name="Disposal.CardNotFound" xml:space="preserve">
++    <value>No card was found with id {0}.</value>
++  </data>
++  <data name="Disposal.PersistenceConflict" xml:space="preserve">
++    <value>The disposal could not be saved because of a conflicting change. Please retry.</value>
++  </data>
+ </root>
+-- 
+2.43.0
+

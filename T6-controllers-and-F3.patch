@@ -1,0 +1,391 @@
+From 34ff953ff2a4d786820c6a1e16ebc202b61b42bd Mon Sep 17 00:00:00 2001
+From: T0 <dev@local>
+Date: Wed, 5 Aug 2026 15:44:57 +0000
+Subject: [PATCH] T6: controllers, routing, and fix F3 (branch-delete guard)
+
+Presentation layer for API 4.10, plus the last flagged pre-work item.
+
+Controllers (all [Authorize] only, no permission attributes, per the
+locked authorization decision):
+
+- TransactionsController [api/inventory/transactions]: list, detail,
+  create, receive, dispose. Every write rejects a system-admin caller
+  (decision Q7); reads are open to admin across tenants.
+- InventoryHistoryController [api/inventory/history]: thin alias over the
+  same ITransferService.GetAllAsync call as the transactions list - kept
+  as its own controller rather than a second route on TransactionsController
+  so routing tables and Swagger don't have one implying it owns the other.
+- CardDisposalsController [api/inventory]: cards/dispose (create),
+  disposals + disposals/{id} (list/detail). Full paths given per action
+  since the two resources don't share a parent segment. Never available
+  to a system admin - no read-only path here at all, unlike transfers.
+
+All three are one-liners per action, matching every existing controller's
+own convention: (await _services.X.YAsync(...)).ToActionResult(this).
+No new response-mapping code, no manual ApiResponse construction.
+
+Fix F3: BranchService.SoftDeleteAsync now enforces the rule API 4.5
+already documented but never checked - a branch holding non-zero stock,
+or party to an in-progress transfer, cannot be deleted. Backed by two
+new repo methods: IStockRepo.HasNonZeroStockAsync and the
+ICardTransferRepo.HasInProgressTransferAsync pre-built back in T3
+specifically for this. Both checks run before the actor lookup - no
+point resolving who's deleting a branch that can't be deleted.
+
+Localization: 2 new keys (Branch.HasStock, Branch.HasInProgressTransfer)
+in both languages. Note for the record, not something this patch touches:
+the pre-existing Branch.* error codes (NotFound, AlreadyDeleted, etc.)
+have no resx entries at all and silently fall back to their English
+default per ApiError.Message's own doc comment - a gap that predates
+this work and is outside F3's scope.
+
+No migration - this phase is pure application/infrastructure/presentation
+logic on top of what T1's schema already provides.
+---
+ ApplicationLayer/Contracts/IStockRepo.cs      |  9 ++
+ ApplicationLayer/Errors/BranchErrors.cs       | 19 ++++
+ InfrastructureLayer/Repositories/StockRepo.cs |  7 ++
+ InfrastructureLayer/Services/BranchService.cs | 10 +++
+ .../Controllers/CardDisposalsController.cs    | 66 ++++++++++++++
+ .../Controllers/InventoryHistoryController.cs | 38 ++++++++
+ .../Controllers/TransactionsController.cs     | 89 +++++++++++++++++++
+ .../Resources/Localization/Messages.ar.resx   |  6 ++
+ .../Resources/Localization/Messages.resx      |  6 ++
+ 9 files changed, 250 insertions(+)
+ create mode 100644 InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/CardDisposalsController.cs
+ create mode 100644 InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/InventoryHistoryController.cs
+ create mode 100644 InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/TransactionsController.cs
+
+diff --git a/ApplicationLayer/Contracts/IStockRepo.cs b/ApplicationLayer/Contracts/IStockRepo.cs
+index 6f65ebc..3053b34 100644
+--- a/ApplicationLayer/Contracts/IStockRepo.cs
++++ b/ApplicationLayer/Contracts/IStockRepo.cs
+@@ -72,5 +72,14 @@ namespace ApplicationLayer.Contracts
+         /// </summary>
+         Task<IReadOnlyDictionary<(long BranchId, long ProductId), Stock>> GetManyForUpdateAsync(
+             long tenantId, IEnumerable<(long BranchId, long ProductId)> keys, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// True when the branch holds any non-zero <c>AvailableQuantity</c> or
++        /// <c>HoldQuantity</c> across any product (Transactions §4.10, fix F3). Backs
++        /// <c>BranchService.SoftDeleteAsync</c>'s stock guard — API §4.5 requires the caller to
++        /// transfer or write off stock before a branch can be deleted; without this check that
++        /// requirement was unenforced.
++        /// </summary>
++        Task<bool> HasNonZeroStockAsync(long tenantId, long branchId, CancellationToken cancellationToken = default);
+     }
+ }
+\ No newline at end of file
+diff --git a/ApplicationLayer/Errors/BranchErrors.cs b/ApplicationLayer/Errors/BranchErrors.cs
+index 29f12ff..2129e2a 100644
+--- a/ApplicationLayer/Errors/BranchErrors.cs
++++ b/ApplicationLayer/Errors/BranchErrors.cs
+@@ -28,5 +28,24 @@ namespace ApplicationLayer.Errors
+         /// <summary>The caller's principal could not be resolved (no tenant context / unknown admin) (→ 401).</summary>
+         public static Error ActorNotResolved() =>
+             Error.Unauthorized("Branch.ActorNotResolved", "The acting principal could not be resolved.");
++
++        /// <summary>
++        /// The branch holds non-zero stock (→ 409, API §4.5: "Blocked if branch holds non-zero
++        /// stock; caller must transfer or write off first"). Transactions §4.10, fix F3 — the spec
++        /// note existed before this check enforced it.
++        /// </summary>
++        public static Error HasStock(long id) =>
++            Error.Conflict("Branch.HasStock",
++                $"Branch {id} holds non-zero stock and cannot be deleted. Transfer or dispose of it first.")
++                .WithArg(id.ToString());
++
++        /// <summary>
++        /// The branch is the source or target of a transfer that is still in progress (→ 409).
++        /// Deleting it here would strand cards mid-flight with nowhere to be received or returned.
++        /// </summary>
++        public static Error HasInProgressTransfer(long id) =>
++            Error.Conflict("Branch.HasInProgressTransfer",
++                $"Branch {id} has a transfer in progress and cannot be deleted until it is settled.")
++                .WithArg(id.ToString());
+     }
+ }
+\ No newline at end of file
+diff --git a/InfrastructureLayer/Repositories/StockRepo.cs b/InfrastructureLayer/Repositories/StockRepo.cs
+index 1e86fd9..9175ff2 100644
+--- a/InfrastructureLayer/Repositories/StockRepo.cs
++++ b/InfrastructureLayer/Repositories/StockRepo.cs
+@@ -127,5 +127,12 @@ namespace InfrastructureLayer.Repositories
+                 .Where(s => pairSet.Contains((s.BranchId, s.ProductId)))
+                 .ToDictionary(s => (s.BranchId, s.ProductId), s => s);
+         }
++
++        public async Task<bool> HasNonZeroStockAsync(
++            long tenantId, long branchId, CancellationToken cancellationToken = default)
++            => await Set.AsNoTracking().AnyAsync(s =>
++                s.TenantId == tenantId && s.BranchId == branchId &&
++                (s.AvailableQuantity > 0 || s.HoldQuantity > 0),
++                cancellationToken);
+     }
+ }
+\ No newline at end of file
+diff --git a/InfrastructureLayer/Services/BranchService.cs b/InfrastructureLayer/Services/BranchService.cs
+index 07bf6ab..d90f1a7 100644
+--- a/InfrastructureLayer/Services/BranchService.cs
++++ b/InfrastructureLayer/Services/BranchService.cs
+@@ -108,6 +108,16 @@ namespace InfrastructureLayer.Services
+             if (error is not null) return Result.Failure(error);
+             if (branch!.IsDeleted) return Result.Failure(BranchErrors.AlreadyDeleted(id));
+ 
++            // Transactions §4.10, fix F3. API §4.5 already documented this rule ("Blocked if
++            // branch holds non-zero stock") but nothing enforced it until now — a branch could be
++            // deleted while still holding stock, or while cards were physically in flight to or
++            // from it. Both checks run before the actor lookup below: there is no point resolving
++            // who is deleting a branch that cannot be deleted.
++            if (await _unitOfWork.Stocks.HasNonZeroStockAsync(branch.TenantId, id, cancellationToken))
++                return Result.Failure(BranchErrors.HasStock(id));
++            if (await _unitOfWork.CardTransfers.HasInProgressTransferAsync(branch.TenantId, id, cancellationToken))
++                return Result.Failure(BranchErrors.HasInProgressTransfer(id));
++
+             (long? actorId, Error? actorError) = await ResolveActorIdAsync(cancellationToken);
+             if (actorError is not null) return Result.Failure(actorError);
+ 
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/CardDisposalsController.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/CardDisposalsController.cs
+new file mode 100644
+index 0000000..1a27998
+--- /dev/null
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/CardDisposalsController.cs
+@@ -0,0 +1,66 @@
++using System.Threading;
++using System.Threading.Tasks;
++using ApplicationLayer.Common;
++using ApplicationLayer.DTOs.Disposals;
++using ApplicationLayer.ServicesContracts;
++using InventoryManagmentAndInstanceIssuancePresentationLayer.Common;
++using Microsoft.AspNetCore.Authorization;
++using Microsoft.AspNetCore.Mvc;
++
++namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
++{
++    /// <summary>
++    /// Standalone card disposal endpoints (API §4.10, Addendum A). Writes off cards sitting at a
++    /// branch — damaged, spoiled, or discontinued — outside of any transfer. Disposal that happens
++    /// while settling a transfer is <c>TransactionsController</c>'s
++    /// <see cref="TransactionsController.Receive"/> and
++    /// <see cref="TransactionsController.Dispose"/>, not this controller.
++    /// <para>
++    /// Two resources share this controller under the common <c>api/inventory</c> prefix: writing a
++    /// disposal is a card-level action (<c>cards/dispose</c>), while listing and reading disposals
++    /// is its own resource (<c>disposals</c>). Routes are given in full on each action rather than
++    /// composed from a single class-level prefix, since the two don't share a parent segment.
++    /// </para>
++    /// <b>Never available to a system admin</b> — unlike <c>TransactionsController</c>, there is no
++    /// read-only admin path here at all; disposal is a tenant-only concept end to end.
++    /// </summary>
++    /// <response code="401">No valid bearer token was supplied.</response>
++    [ApiController]
++    [Route("api/inventory")]
++    [Authorize]
++    [Produces("application/json")]
++    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
++    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
++    public sealed class CardDisposalsController : ControllerBase
++    {
++        private readonly IServiceManager _services;
++
++        public CardDisposalsController(IServiceManager services) => _services = services;
++
++        /// <summary>
++        /// Writes off cards at a branch, named either by explicit id or by per-product quantity
++        /// (FIFO selection). Requires a non-empty reason; rejects a system-admin caller outright.
++        /// </summary>
++        [HttpPost("cards/dispose")]
++        [ProducesResponseType(typeof(ApiResponse<DisposalDetailResponse>), StatusCodes.Status200OK)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
++        public async Task<IActionResult> Dispose([FromBody] DisposeCardsRequest request, CancellationToken cancellationToken)
++            => (await _services.Disposals.CreateAsync(request, cancellationToken)).ToActionResult(this);
++
++        /// <summary>Lists disposals with paging and filters.</summary>
++        [HttpGet("disposals")]
++        [ProducesResponseType(typeof(ApiResponse<PaginatedResponse<DisposalListItemResponse>>), StatusCodes.Status200OK)]
++        public async Task<IActionResult> GetAll([FromQuery] DisposalListFilter filter, CancellationToken cancellationToken)
++            => (await _services.Disposals.GetAllAsync(filter, cancellationToken)).ToActionResult(this);
++
++        /// <summary>Gets one disposal's full detail, including every card written off under it.</summary>
++        [HttpGet("disposals/{id:long}")]
++        [ProducesResponseType(typeof(ApiResponse<DisposalDetailResponse>), StatusCodes.Status200OK)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
++        public async Task<IActionResult> GetById(long id, CancellationToken cancellationToken)
++            => (await _services.Disposals.GetByIdAsync(id, cancellationToken)).ToActionResult(this);
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/InventoryHistoryController.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/InventoryHistoryController.cs
+new file mode 100644
+index 0000000..18083d4
+--- /dev/null
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/InventoryHistoryController.cs
+@@ -0,0 +1,38 @@
++using System.Threading;
++using System.Threading.Tasks;
++using ApplicationLayer.Common;
++using ApplicationLayer.DTOs.Transfers;
++using ApplicationLayer.ServicesContracts;
++using InventoryManagmentAndInstanceIssuancePresentationLayer.Common;
++using Microsoft.AspNetCore.Authorization;
++using Microsoft.AspNetCore.Mvc;
++
++namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
++{
++    /// <summary>
++    /// Aggregated transaction history view (API §4.10). A reporting alias over the same data as
++    /// <see cref="TransactionsController.GetAll"/> — same scope, same filter, same service call —
++    /// kept as its own thin controller rather than a second route on
++    /// <see cref="TransactionsController"/> so the two stay easy to tell apart in routing tables
++    /// and Swagger without either name implying it owns the other.
++    /// </summary>
++    /// <response code="401">No valid bearer token was supplied.</response>
++    [ApiController]
++    [Route("api/inventory/history")]
++    [Authorize]
++    [Produces("application/json")]
++    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
++    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
++    public sealed class InventoryHistoryController : ControllerBase
++    {
++        private readonly IServiceManager _services;
++
++        public InventoryHistoryController(IServiceManager services) => _services = services;
++
++        /// <summary>Lists transfer history with paging and filters — identical scope to §4.10's transaction list.</summary>
++        [HttpGet]
++        [ProducesResponseType(typeof(ApiResponse<PaginatedResponse<TransferListItemResponse>>), StatusCodes.Status200OK)]
++        public async Task<IActionResult> GetAll([FromQuery] TransferListFilter filter, CancellationToken cancellationToken)
++            => (await _services.Transfers.GetAllAsync(filter, cancellationToken)).ToActionResult(this);
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/TransactionsController.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/TransactionsController.cs
+new file mode 100644
+index 0000000..0e7614e
+--- /dev/null
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/TransactionsController.cs
+@@ -0,0 +1,89 @@
++using System.Threading;
++using System.Threading.Tasks;
++using ApplicationLayer.Common;
++using ApplicationLayer.DTOs.Transfers;
++using ApplicationLayer.ServicesContracts;
++using InventoryManagmentAndInstanceIssuancePresentationLayer.Common;
++using Microsoft.AspNetCore.Authorization;
++using Microsoft.AspNetCore.Mvc;
++
++namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
++{
++    /// <summary>
++    /// Card-transfer endpoints (API §4.10). Requires authentication. A tenant caller creates and
++    /// settles its own tenant's transfers; a system admin has read-only access across tenants
++    /// (decision Q7) — create, receive, and dispose all reject an admin token outright.
++    /// <para>
++    /// There is no separate refuse endpoint. Every settlement outcome — received, disposed, or
++    /// (for whatever is left over) returned — goes through <see cref="Receive"/>, which carries a
++    /// disposition per product line rather than a single accept/reject flag.
++    /// </para>
++    /// </summary>
++    /// <response code="401">No valid bearer token was supplied.</response>
++    [ApiController]
++    [Route("api/inventory/transactions")]
++    [Authorize]
++    [Produces("application/json")]
++    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
++    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
++    public sealed class TransactionsController : ControllerBase
++    {
++        private readonly IServiceManager _services;
++
++        public TransactionsController(IServiceManager services) => _services = services;
++
++        /// <summary>Lists transfers with paging and filters.</summary>
++        [HttpGet]
++        [ProducesResponseType(typeof(ApiResponse<PaginatedResponse<TransferListItemResponse>>), StatusCodes.Status200OK)]
++        public async Task<IActionResult> GetAll([FromQuery] TransferListFilter filter, CancellationToken cancellationToken)
++            => (await _services.Transfers.GetAllAsync(filter, cancellationToken)).ToActionResult(this);
++
++        /// <summary>Gets one transfer's full detail, including product lines and card-level items.</summary>
++        [HttpGet("{id:long}")]
++        [ProducesResponseType(typeof(ApiResponse<TransferDetailResponse>), StatusCodes.Status200OK)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
++        public async Task<IActionResult> GetById(long id, CancellationToken cancellationToken)
++            => (await _services.Transfers.GetByIdAsync(id, cancellationToken)).ToActionResult(this);
++
++        /// <summary>
++        /// Creates a direct transfer between two branches of the caller's tenant. Known-way
++        /// product lines must name the exact cards being sent; Unknown-way lines must not.
++        /// </summary>
++        [HttpPost]
++        [ProducesResponseType(typeof(ApiResponse<TransferDetailResponse>), StatusCodes.Status200OK)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
++        public async Task<IActionResult> Create([FromBody] CreateTransferRequest request, CancellationToken cancellationToken)
++            => (await _services.Transfers.CreateAsync(request, cancellationToken)).ToActionResult(this);
++
++        /// <summary>
++        /// Settles an in-progress transfer: a per-product disposition of received and disposed
++        /// quantities, with whatever is left over spawning a new transfer back to the source.
++        /// </summary>
++        [HttpPost("{id:long}/receive")]
++        [ProducesResponseType(typeof(ApiResponse<SettleTransferResult>), StatusCodes.Status200OK)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
++        public async Task<IActionResult> Receive(
++            long id, [FromBody] ReceiveTransferRequest request, CancellationToken cancellationToken)
++            => (await _services.Transfers.ReceiveAsync(id, request, cancellationToken)).ToActionResult(this);
++
++        /// <summary>
++        /// Writes off everything an in-progress transfer still carries, in one step, without
++        /// receiving any of it. Equivalent to <see cref="Receive"/> with every line fully disposed.
++        /// </summary>
++        [HttpPost("{id:long}/dispose")]
++        [ProducesResponseType(typeof(ApiResponse<SettleTransferResult>), StatusCodes.Status200OK)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
++        public async Task<IActionResult> Dispose(
++            long id, [FromBody] DisposeTransferRequest request, CancellationToken cancellationToken)
++            => (await _services.Transfers.DisposeAsync(id, request, cancellationToken)).ToActionResult(this);
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+index ac9245a..dbd6829 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+@@ -387,4 +387,10 @@
+   <data name="Disposal.PersistenceConflict" xml:space="preserve">
+     <value>عملية الإعدام ماتحفظتش بسبب تعارض في التعديلات. جرب تاني.</value>
+   </data>
++  <data name="Branch.HasStock" xml:space="preserve">
++    <value>الفرع رقم {0} لسه فيه رصيد، مينفعش يتمسح. حوّل الرصيد أو اعدمه الأول.</value>
++  </data>
++  <data name="Branch.HasInProgressTransfer" xml:space="preserve">
++    <value>الفرع رقم {0} ليه تحويل شغال، مينفعش يتمسح غير لما يتقفل.</value>
++  </data>
+ </root>
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+index 443d61e..ae0a152 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+@@ -387,4 +387,10 @@
+   <data name="Disposal.PersistenceConflict" xml:space="preserve">
+     <value>The disposal could not be saved because of a conflicting change. Please retry.</value>
+   </data>
++  <data name="Branch.HasStock" xml:space="preserve">
++    <value>Branch {0} holds non-zero stock and cannot be deleted. Transfer or dispose of it first.</value>
++  </data>
++  <data name="Branch.HasInProgressTransfer" xml:space="preserve">
++    <value>Branch {0} has a transfer in progress and cannot be deleted until it is settled.</value>
++  </data>
+ </root>
+-- 
+2.43.0
+

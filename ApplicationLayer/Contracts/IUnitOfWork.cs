@@ -35,6 +35,12 @@ namespace ApplicationLayer.Contracts
         IProductItemRepo ProductItems { get; }
         IBatchRepo BatchRepo { get; }
 
+        /// <summary>Repository for card transfers between branches (ERD §4.3–§4.5, API §4.10).</summary>
+        ICardTransferRepo CardTransfers { get; }
+
+        /// <summary>Repository for card write-offs (API §4.10, Addendum A).</summary>
+        ICardDisposalRepo CardDisposals { get; }
+
         /// <summary>
         /// Runs <paramref name="work"/> inside an explicit DB transaction (ERD §3.1 invariant /
         /// Batch Upload Phased Plan §3.6 &amp; §4.8): <paramref name="work"/> stages changes via
@@ -55,5 +61,26 @@ namespace ApplicationLayer.Contracts
         /// successful commit).
         /// </returns>
         Task<Result> ExecuteInTransactionAsync(Func<Task<Result>> work, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Value-returning overload of <see cref="ExecuteInTransactionAsync(Func{Task{Result}}, CancellationToken)"/>
+        /// (Transactions §4.10, fix F5). Identical transaction/rollback/commit semantics; the only
+        /// difference is that <paramref name="work"/> hands back a <see cref="Result{TValue}"/>, so
+        /// a caller that needs to return something out of the transaction — the settlement summary
+        /// from a receive, the id of an auto-generated return — does not have to smuggle it out
+        /// through a captured local variable the way <c>BatchUploadService</c> does today.
+        /// </summary>
+        /// <typeparam name="TValue">Type of the value produced on success.</typeparam>
+        /// <param name="work">
+        /// The unit of work: stages changes through repository properties on this
+        /// <see cref="IUnitOfWork"/> and returns the business outcome as a <see cref="Result{TValue}"/>.
+        /// </param>
+        /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
+        /// <returns>
+        /// The <see cref="Result{TValue}"/> returned by <paramref name="work"/> (success, with its
+        /// value, only after a successful commit).
+        /// </returns>
+        Task<Result<TValue>> ExecuteInTransactionAsync<TValue>(
+            Func<Task<Result<TValue>>> work, CancellationToken cancellationToken = default);
     }
 }

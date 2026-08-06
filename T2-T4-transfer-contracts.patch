@@ -1,0 +1,1084 @@
+From 74dacb89cc09730cc2f0e265a136520d21eea4f8 Mon Sep 17 00:00:00 2001
+From: T0 <dev@local>
+Date: Wed, 5 Aug 2026 09:29:04 +0000
+Subject: [PATCH] T2+T4: transfer and disposal contracts
+
+Error catalogues, DTOs and localization for API 4.10. No logic yet.
+
+Delivered together and ahead of T3 because the repository signatures in T3
+reference the list filters, exactly as IStockRepo references StockListFilter.
+
+- TransferErrors: 33 codes covering creation, Known-way card selection and
+  settlement. Stock-level failures deliberately reuse StockErrors so a
+  transfer surfaces the same code a card status change would.
+- DisposalErrors: 13 codes. Strict by design - disposal destroys quantity
+  and cannot be undone, so ambiguous requests are refused, not interpreted.
+- Transfer DTOs: create, receive (carrying the disposition model), dispose,
+  list/detail responses and filter. ProductReceiveOutcome is a DTO-level
+  enum per ERD 4.5 - computed at query time, never a column.
+- Disposal DTOs: standalone dispose by card ids or by quantity, plus list
+  and detail projections.
+- 46 localized messages added to Messages.resx and Messages.ar.resx.
+
+Verified: every error code has a key in both resource files, no orphans,
+and every {0} placeholder matches a WithArg call.
+---
+ .../DTOs/Disposals/DisposalDtos.cs            | 103 +++++++
+ .../DTOs/Transfers/TransferDtos.cs            | 263 ++++++++++++++++++
+ ApplicationLayer/Errors/DisposalErrors.cs     | 120 ++++++++
+ ApplicationLayer/Errors/TransferErrors.cs     | 240 ++++++++++++++++
+ .../Resources/Localization/Messages.ar.resx   | 138 +++++++++
+ .../Resources/Localization/Messages.resx      | 138 +++++++++
+ 6 files changed, 1002 insertions(+)
+ create mode 100644 ApplicationLayer/DTOs/Disposals/DisposalDtos.cs
+ create mode 100644 ApplicationLayer/DTOs/Transfers/TransferDtos.cs
+ create mode 100644 ApplicationLayer/Errors/DisposalErrors.cs
+ create mode 100644 ApplicationLayer/Errors/TransferErrors.cs
+
+diff --git a/ApplicationLayer/DTOs/Disposals/DisposalDtos.cs b/ApplicationLayer/DTOs/Disposals/DisposalDtos.cs
+new file mode 100644
+index 0000000..f925e6f
+--- /dev/null
++++ b/ApplicationLayer/DTOs/Disposals/DisposalDtos.cs
+@@ -0,0 +1,103 @@
++using System;
++using System.Collections.Generic;
++
++namespace ApplicationLayer.DTOs.Disposals
++{
++    /// <summary>
++    /// Quantity of one product to write off, when the caller does not name specific cards.
++    /// </summary>
++    /// <param name="ProductId">Product being written off.</param>
++    /// <param name="Quantity">How many cards. Must be greater than zero.</param>
++    public sealed record DisposeCardsLine(
++        long ProductId,
++        int Quantity);
++
++    /// <summary>
++    /// Payload for <c>POST /api/inventory/cards/dispose</c> (Addendum A §2.4): write off cards
++    /// sitting at a branch, outside any transfer — damaged, spoiled, or discontinued stock.
++    /// <para>
++    /// Exactly one of <paramref name="ProductItemIds"/> and <paramref name="Items"/> must be
++    /// supplied. Supplying both is refused rather than resolved by precedence: guessing which the
++    /// caller meant risks destroying the wrong cards, and disposal cannot be undone.
++    /// </para>
++    /// </summary>
++    /// <param name="BranchId">
++    /// Branch performing the disposal and whose available stock is decremented. Required — the
++    /// cards' own branch is not consulted, so that this always names who is accountable.
++    /// </param>
++    /// <param name="Reason">Why the cards were written off. Required, non-empty after trimming.</param>
++    /// <param name="ProductItemIds">
++    /// The exact cards to write off. Every one must currently be available at
++    /// <paramref name="BranchId"/>.
++    /// </param>
++    /// <param name="Items">
++    /// Quantities per product, letting the system choose which cards to consume (oldest first).
++    /// The chosen cards are still recorded individually on the disposal, so the record of what
++    /// left inventory is exact either way.
++    /// </param>
++    public sealed record DisposeCardsRequest(
++        long BranchId,
++        string Reason,
++        IReadOnlyList<long>? ProductItemIds = null,
++        IReadOnlyList<DisposeCardsLine>? Items = null);
++
++    /// <summary>One card recorded on a disposal.</summary>
++    public sealed record DisposalItemResponse(
++        long ProductItemId,
++        string MaskedPan,
++        long ProductId,
++        string ProductName);
++
++    /// <summary>Row shape for the disposal list endpoint.</summary>
++    public sealed record DisposalListItemResponse(
++        long Id,
++        long TenantId,
++        long BranchId,
++        string BranchName,
++        long? CardTransferId,
++        string Reason,
++        int CardCount,
++        DateTime DisposedAt);
++
++    /// <summary>Full disposal, including every card written off under it.</summary>
++    public sealed record DisposalDetailResponse(
++        long Id,
++        long TenantId,
++        long BranchId,
++        string BranchName,
++        long? CardTransferId,
++        long DisposedByTenantId,
++        string Reason,
++        DateTime DisposedAt,
++        IReadOnlyList<DisposalItemResponse> Items);
++
++    /// <summary>
++    /// Filter and paging inputs for the disposal list endpoint (API §3.1).
++    /// </summary>
++    /// <param name="BranchId">Optional disposing-branch filter.</param>
++    /// <param name="ProductId">Optional filter on a product written off.</param>
++    /// <param name="CardTransferId">Finds the disposal that settled a given transfer.</param>
++    /// <param name="TransferRelatedOnly">
++    /// Tri-state: <c>true</c> keeps only disposals made while settling a transfer, <c>false</c>
++    /// only standalone ones, <c>null</c> both.
++    /// </param>
++    /// <param name="FromDate">Inclusive lower bound on <c>DisposedAt</c> (UTC).</param>
++    /// <param name="ToDate">Inclusive upper bound on <c>DisposedAt</c> (UTC).</param>
++    /// <param name="TenantId">System-admin-only tenant filter; ignored for tenant callers.</param>
++    /// <param name="Page">1-based page index. Defaults to 1.</param>
++    /// <param name="PageSize">Items per page (max 100). Defaults to 20.</param>
++    /// <param name="SortBy">disposedat (default) | branchid.</param>
++    /// <param name="SortDir">asc or desc. Defaults to <c>desc</c>: newest write-offs first.</param>
++    public sealed record DisposalListFilter(
++        long? BranchId = null,
++        long? ProductId = null,
++        long? CardTransferId = null,
++        bool? TransferRelatedOnly = null,
++        DateTime? FromDate = null,
++        DateTime? ToDate = null,
++        long? TenantId = null,
++        int Page = 1,
++        int PageSize = 20,
++        string? SortBy = null,
++        string? SortDir = "desc");
++}
+diff --git a/ApplicationLayer/DTOs/Transfers/TransferDtos.cs b/ApplicationLayer/DTOs/Transfers/TransferDtos.cs
+new file mode 100644
+index 0000000..e86b685
+--- /dev/null
++++ b/ApplicationLayer/DTOs/Transfers/TransferDtos.cs
+@@ -0,0 +1,263 @@
++using System;
++using System.Collections.Generic;
++using DomainLayer.Enums;
++
++namespace ApplicationLayer.DTOs.Transfers
++{
++    // =====================================================================================
++    //  Requests
++    // =====================================================================================
++
++    /// <summary>
++    /// One product line on a new transfer.
++    /// </summary>
++    /// <param name="ProductId">Product being moved.</param>
++    /// <param name="TransactedQuantity">How many cards to send. Must be greater than zero.</param>
++    /// <param name="ProductItemIds">
++    /// The specific cards being sent. <b>Required</b> for a Known-way product, and the count must
++    /// equal <paramref name="TransactedQuantity"/> (decision Q3). <b>Rejected</b> for an
++    /// Unknown-way product, where the system selects cards itself.
++    /// </param>
++    public sealed record CreateTransferLine(
++        long ProductId,
++        int TransactedQuantity,
++        IReadOnlyList<long>? ProductItemIds = null);
++
++    /// <summary>
++    /// Payload for <c>POST /api/inventory/transactions</c> (API §4.10). Creates a direct transfer;
++    /// request-driven transfers arrive via §4.9 instead.
++    /// </summary>
++    /// <param name="SourceBranchId">Branch the cards leave. May be inactive; may not be deleted.</param>
++    /// <param name="TargetBranchId">Branch the cards are headed to. Must differ from the source.</param>
++    /// <param name="Items">Product lines. At least one, with no repeated product.</param>
++    /// <param name="ActionNotes">Optional free-text note stored on the transfer.</param>
++    public sealed record CreateTransferRequest(
++        long SourceBranchId,
++        long TargetBranchId,
++        IReadOnlyList<CreateTransferLine> Items,
++        string? ActionNotes = null);
++
++    /// <summary>
++    /// The outcome of one card in a Known-way settlement.
++    /// </summary>
++    /// <param name="ProductItemId">The card being settled. Must belong to the transfer.</param>
++    /// <param name="Disposition">
++    /// <see cref="TransactionItemReceiveStatus.Received"/>,
++    /// <see cref="TransactionItemReceiveStatus.NotReceived"/> (goes back under the auto-generated
++    /// return), or <see cref="TransactionItemReceiveStatus.Disposed"/>.
++    /// <see cref="TransactionItemReceiveStatus.Pending"/> is rejected — settlement must resolve
++    /// every card.
++    /// </param>
++    public sealed record CardDispositionEntry(
++        long ProductItemId,
++        TransactionItemReceiveStatus Disposition);
++
++    /// <summary>
++    /// How the target settled one product line.
++    /// </summary>
++    /// <param name="ProductId">Product being settled. Must be carried by the transfer.</param>
++    /// <param name="RealQuantityReceived">Quantity accepted into the target branch.</param>
++    /// <param name="DisposedQuantity">Quantity written off instead of accepted or returned.</param>
++    /// <param name="ItemDispositions">
++    /// Per-card outcomes. Required for a Known-way line and must account for every card on it;
++    /// rejected for an Unknown-way line.
++    /// </param>
++    public sealed record ReceiveTransferLine(
++        long ProductId,
++        int RealQuantityReceived,
++        int DisposedQuantity,
++        IReadOnlyList<CardDispositionEntry>? ItemDispositions = null);
++
++    /// <summary>
++    /// Payload for <c>POST /api/inventory/transactions/{id}/receive</c> (API §4.10, Addendum A
++    /// §2.3). This single call expresses every settlement outcome — there is no separate refuse
++    /// endpoint.
++    /// <para>
++    /// Per line, <c>received + disposed</c> may not exceed what was sent; whatever is left over
++    /// becomes an auto-generated return transfer back to the source, which that branch must then
++    /// settle in its own right.
++    /// </para>
++    /// <para>
++    /// Every product carried by the transfer must appear in <paramref name="Items"/>. An omitted
++    /// line is an error, not an implicit zero: partial receipt moves real stock, so it is stated
++    /// rather than inferred.
++    /// </para>
++    /// </summary>
++    /// <param name="Items">One entry per product carried by the transfer.</param>
++    /// <param name="DisposeReason">
++    /// Why cards were written off. Required — and only permitted — when any
++    /// <see cref="ReceiveTransferLine.DisposedQuantity"/> is greater than zero.
++    /// </param>
++    /// <param name="DisposingBranchId">
++    /// Branch accountable for the write-off. Required when anything is disposed. Cards being
++    /// settled sit at no branch (<c>BranchID IS NULL</c>), so this cannot be derived.
++    /// </param>
++    /// <param name="ActionNotes">Optional free-text note stored on the transfer.</param>
++    public sealed record ReceiveTransferRequest(
++        IReadOnlyList<ReceiveTransferLine> Items,
++        string? DisposeReason = null,
++        long? DisposingBranchId = null,
++        string? ActionNotes = null);
++
++    /// <summary>
++    /// Payload for <c>POST /api/inventory/transactions/{id}/dispose</c> (Addendum A §2.4): write
++    /// off everything the transfer still carries, in one step, without receiving any of it.
++    /// </summary>
++    /// <param name="BranchId">Branch accountable for the write-off. Must be a party to the transfer.</param>
++    /// <param name="Reason">Why the cards were written off. Required, non-empty.</param>
++    public sealed record DisposeTransferRequest(
++        long BranchId,
++        string Reason);
++
++    // =====================================================================================
++    //  Responses
++    // =====================================================================================
++
++    /// <summary>
++    /// Query-time receipt outcome for one product line (ERD §4.5: "this is a DTO concern — not a
++    /// column"). Derived from the transacted, received and disposed quantities, which is why it
++    /// lives in the DTO namespace rather than <c>DomainLayer.Enums</c>.
++    /// </summary>
++    public enum ProductReceiveOutcome
++    {
++        /// <summary>The transfer has not been settled yet.</summary>
++        Pending = 0,
++
++        /// <summary>Every card sent was received (ERD §4.5: transacted equals received).</summary>
++        FullyReceived = 1,
++
++        /// <summary>Some but not all cards were received (ERD §4.5: 0 &lt; received &lt; transacted).</summary>
++        PartialReceived = 2,
++
++        /// <summary>Nothing was received; the line was returned, written off, or both.</summary>
++        NotReceived = 3,
++
++        /// <summary>Every card sent was written off.</summary>
++        FullyDisposed = 4
++    }
++
++    /// <summary>One product line as returned by the transfer detail endpoint.</summary>
++    /// <param name="ReturnedQuantity">
++    /// Derived as <c>transacted − received − disposed</c>. Not stored: a persisted copy could
++    /// drift from the three values it is computed from.
++    /// </param>
++    public sealed record TransferProductResponse(
++        long ProductId,
++        string ProductName,
++        int TransactedQuantity,
++        int? RealQuantityReceived,
++        int? DisposedQuantity,
++        int ReturnedQuantity,
++        ProductTransactionWay ProductTransactionWay,
++        ProductReceiveOutcome Outcome);
++
++    /// <summary>
++    /// One card on a Known-way transfer. Identified by its masked PAN — the full PAN is never
++    /// stored and the fingerprint is never disclosed.
++    /// </summary>
++    public sealed record TransferItemResponse(
++        long ProductItemId,
++        string MaskedPan,
++        long ProductId,
++        TransactionItemReceiveStatus ReceiveStatus);
++
++    /// <summary>Row shape for <c>GET /api/inventory/transactions</c> and the history alias.</summary>
++    public sealed record TransferListItemResponse(
++        long Id,
++        long TenantId,
++        long SourceBranchId,
++        string SourceBranchName,
++        long TargetBranchId,
++        string TargetBranchName,
++        TransactionStatus TransactionStatus,
++        TransactionOrigin Origin,
++        long? ParentTransferId,
++        long? BranchRequestId,
++        int ProductLineCount,
++        int TotalTransactedQuantity,
++        DateTime CreatedAt,
++        DateTime? StatusChangedAt);
++
++    /// <summary>
++    /// Full transfer as returned by <c>GET /api/inventory/transactions/{id}</c>.
++    /// <see cref="Items"/> is empty for a transfer carrying only Unknown-way lines.
++    /// </summary>
++    public sealed record TransferDetailResponse(
++        long Id,
++        long TenantId,
++        long SourceBranchId,
++        string SourceBranchName,
++        long TargetBranchId,
++        string TargetBranchName,
++        TransactionStatus TransactionStatus,
++        TransactionOrigin Origin,
++        long? ParentTransferId,
++        long? BranchRequestId,
++        string? ActionNotes,
++        DateTime CreatedAt,
++        long CreatedByTenantId,
++        DateTime? StatusChangedAt,
++        string RowVersion,
++        IReadOnlyList<TransferProductResponse> Products,
++        IReadOnlyList<TransferItemResponse> Items);
++
++    /// <summary>
++    /// Outcome of settling a transfer. <see cref="ReturnTransferId"/> is the auto-generated return
++    /// carrying whatever was neither received nor written off, or <c>null</c> when nothing was
++    /// left over.
++    /// </summary>
++    public sealed record SettleTransferResult(
++        long TransferId,
++        TransactionStatus TransactionStatus,
++        long? ReturnTransferId,
++        long? DisposalId,
++        int TotalReceived,
++        int TotalDisposed,
++        int TotalReturned);
++
++    // =====================================================================================
++    //  Filters
++    // =====================================================================================
++
++    /// <summary>
++    /// Filter and paging inputs for the transfer list endpoints (API §3.1, §4.10). Bound from the
++    /// query string.
++    /// </summary>
++    /// <param name="Status">Optional lifecycle filter.</param>
++    /// <param name="SourceBranchId">Optional source-branch filter.</param>
++    /// <param name="TargetBranchId">Optional target-branch filter.</param>
++    /// <param name="BranchId">
++    /// Matches transfers where this branch is <em>either</em> source or target — the "everything
++    /// that touched my branch" view (API §4.10 scope note).
++    /// </param>
++    /// <param name="ProductId">Optional filter on a product carried by the transfer.</param>
++    /// <param name="Origin">Separates user-raised transfers from auto-generated returns.</param>
++    /// <param name="ParentTransferId">Finds the return produced by a given transfer.</param>
++    /// <param name="BranchRequestId">Reserved for §4.9; matches nothing today.</param>
++    /// <param name="FromDate">Inclusive lower bound on <c>CreatedAt</c> (UTC).</param>
++    /// <param name="ToDate">Inclusive upper bound on <c>CreatedAt</c> (UTC).</param>
++    /// <param name="TenantId">System-admin-only tenant filter; ignored for tenant callers.</param>
++    /// <param name="Page">1-based page index. Defaults to 1.</param>
++    /// <param name="PageSize">Items per page (max 100). Defaults to 20.</param>
++    /// <param name="SortBy">createdat (default) | statuschangedat | status | sourcebranchid | targetbranchid.</param>
++    /// <param name="SortDir">
++    /// asc or desc. Defaults to <c>desc</c> — unlike the other list endpoints, because the useful
++    /// view of movement history is newest first, and the ERD §4.3 index is built that way.
++    /// </param>
++    public sealed record TransferListFilter(
++        TransactionStatus? Status = null,
++        long? SourceBranchId = null,
++        long? TargetBranchId = null,
++        long? BranchId = null,
++        long? ProductId = null,
++        TransactionOrigin? Origin = null,
++        long? ParentTransferId = null,
++        long? BranchRequestId = null,
++        DateTime? FromDate = null,
++        DateTime? ToDate = null,
++        long? TenantId = null,
++        int Page = 1,
++        int PageSize = 20,
++        string? SortBy = null,
++        string? SortDir = "desc");
++}
+diff --git a/ApplicationLayer/Errors/DisposalErrors.cs b/ApplicationLayer/Errors/DisposalErrors.cs
+new file mode 100644
+index 0000000..c2e4ba1
+--- /dev/null
++++ b/ApplicationLayer/Errors/DisposalErrors.cs
+@@ -0,0 +1,120 @@
++using DomainLayer.Common;
++
++namespace ApplicationLayer.Errors
++{
++    /// <summary>
++    /// Stable, localizable <see cref="Error"/> catalogue for card disposal (API §4.10,
++    /// Addendum A).
++    /// <para>
++    /// Disposal is the one operation that destroys quantity and cannot be undone, so its
++    /// validation is deliberately strict: an ambiguous or unexplained request is refused rather
++    /// than interpreted.
++    /// </para>
++    /// </summary>
++    public static class DisposalErrors
++    {
++        /// <summary>
++        /// No reason was supplied (→ 422). Mandatory by design: a write-off without a stated
++        /// reason is indistinguishable from stock going missing, which is precisely what the
++        /// disposal record exists to rule out.
++        /// </summary>
++        public static Error ReasonRequired() =>
++            Error.Validation("Disposal.ReasonRequired",
++                "A reason is required in order to dispose of cards.");
++
++        /// <summary>The reason exceeds the stored length (→ 422).</summary>
++        public static Error ReasonTooLong(int maximum) =>
++            Error.Validation("Disposal.ReasonTooLong",
++                $"The disposal reason cannot exceed {maximum} characters.")
++                .WithArg(maximum.ToString());
++
++        /// <summary>A system admin attempted to dispose of cards (→ 403). Never permitted.</summary>
++        public static Error SystemAdminNotAllowed() =>
++            Error.Forbidden("Disposal.SystemAdminNotAllowed",
++                "A system administrator cannot dispose of cards.");
++
++        /// <summary>The disposing branch does not exist, or belongs to another tenant (→ 404).</summary>
++        public static Error BranchNotFound(long branchId) =>
++            Error.NotFound("Disposal.BranchNotFound", $"No branch was found with id {branchId}.")
++                 .WithArg(branchId.ToString());
++
++        /// <summary>The disposing branch is deleted (→ 422).</summary>
++        public static Error BranchDeleted(long branchId) =>
++            Error.Validation("Disposal.BranchDeleted",
++                $"Branch {branchId} is deleted and cannot dispose of cards.")
++                .WithArg(branchId.ToString());
++
++        /// <summary>
++        /// The named branch is neither the source nor the target of the transfer being settled
++        /// (→ 422). With no branch claim in the token this is the closest enforceable form of
++        /// "only a party to the transfer may dispose of its cards" (decision Q6).
++        /// </summary>
++        public static Error BranchNotPartyToTransfer(long branchId) =>
++            Error.Validation("Disposal.BranchNotPartyToTransfer",
++                $"Branch {branchId} is not involved in this transfer and cannot dispose of its cards.")
++                .WithArg(branchId.ToString());
++
++        /// <summary>The request identified no cards to dispose of (→ 422).</summary>
++        public static Error NothingToDispose() =>
++            Error.Validation("Disposal.NothingToDispose",
++                "At least one card must be identified for disposal.");
++
++        /// <summary>
++        /// Both an explicit card list and a per-product quantity list were supplied (→ 422).
++        /// Refused rather than resolved by precedence: guessing which the caller meant risks
++        /// destroying the wrong cards.
++        /// </summary>
++        public static Error SelectionAmbiguous() =>
++            Error.Validation("Disposal.SelectionAmbiguous",
++                "Specify either the cards to dispose of or the quantities per product, not both.");
++
++        /// <summary>The card has already been written off (→ 409).</summary>
++        public static Error AlreadyDisposed(string maskedPan) =>
++            Error.Conflict("Disposal.AlreadyDisposed",
++                $"Card {maskedPan} has already been disposed.")
++                .WithArg(maskedPan);
++
++        /// <summary>
++        /// The card has been printed and issued to an end customer (→ 409). It has left inventory
++        /// through a different door and is no longer the platform's to write off.
++        /// </summary>
++        public static Error NotDisposable(string maskedPan) =>
++            Error.Conflict("Disposal.NotDisposable",
++                $"Card {maskedPan} has been issued and can no longer be disposed.")
++                .WithArg(maskedPan);
++
++        /// <summary>The card is not at the branch performing the disposal (→ 422).</summary>
++        public static Error CardNotAtBranch(string maskedPan) =>
++            Error.Validation("Disposal.CardNotAtBranch",
++                $"Card {maskedPan} is not held by the branch performing this disposal.")
++                .WithArg(maskedPan);
++
++        /// <summary>
++        /// The card is committed to an in-flight transfer and cannot be written off outside it
++        /// (→ 409). Disposing of it here would leave the transfer's hold quantity backed by
++        /// nothing; it must be disposed of as part of settling that transfer.
++        /// </summary>
++        public static Error CardInTransfer(string maskedPan) =>
++            Error.Conflict("Disposal.CardInTransfer",
++                $"Card {maskedPan} is part of an active transfer and must be disposed of when that transfer is settled.")
++                .WithArg(maskedPan);
++
++        /// <summary>The branch does not hold enough available cards of that product (→ 409).</summary>
++        public static Error InsufficientAvailable(long branchId, long productId) =>
++            Error.Conflict("Disposal.InsufficientAvailable",
++                $"Branch {branchId} does not hold enough available cards of product {productId} to dispose of.")
++                .WithArg($"{branchId}/{productId}");
++
++        /// <summary>A disposal quantity was zero or negative (→ 422).</summary>
++        public static Error InvalidQuantity(long productId) =>
++            Error.Validation("Disposal.InvalidQuantity",
++                $"The disposal quantity for product {productId} must be greater than zero.")
++                .WithArg(productId.ToString());
++
++        /// <summary>The same product appears on more than one disposal line (→ 422).</summary>
++        public static Error DuplicateProduct(long productId) =>
++            Error.Validation("Disposal.DuplicateProduct",
++                $"Product {productId} appears more than once. Combine the quantities into a single line.")
++                .WithArg(productId.ToString());
++    }
++}
+diff --git a/ApplicationLayer/Errors/TransferErrors.cs b/ApplicationLayer/Errors/TransferErrors.cs
+new file mode 100644
+index 0000000..884593c
+--- /dev/null
++++ b/ApplicationLayer/Errors/TransferErrors.cs
+@@ -0,0 +1,240 @@
++using DomainLayer.Common;
++
++namespace ApplicationLayer.Errors
++{
++    /// <summary>
++    /// Stable, localizable <see cref="Error"/> catalogue for the card-transfer module
++    /// (API §4.10).
++    /// <para>
++    /// Stock-level failures are deliberately absent: insufficient availability, a missing stock
++    /// row, and optimistic-concurrency conflicts already have canonical entries in
++    /// <see cref="StockErrors"/>, and a transfer hitting one of them should surface the same code
++    /// a card status change would. Only failures specific to transfers live here.
++    /// </para>
++    /// <para>
++    /// Card identity never appears in a message. Where a specific card has to be named, the
++    /// masked PAN is used — the full PAN is not stored anywhere and the fingerprint must never be
++    /// disclosed.
++    /// </para>
++    /// </summary>
++    public static class TransferErrors
++    {
++        // ---- Lookup / authorization -------------------------------------------------------
++
++        /// <summary>No transfer with that id in the caller's scope (→ 404, no existence leak).</summary>
++        public static Error NotFound(long id) =>
++            Error.NotFound("Transfer.NotFound", $"No transfer was found with id {id}.")
++                 .WithArg(id.ToString());
++
++        /// <summary>
++        /// A system admin attempted to create or settle a transfer (→ 403). Admin access to this
++        /// module is read-only (decision Q7); an admin token also carries no tenant id to record
++        /// as the creator.
++        /// </summary>
++        public static Error SystemAdminNotAllowed() =>
++            Error.Forbidden("Transfer.SystemAdminNotAllowed",
++                "A system administrator cannot create or settle transfers.");
++
++        // ---- Creation: branches -----------------------------------------------------------
++
++        /// <summary>Source and target are the same branch (→ 422).</summary>
++        public static Error SameSourceAndTarget() =>
++            Error.Validation("Transfer.SameSourceAndTarget",
++                "The source and target branches must be different.");
++
++        /// <summary>The branch does not exist, or belongs to another tenant (→ 404).</summary>
++        public static Error BranchNotFound(long branchId) =>
++            Error.NotFound("Transfer.BranchNotFound", $"No branch was found with id {branchId}.")
++                 .WithArg(branchId.ToString());
++
++        /// <summary>A deleted branch cannot take part in a transfer (→ 422).</summary>
++        public static Error BranchDeleted(long branchId) =>
++            Error.Validation("Transfer.BranchDeleted",
++                $"Branch {branchId} is deleted and cannot take part in a transfer.")
++                .WithArg(branchId.ToString());
++
++        /// <summary>
++        /// The target branch is deactivated (→ 422). Deliberately asymmetric: an inactive
++        /// <em>source</em> is allowed, because draining a branch that is being wound down is
++        /// exactly what transfers are for, and blocking it would leave that branch impossible to
++        /// empty and therefore impossible to delete.
++        /// </summary>
++        public static Error TargetBranchInactive(long branchId) =>
++            Error.Validation("Transfer.TargetBranchInactive",
++                $"Branch {branchId} is inactive and cannot receive stock.")
++                .WithArg(branchId.ToString());
++
++        // ---- Creation: lines --------------------------------------------------------------
++
++        /// <summary>The request carried no product lines (→ 422).</summary>
++        public static Error NoItems() =>
++            Error.Validation("Transfer.NoItems", "A transfer must contain at least one product line.");
++
++        /// <summary>The same product appears on more than one line (→ 422).</summary>
++        public static Error DuplicateProduct(long productId) =>
++            Error.Validation("Transfer.DuplicateProduct",
++                $"Product {productId} appears more than once. Combine the quantities into a single line.")
++                .WithArg(productId.ToString());
++
++        /// <summary>A transacted quantity was zero or negative (→ 422).</summary>
++        public static Error InvalidQuantity(long productId) =>
++            Error.Validation("Transfer.InvalidQuantity",
++                $"The quantity for product {productId} must be greater than zero.")
++                .WithArg(productId.ToString());
++
++        /// <summary>The product does not exist, or belongs to another tenant (→ 404).</summary>
++        public static Error ProductNotFound(long productId) =>
++            Error.NotFound("Transfer.ProductNotFound", $"No product was found with id {productId}.")
++                 .WithArg(productId.ToString());
++
++        /// <summary>The request exceeds the configured per-transfer card limit (→ 422).</summary>
++        public static Error TooManyItems(int maximum) =>
++            Error.Validation("Transfer.TooManyItems",
++                $"A transfer may move at most {maximum} cards.")
++                .WithArg(maximum.ToString());
++
++        // ---- Creation: Known-way card selection -------------------------------------------
++
++        /// <summary>A Known-way line supplied no card ids (→ 422, decision Q3).</summary>
++        public static Error ItemIdsRequired(long productId) =>
++            Error.Validation("Transfer.ItemIdsRequired",
++                $"Product {productId} is tracked per card, so the specific cards being transferred must be listed.")
++                .WithArg(productId.ToString());
++
++        /// <summary>The number of card ids does not match the transacted quantity (→ 422).</summary>
++        public static Error ItemCountMismatch(long productId) =>
++            Error.Validation("Transfer.ItemCountMismatch",
++                $"The number of cards listed for product {productId} does not match its quantity.")
++                .WithArg(productId.ToString());
++
++        /// <summary>
++        /// Card ids were supplied for an Unknown-way line (→ 422). Rejected rather than ignored:
++        /// silently discarding a caller's explicit selection would leave them believing specific
++        /// cards had moved when the system picked its own.
++        /// </summary>
++        public static Error ItemIdsNotAllowedForUnknown(long productId) =>
++            Error.Validation("Transfer.ItemIdsNotAllowedForUnknown",
++                $"Product {productId} is not tracked per card, so individual cards cannot be selected for it.")
++                .WithArg(productId.ToString());
++
++        /// <summary>The same card id appears more than once in the request (→ 422).</summary>
++        public static Error DuplicateItem(long productItemId) =>
++            Error.Validation("Transfer.DuplicateItem",
++                $"Card {productItemId} is listed more than once.")
++                .WithArg(productItemId.ToString());
++
++        /// <summary>The card does not exist, is deleted, or belongs to another tenant (→ 404).</summary>
++        public static Error ItemNotFound(long productItemId) =>
++            Error.NotFound("Transfer.ItemNotFound", $"No card was found with id {productItemId}.")
++                 .WithArg(productItemId.ToString());
++
++        /// <summary>The card is not currently at the source branch (→ 422).</summary>
++        public static Error ItemNotAtSourceBranch(string maskedPan) =>
++            Error.Validation("Transfer.ItemNotAtSourceBranch",
++                $"Card {maskedPan} is not at the source branch.")
++                .WithArg(maskedPan);
++
++        /// <summary>The card belongs to a different product than the line it was listed under (→ 422).</summary>
++        public static Error ItemProductMismatch(string maskedPan) =>
++            Error.Validation("Transfer.ItemProductMismatch",
++                $"Card {maskedPan} does not belong to the product it was listed under.")
++                .WithArg(maskedPan);
++
++        /// <summary>
++        /// The card is not available to move — already in flight, printed, expired, spoiled, or
++        /// written off (→ 409).
++        /// </summary>
++        public static Error ItemNotAvailable(string maskedPan) =>
++            Error.Conflict("Transfer.ItemNotAvailable",
++                $"Card {maskedPan} is not available to transfer.")
++                .WithArg(maskedPan);
++
++        // ---- Settlement -------------------------------------------------------------------
++
++        /// <summary>The transfer has already been settled and cannot be settled again (→ 409).</summary>
++        public static Error NotInProgress(long id) =>
++            Error.Conflict("Transfer.NotInProgress",
++                $"Transfer {id} has already been settled.")
++                .WithArg(id.ToString());
++
++        /// <summary>Another operation settled this transfer concurrently (→ 409).</summary>
++        public static Error ConcurrencyConflict() =>
++            Error.Conflict("Transfer.ConcurrencyConflict",
++                "This transfer was modified by another operation. Please reload and retry.");
++
++        /// <summary>The settlement names a product the transfer does not carry (→ 422).</summary>
++        public static Error UnknownProductInSettlement(long productId) =>
++            Error.Validation("Transfer.UnknownProductInSettlement",
++                $"Product {productId} is not part of this transfer.")
++                .WithArg(productId.ToString());
++
++        /// <summary>
++        /// A product carried by the transfer was left out of the settlement (→ 422). Omission is
++        /// not read as "received nothing": a partial receipt has real consequences for stock, so
++        /// it must be stated rather than inferred from a missing line.
++        /// </summary>
++        public static Error MissingProductInSettlement(long productId) =>
++            Error.Validation("Transfer.MissingProductInSettlement",
++                $"Product {productId} is part of this transfer and must be settled explicitly.")
++                .WithArg(productId.ToString());
++
++        /// <summary>Received and disposed quantities are negative, or together exceed what was sent (→ 422).</summary>
++        public static Error SettlementQuantityOutOfRange(long productId) =>
++            Error.Validation("Transfer.SettlementQuantityOutOfRange",
++                $"The received and disposed quantities for product {productId} are invalid for the quantity that was sent.")
++                .WithArg(productId.ToString());
++
++        /// <summary>A Known-way line was settled without a per-card outcome for every card (→ 422).</summary>
++        public static Error DispositionsRequired(long productId) =>
++            Error.Validation("Transfer.DispositionsRequired",
++                $"Product {productId} is tracked per card, so every card must be settled individually.")
++                .WithArg(productId.ToString());
++
++        /// <summary>The per-card outcomes do not add up to the stated quantities (→ 422).</summary>
++        public static Error DispositionCountMismatch(long productId) =>
++            Error.Validation("Transfer.DispositionCountMismatch",
++                $"The per-card outcomes for product {productId} do not match the received and disposed quantities.")
++                .WithArg(productId.ToString());
++
++        /// <summary>A per-card outcome names a card this transfer does not carry (→ 422).</summary>
++        public static Error DispositionItemNotInTransfer(long productItemId) =>
++            Error.Validation("Transfer.DispositionItemNotInTransfer",
++                $"Card {productItemId} is not part of this transfer.")
++                .WithArg(productItemId.ToString());
++
++        /// <summary>A card was left pending (→ 422). Settlement must resolve every card.</summary>
++        public static Error PendingDispositionNotAllowed(long productItemId) =>
++            Error.Validation("Transfer.PendingDispositionNotAllowed",
++                $"Card {productItemId} must be settled as received, returned, or disposed.")
++                .WithArg(productItemId.ToString());
++
++        /// <summary>
++        /// A remainder has to go back but the branch it came from is no longer usable (→ 409).
++        /// The whole settlement is refused rather than partly applied — receiving cards while
++        /// stranding the remainder would leave stock unaccounted for.
++        /// </summary>
++        public static Error ReturnBranchUnavailable(long branchId) =>
++            Error.Conflict("Transfer.ReturnBranchUnavailable",
++                $"Branch {branchId} is unavailable, so the remaining cards cannot be returned to it.")
++                .WithArg(branchId.ToString());
++
++        /// <summary>
++        /// An auto-generated return cannot itself be partially settled (→ 422). Allowing it would
++        /// let a return spawn a return without bound; a return is received or written off.
++        /// </summary>
++        public static Error ReturnMustBeSettledInFull() =>
++            Error.Validation("Transfer.ReturnMustBeSettledInFull",
++                "A returned shipment must be fully received or fully disposed.");
++
++        /// <summary>
++        /// The stock aggregate and the card rows disagree — fewer cards are actually available
++        /// than the aggregate claims (→ 409). Surfaced rather than silently moving fewer cards,
++        /// because quietly transferring the wrong quantity hides the inconsistency instead of
++        /// exposing it.
++        /// </summary>
++        public static Error StockInconsistency(long branchId, long productId) =>
++            Error.Conflict("Transfer.StockInconsistency",
++                $"Stock for branch {branchId} and product {productId} does not match the cards on record. The transfer was not applied.")
++                .WithArg($"{branchId}/{productId}");
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+index 8c181c9..3c0c959 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+@@ -225,4 +225,142 @@
+   <data name="Product.TransactionWayImmutable" xml:space="preserve">
+     <value>مينفعش تغير طريقة تحويل المنتج رقم {0} لأن فيه كروت متسجلة عليه بالفعل.</value>
+   </data>
++  <data name="Transfer.NotFound" xml:space="preserve">
++    <value>مفيش تحويل بالرقم {0}.</value>
++  </data>
++  <data name="Transfer.SystemAdminNotAllowed" xml:space="preserve">
++    <value>مدير النظام مش من حقه يعمل تحويلات ولا يقفلها.</value>
++  </data>
++  <data name="Transfer.SameSourceAndTarget" xml:space="preserve">
++    <value>الفرع المرسل والفرع المستقبل لازم يكونوا مختلفين.</value>
++  </data>
++  <data name="Transfer.BranchNotFound" xml:space="preserve">
++    <value>مفيش فرع بالرقم {0}.</value>
++  </data>
++  <data name="Transfer.BranchDeleted" xml:space="preserve">
++    <value>الفرع رقم {0} متمسوح ومينفعش يدخل في تحويل.</value>
++  </data>
++  <data name="Transfer.TargetBranchInactive" xml:space="preserve">
++    <value>الفرع رقم {0} موقوف ومينفعش يستلم رصيد.</value>
++  </data>
++  <data name="Transfer.NoItems" xml:space="preserve">
++    <value>التحويل لازم يكون فيه منتج واحد على الأقل.</value>
++  </data>
++  <data name="Transfer.DuplicateProduct" xml:space="preserve">
++    <value>المنتج رقم {0} متكرر أكتر من مرة. اجمع الكميات في سطر واحد.</value>
++  </data>
++  <data name="Transfer.InvalidQuantity" xml:space="preserve">
++    <value>كمية المنتج رقم {0} لازم تكون أكبر من صفر.</value>
++  </data>
++  <data name="Transfer.ProductNotFound" xml:space="preserve">
++    <value>مفيش منتج بالرقم {0}.</value>
++  </data>
++  <data name="Transfer.TooManyItems" xml:space="preserve">
++    <value>التحويل الواحد ميقدرش ينقل أكتر من {0} كارت.</value>
++  </data>
++  <data name="Transfer.ItemIdsRequired" xml:space="preserve">
++    <value>المنتج رقم {0} بيتتبع كارت كارت، فلازم تحدد الكروت اللي هتتحول بالظبط.</value>
++  </data>
++  <data name="Transfer.ItemCountMismatch" xml:space="preserve">
++    <value>عدد الكروت اللي حددتها للمنتج رقم {0} مش مطابق للكمية.</value>
++  </data>
++  <data name="Transfer.ItemIdsNotAllowedForUnknown" xml:space="preserve">
++    <value>المنتج رقم {0} مش بيتتبع كارت كارت، فمينفعش تختار كروت بعينها ليه.</value>
++  </data>
++  <data name="Transfer.DuplicateItem" xml:space="preserve">
++    <value>الكارت رقم {0} متكرر أكتر من مرة.</value>
++  </data>
++  <data name="Transfer.ItemNotFound" xml:space="preserve">
++    <value>مفيش كارت بالرقم {0}.</value>
++  </data>
++  <data name="Transfer.ItemNotAtSourceBranch" xml:space="preserve">
++    <value>الكارت {0} مش موجود في الفرع المرسل.</value>
++  </data>
++  <data name="Transfer.ItemProductMismatch" xml:space="preserve">
++    <value>الكارت {0} مش تابع للمنتج اللي محطوط تحته.</value>
++  </data>
++  <data name="Transfer.ItemNotAvailable" xml:space="preserve">
++    <value>الكارت {0} مش متاح للتحويل.</value>
++  </data>
++  <data name="Transfer.NotInProgress" xml:space="preserve">
++    <value>التحويل رقم {0} اتقفل خلاص.</value>
++  </data>
++  <data name="Transfer.ConcurrencyConflict" xml:space="preserve">
++    <value>التحويل ده اتعدل من عملية تانية. اعمل تحديث وجرب تاني.</value>
++  </data>
++  <data name="Transfer.UnknownProductInSettlement" xml:space="preserve">
++    <value>المنتج رقم {0} مش ضمن التحويل ده.</value>
++  </data>
++  <data name="Transfer.MissingProductInSettlement" xml:space="preserve">
++    <value>المنتج رقم {0} ضمن التحويل ده ولازم تحدد اتعمل فيه إيه بالظبط.</value>
++  </data>
++  <data name="Transfer.SettlementQuantityOutOfRange" xml:space="preserve">
++    <value>الكميات اللي اتستلمت واللي اتعدمت للمنتج رقم {0} مش متظبطة مع الكمية اللي اتبعتت.</value>
++  </data>
++  <data name="Transfer.DispositionsRequired" xml:space="preserve">
++    <value>المنتج رقم {0} بيتتبع كارت كارت، فلازم تحدد مصير كل كارت لوحده.</value>
++  </data>
++  <data name="Transfer.DispositionCountMismatch" xml:space="preserve">
++    <value>مصاير الكروت للمنتج رقم {0} مش مطابقة لكميات الاستلام والإعدام.</value>
++  </data>
++  <data name="Transfer.DispositionItemNotInTransfer" xml:space="preserve">
++    <value>الكارت رقم {0} مش ضمن التحويل ده.</value>
++  </data>
++  <data name="Transfer.PendingDispositionNotAllowed" xml:space="preserve">
++    <value>الكارت رقم {0} لازم تحدد إما اتستلم أو رجع أو اتعدم.</value>
++  </data>
++  <data name="Transfer.ReturnBranchUnavailable" xml:space="preserve">
++    <value>الفرع رقم {0} مش متاح، فمينفعش نرجعله الكروت الباقية.</value>
++  </data>
++  <data name="Transfer.ReturnMustBeSettledInFull" xml:space="preserve">
++    <value>الشحنة المرتجعة لازم تتستلم كلها أو تتعدم كلها.</value>
++  </data>
++  <data name="Transfer.StockInconsistency" xml:space="preserve">
++    <value>رصيد الفرع/المنتج {0} مش مطابق للكروت المسجلة. التحويل ماتمش.</value>
++  </data>
++  <data name="Disposal.ReasonRequired" xml:space="preserve">
++    <value>لازم تكتب سبب علشان تعدم الكروت.</value>
++  </data>
++  <data name="Disposal.ReasonTooLong" xml:space="preserve">
++    <value>سبب الإعدام مينفعش يزيد عن {0} حرف.</value>
++  </data>
++  <data name="Disposal.SystemAdminNotAllowed" xml:space="preserve">
++    <value>مدير النظام مش من حقه يعدم كروت.</value>
++  </data>
++  <data name="Disposal.BranchNotFound" xml:space="preserve">
++    <value>مفيش فرع بالرقم {0}.</value>
++  </data>
++  <data name="Disposal.BranchDeleted" xml:space="preserve">
++    <value>الفرع رقم {0} متمسوح ومينفعش يعدم كروت.</value>
++  </data>
++  <data name="Disposal.BranchNotPartyToTransfer" xml:space="preserve">
++    <value>الفرع رقم {0} مش طرف في التحويل ده ومينفعش يعدم كروته.</value>
++  </data>
++  <data name="Disposal.NothingToDispose" xml:space="preserve">
++    <value>لازم تحدد كارت واحد على الأقل علشان يتعدم.</value>
++  </data>
++  <data name="Disposal.SelectionAmbiguous" xml:space="preserve">
++    <value>حدد إما الكروت بعينها أو الكميات لكل منتج، مش الاتنين مع بعض.</value>
++  </data>
++  <data name="Disposal.AlreadyDisposed" xml:space="preserve">
++    <value>الكارت {0} اتعدم قبل كده.</value>
++  </data>
++  <data name="Disposal.NotDisposable" xml:space="preserve">
++    <value>الكارت {0} اتسلم للعميل وخلاص، مينفعش يتعدم.</value>
++  </data>
++  <data name="Disposal.CardNotAtBranch" xml:space="preserve">
++    <value>الكارت {0} مش موجود في الفرع اللي بيعمل الإعدام ده.</value>
++  </data>
++  <data name="Disposal.CardInTransfer" xml:space="preserve">
++    <value>الكارت {0} ضمن تحويل شغال، ولازم يتعدم وقت ما التحويل ده يتقفل.</value>
++  </data>
++  <data name="Disposal.InsufficientAvailable" xml:space="preserve">
++    <value>الفرع/المنتج {0} مفيهوش كروت متاحة كفاية علشان تتعدم.</value>
++  </data>
++  <data name="Disposal.InvalidQuantity" xml:space="preserve">
++    <value>كمية الإعدام للمنتج رقم {0} لازم تكون أكبر من صفر.</value>
++  </data>
++  <data name="Disposal.DuplicateProduct" xml:space="preserve">
++    <value>المنتج رقم {0} متكرر أكتر من مرة. اجمع الكميات في سطر واحد.</value>
++  </data>
+ </root>
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+index b30494e..3466d7a 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+@@ -225,4 +225,142 @@
+   <data name="Product.TransactionWayImmutable" xml:space="preserve">
+     <value>The transaction way of product {0} cannot be changed because cards already exist for it.</value>
+   </data>
++  <data name="Transfer.NotFound" xml:space="preserve">
++    <value>No transfer was found with id {0}.</value>
++  </data>
++  <data name="Transfer.SystemAdminNotAllowed" xml:space="preserve">
++    <value>A system administrator cannot create or settle transfers.</value>
++  </data>
++  <data name="Transfer.SameSourceAndTarget" xml:space="preserve">
++    <value>The source and target branches must be different.</value>
++  </data>
++  <data name="Transfer.BranchNotFound" xml:space="preserve">
++    <value>No branch was found with id {0}.</value>
++  </data>
++  <data name="Transfer.BranchDeleted" xml:space="preserve">
++    <value>Branch {0} is deleted and cannot take part in a transfer.</value>
++  </data>
++  <data name="Transfer.TargetBranchInactive" xml:space="preserve">
++    <value>Branch {0} is inactive and cannot receive stock.</value>
++  </data>
++  <data name="Transfer.NoItems" xml:space="preserve">
++    <value>A transfer must contain at least one product line.</value>
++  </data>
++  <data name="Transfer.DuplicateProduct" xml:space="preserve">
++    <value>Product {0} appears more than once. Combine the quantities into a single line.</value>
++  </data>
++  <data name="Transfer.InvalidQuantity" xml:space="preserve">
++    <value>The quantity for product {0} must be greater than zero.</value>
++  </data>
++  <data name="Transfer.ProductNotFound" xml:space="preserve">
++    <value>No product was found with id {0}.</value>
++  </data>
++  <data name="Transfer.TooManyItems" xml:space="preserve">
++    <value>A transfer may move at most {0} cards.</value>
++  </data>
++  <data name="Transfer.ItemIdsRequired" xml:space="preserve">
++    <value>Product {0} is tracked per card, so the specific cards being transferred must be listed.</value>
++  </data>
++  <data name="Transfer.ItemCountMismatch" xml:space="preserve">
++    <value>The number of cards listed for product {0} does not match its quantity.</value>
++  </data>
++  <data name="Transfer.ItemIdsNotAllowedForUnknown" xml:space="preserve">
++    <value>Product {0} is not tracked per card, so individual cards cannot be selected for it.</value>
++  </data>
++  <data name="Transfer.DuplicateItem" xml:space="preserve">
++    <value>Card {0} is listed more than once.</value>
++  </data>
++  <data name="Transfer.ItemNotFound" xml:space="preserve">
++    <value>No card was found with id {0}.</value>
++  </data>
++  <data name="Transfer.ItemNotAtSourceBranch" xml:space="preserve">
++    <value>Card {0} is not at the source branch.</value>
++  </data>
++  <data name="Transfer.ItemProductMismatch" xml:space="preserve">
++    <value>Card {0} does not belong to the product it was listed under.</value>
++  </data>
++  <data name="Transfer.ItemNotAvailable" xml:space="preserve">
++    <value>Card {0} is not available to transfer.</value>
++  </data>
++  <data name="Transfer.NotInProgress" xml:space="preserve">
++    <value>Transfer {0} has already been settled.</value>
++  </data>
++  <data name="Transfer.ConcurrencyConflict" xml:space="preserve">
++    <value>This transfer was modified by another operation. Please reload and retry.</value>
++  </data>
++  <data name="Transfer.UnknownProductInSettlement" xml:space="preserve">
++    <value>Product {0} is not part of this transfer.</value>
++  </data>
++  <data name="Transfer.MissingProductInSettlement" xml:space="preserve">
++    <value>Product {0} is part of this transfer and must be settled explicitly.</value>
++  </data>
++  <data name="Transfer.SettlementQuantityOutOfRange" xml:space="preserve">
++    <value>The received and disposed quantities for product {0} are invalid for the quantity that was sent.</value>
++  </data>
++  <data name="Transfer.DispositionsRequired" xml:space="preserve">
++    <value>Product {0} is tracked per card, so every card must be settled individually.</value>
++  </data>
++  <data name="Transfer.DispositionCountMismatch" xml:space="preserve">
++    <value>The per-card outcomes for product {0} do not match the received and disposed quantities.</value>
++  </data>
++  <data name="Transfer.DispositionItemNotInTransfer" xml:space="preserve">
++    <value>Card {0} is not part of this transfer.</value>
++  </data>
++  <data name="Transfer.PendingDispositionNotAllowed" xml:space="preserve">
++    <value>Card {0} must be settled as received, returned, or disposed.</value>
++  </data>
++  <data name="Transfer.ReturnBranchUnavailable" xml:space="preserve">
++    <value>Branch {0} is unavailable, so the remaining cards cannot be returned to it.</value>
++  </data>
++  <data name="Transfer.ReturnMustBeSettledInFull" xml:space="preserve">
++    <value>A returned shipment must be fully received or fully disposed.</value>
++  </data>
++  <data name="Transfer.StockInconsistency" xml:space="preserve">
++    <value>Stock for branch/product {0} does not match the cards on record. The transfer was not applied.</value>
++  </data>
++  <data name="Disposal.ReasonRequired" xml:space="preserve">
++    <value>A reason is required in order to dispose of cards.</value>
++  </data>
++  <data name="Disposal.ReasonTooLong" xml:space="preserve">
++    <value>The disposal reason cannot exceed {0} characters.</value>
++  </data>
++  <data name="Disposal.SystemAdminNotAllowed" xml:space="preserve">
++    <value>A system administrator cannot dispose of cards.</value>
++  </data>
++  <data name="Disposal.BranchNotFound" xml:space="preserve">
++    <value>No branch was found with id {0}.</value>
++  </data>
++  <data name="Disposal.BranchDeleted" xml:space="preserve">
++    <value>Branch {0} is deleted and cannot dispose of cards.</value>
++  </data>
++  <data name="Disposal.BranchNotPartyToTransfer" xml:space="preserve">
++    <value>Branch {0} is not involved in this transfer and cannot dispose of its cards.</value>
++  </data>
++  <data name="Disposal.NothingToDispose" xml:space="preserve">
++    <value>At least one card must be identified for disposal.</value>
++  </data>
++  <data name="Disposal.SelectionAmbiguous" xml:space="preserve">
++    <value>Specify either the cards to dispose of or the quantities per product, not both.</value>
++  </data>
++  <data name="Disposal.AlreadyDisposed" xml:space="preserve">
++    <value>Card {0} has already been disposed.</value>
++  </data>
++  <data name="Disposal.NotDisposable" xml:space="preserve">
++    <value>Card {0} has been issued and can no longer be disposed.</value>
++  </data>
++  <data name="Disposal.CardNotAtBranch" xml:space="preserve">
++    <value>Card {0} is not held by the branch performing this disposal.</value>
++  </data>
++  <data name="Disposal.CardInTransfer" xml:space="preserve">
++    <value>Card {0} is part of an active transfer and must be disposed of when that transfer is settled.</value>
++  </data>
++  <data name="Disposal.InsufficientAvailable" xml:space="preserve">
++    <value>Branch/product {0} does not hold enough available cards to dispose of.</value>
++  </data>
++  <data name="Disposal.InvalidQuantity" xml:space="preserve">
++    <value>The disposal quantity for product {0} must be greater than zero.</value>
++  </data>
++  <data name="Disposal.DuplicateProduct" xml:space="preserve">
++    <value>Product {0} appears more than once. Combine the quantities into a single line.</value>
++  </data>
+ </root>
+-- 
+2.43.0
+

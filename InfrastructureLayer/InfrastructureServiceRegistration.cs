@@ -112,6 +112,11 @@ namespace InfrastructureLayer
             services.AddScoped<ICardFileGenerationService, CardFileGenerationService>();
             services.AddScoped<System.Func<ICardFileGenerationService>>(sp => sp.GetRequiredService<ICardFileGenerationService>);
 
+            services.AddScoped<ITransferService, TransferService>();
+            services.AddScoped<System.Func<ITransferService>>(sp => sp.GetRequiredService<ITransferService>);
+            services.AddScoped<IDisposalService, DisposalService>();
+            services.AddScoped<System.Func<IDisposalService>>(sp => sp.GetRequiredService<IDisposalService>);
+
             return services;
 
            

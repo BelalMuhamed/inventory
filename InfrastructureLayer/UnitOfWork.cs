@@ -29,6 +29,8 @@ namespace InfrastructureLayer
             Stocks = new StockRepo(context);
             ProductItems = new ProductItemRepo(context);
             BatchRepo= new BatchRepo(context);
+            CardTransfers = new CardTransferRepo(context);
+            CardDisposals = new CardDisposalRepo(context);
         }
 
         public ITenantRepo Tenants { get; }
@@ -39,6 +41,8 @@ namespace InfrastructureLayer
         public IStockRepo Stocks { get; }
         public IProductItemRepo ProductItems { get; }
         public IBatchRepo BatchRepo { get; }
+        public ICardTransferRepo CardTransfers { get; }
+        public ICardDisposalRepo CardDisposals { get; }
 
 
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
@@ -72,6 +76,35 @@ namespace InfrastructureLayer
             {
                 // Never partially apply. Logging/translation is the caller's job (it has the
                 // tenant/trace/batch context); this method only guarantees rollback + rethrow.
+                await transaction.RollbackAsync(cancellationToken);
+                throw;
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task<Result<TValue>> ExecuteInTransactionAsync<TValue>(
+            Func<Task<Result<TValue>>> work, CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(work);
+
+            await using IDbContextTransaction transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+
+            try
+            {
+                Result<TValue> result = await work();
+
+                if (result.IsFailure)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return result;
+                }
+
+                await _context.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                return result;
+            }
+            catch
+            {
                 await transaction.RollbackAsync(cancellationToken);
                 throw;
             }

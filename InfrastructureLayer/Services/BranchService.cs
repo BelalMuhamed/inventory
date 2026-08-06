@@ -108,6 +108,16 @@ namespace InfrastructureLayer.Services
             if (error is not null) return Result.Failure(error);
             if (branch!.IsDeleted) return Result.Failure(BranchErrors.AlreadyDeleted(id));
 
+            // Transactions §4.10, fix F3. API §4.5 already documented this rule ("Blocked if
+            // branch holds non-zero stock") but nothing enforced it until now — a branch could be
+            // deleted while still holding stock, or while cards were physically in flight to or
+            // from it. Both checks run before the actor lookup below: there is no point resolving
+            // who is deleting a branch that cannot be deleted.
+            if (await _unitOfWork.Stocks.HasNonZeroStockAsync(branch.TenantId, id, cancellationToken))
+                return Result.Failure(BranchErrors.HasStock(id));
+            if (await _unitOfWork.CardTransfers.HasInProgressTransferAsync(branch.TenantId, id, cancellationToken))
+                return Result.Failure(BranchErrors.HasInProgressTransfer(id));
+
             (long? actorId, Error? actorError) = await ResolveActorIdAsync(cancellationToken);
             if (actorError is not null) return Result.Failure(actorError);
 

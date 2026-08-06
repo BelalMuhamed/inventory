@@ -99,5 +99,40 @@ namespace InfrastructureLayer.Repositories
             await Set.AddAsync(stock, cancellationToken);
             return stock;
         }
+
+        public async Task<IReadOnlyDictionary<(long BranchId, long ProductId), Stock>> GetManyForUpdateAsync(
+            long tenantId, IEnumerable<(long BranchId, long ProductId)> keys, CancellationToken cancellationToken = default)
+        {
+            List<(long BranchId, long ProductId)> pairs = keys as List<(long, long)> ?? new List<(long, long)>(keys);
+            if (pairs.Count == 0)
+            {
+                return new Dictionary<(long, long), Stock>();
+            }
+
+            // EF Core cannot translate a "WHERE (BranchId, ProductId) IN (pairs)" composite
+            // predicate directly, so this narrows by the two IN-lists first (a real index hit on
+            // the composite PK) and applies the exact pair match client-side. Line counts on a
+            // transfer are small — a handful of products at most — so the over-fetch this can
+            // cause (a branch/product combination that was requested for a different pair) costs
+            // nothing worth avoiding in exchange for one round trip instead of N.
+            var branchIds = pairs.Select(p => p.BranchId).Distinct().ToList();
+            var productIds = pairs.Select(p => p.ProductId).Distinct().ToList();
+
+            List<Stock> candidates = await Set
+                .Where(s => s.TenantId == tenantId && branchIds.Contains(s.BranchId) && productIds.Contains(s.ProductId))
+                .ToListAsync(cancellationToken);
+
+            var pairSet = new HashSet<(long, long)>(pairs);
+            return candidates
+                .Where(s => pairSet.Contains((s.BranchId, s.ProductId)))
+                .ToDictionary(s => (s.BranchId, s.ProductId), s => s);
+        }
+
+        public async Task<bool> HasNonZeroStockAsync(
+            long tenantId, long branchId, CancellationToken cancellationToken = default)
+            => await Set.AsNoTracking().AnyAsync(s =>
+                s.TenantId == tenantId && s.BranchId == branchId &&
+                (s.AvailableQuantity > 0 || s.HoldQuantity > 0),
+                cancellationToken);
     }
 }

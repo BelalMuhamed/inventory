@@ -17,6 +17,8 @@ namespace InfrastructureLayer.Services
         private readonly Lazy<IProductItemService> _productItems;
         private readonly Lazy<IBatchUploadService> _batchUpload;
         private readonly Lazy<ICardFileGenerationService> _cardFiles;
+        private readonly Lazy<ITransferService> _transfers;
+        private readonly Lazy<IDisposalService> _disposals;
 
         public ServiceManager(
             Func<IAuthService> authFactory,
@@ -26,7 +28,9 @@ namespace InfrastructureLayer.Services
             Func<IStockService> stockFactory,
             Func<IProductItemService> productItemFactory,
             Func<IBatchUploadService> batchUploadFactory,
-            Func<ICardFileGenerationService> cardFileFactory)
+            Func<ICardFileGenerationService> cardFileFactory,
+            Func<ITransferService> transferFactory,
+            Func<IDisposalService> disposalFactory)
         {
             _auth = new Lazy<IAuthService>(authFactory);
             _tenants = new Lazy<ITenantService>(tenantFactory);
@@ -36,6 +40,8 @@ namespace InfrastructureLayer.Services
             _productItems = new Lazy<IProductItemService>(productItemFactory);
             _batchUpload = new Lazy<IBatchUploadService>(batchUploadFactory);
             _cardFiles = new Lazy<ICardFileGenerationService>(cardFileFactory);
+            _transfers = new Lazy<ITransferService>(transferFactory);
+            _disposals = new Lazy<IDisposalService>(disposalFactory);
         }
 
         public IAuthService Auth => _auth.Value;
@@ -46,5 +52,7 @@ namespace InfrastructureLayer.Services
         public IProductItemService ProductItems => _productItems.Value;
         public IBatchUploadService BatchUpload => _batchUpload.Value;
         public ICardFileGenerationService CardFiles => _cardFiles.Value;
+        public ITransferService Transfers => _transfers.Value;
+        public IDisposalService Disposals => _disposals.Value;
     }
 }

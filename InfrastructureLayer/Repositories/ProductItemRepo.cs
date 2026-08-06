@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using ApplicationLayer.Contracts;
 using ApplicationLayer.DTOs.ProductItems;
 using DomainLayer.Entities;
+using DomainLayer.Enums;
 using InfrastructureLayer.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -107,5 +108,50 @@ namespace InfrastructureLayer.Repositories
             => await Set
                 .AsNoTracking()
                 .AnyAsync(x => x.TenantId == tenantId && x.ProductId == productId, cancellationToken);
+
+        public async Task<IReadOnlyDictionary<long, ProductItem>> GetManyForUpdateAsync(
+            long tenantId, IEnumerable<long> ids, CancellationToken cancellationToken = default)
+        {
+            List<long> keys = ids as List<long> ?? new List<long>(ids);
+            if (keys.Count == 0)
+            {
+                return new Dictionary<long, ProductItem>();
+            }
+
+            // Tracked (no AsNoTracking): the caller — transfer creation, settlement, or disposal —
+            // mutates Status/BranchID in place and commits with a single SaveChanges.
+            //
+            // !IsDeleted is explicit rather than filter-provided: no query filter exists on this
+            // entity (fix F1's scope decision, Transactions §4.10 T0), so a soft-deleted card
+            // would otherwise be selectable for transfer.
+            List<ProductItem> items = await Set
+                .Include(x => x.Product)
+                .Where(x => x.TenantId == tenantId && keys.Contains(x.ID) && !x.IsDeleted)
+                .ToListAsync(cancellationToken);
+
+            return items.ToDictionary(x => x.ID, x => x);
+        }
+
+        public async Task<IReadOnlyList<ProductItem>> GetAvailableForUpdateAsync(
+            long tenantId, long branchId, long productId, int take, CancellationToken cancellationToken = default)
+        {
+            if (take <= 0)
+            {
+                return Array.Empty<ProductItem>();
+            }
+
+            // FIFO by CreatedAt: the cards that have sat longest at this branch move first. No
+            // AsNoTracking — every caller of this method goes on to mutate the returned rows.
+            return await Set
+                .Where(x =>
+                    x.TenantId == tenantId &&
+                    x.BranchID == branchId &&
+                    x.ProductId == productId &&
+                    x.Status == CardStatus.Available &&
+                    !x.IsDeleted)
+                .OrderBy(x => x.CreatedAt)
+                .Take(take)
+                .ToListAsync(cancellationToken);
+        }
     }
 }

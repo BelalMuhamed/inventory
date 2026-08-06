@@ -217,6 +217,249 @@ namespace InfrastructureLayer.Migrations
                     b.ToTable("Branches", (string)null);
                 });
 
+            modelBuilder.Entity("DomainLayer.Entities.CardDisposal", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("BranchId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("CardTransferId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("DisposedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long>("DisposedByTenantId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<long>("TenantId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BranchId");
+
+                    b.HasIndex("CardTransferId")
+                        .HasDatabaseName("IX_CardDisposals_CardTransferId");
+
+                    b.HasIndex("DisposedByTenantId");
+
+                    b.HasIndex("TenantId", "BranchId")
+                        .HasDatabaseName("IX_CardDisposals_TenantId_BranchId");
+
+                    b.HasIndex("TenantId", "DisposedAt")
+                        .HasDatabaseName("IX_CardDisposals_TenantId_DisposedAt");
+
+                    b.ToTable("CardDisposals", (string)null);
+                });
+
+            modelBuilder.Entity("DomainLayer.Entities.CardDisposalItem", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CardDisposalId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("ProductItemId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("TenantId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductItemId");
+
+                    b.HasIndex("CardDisposalId", "ProductItemId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_CardDisposalItems_CardDisposalId_ProductItemId");
+
+                    b.HasIndex("TenantId", "CardDisposalId")
+                        .HasDatabaseName("IX_CardDisposalItems_TenantId_CardDisposalId");
+
+                    b.ToTable("CardDisposalItems", (string)null);
+                });
+
+            modelBuilder.Entity("DomainLayer.Entities.CardTransfer", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ActionNotes")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<long?>("BranchRequestId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long>("CreatedByTenantId")
+                        .HasColumnType("bigint");
+
+                    b.Property<byte>("Origin")
+                        .HasColumnType("tinyint");
+
+                    b.Property<long?>("ParentTransferId")
+                        .HasColumnType("bigint");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<long>("SourceBranchId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("StatusChangedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long>("TargetBranchId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("TenantId")
+                        .HasColumnType("bigint");
+
+                    b.Property<byte>("TransactionStatus")
+                        .HasColumnType("tinyint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByTenantId");
+
+                    b.HasIndex("ParentTransferId")
+                        .HasDatabaseName("IX_CardsTransferHistory_ParentTransferId");
+
+                    b.HasIndex("SourceBranchId")
+                        .HasDatabaseName("IX_CardsTransferHistory_SourceBranchId");
+
+                    b.HasIndex("TargetBranchId")
+                        .HasDatabaseName("IX_CardsTransferHistory_TargetBranchId");
+
+                    b.HasIndex("TenantId", "BranchRequestId")
+                        .HasDatabaseName("IX_CardsTransferHistory_TenantId_BranchRequestId");
+
+                    b.HasIndex("TenantId", "CreatedAt")
+                        .HasDatabaseName("IX_CardsTransferHistory_TenantId_CreatedAt");
+
+                    b.HasIndex("TenantId", "Origin")
+                        .HasDatabaseName("IX_CardsTransferHistory_TenantId_Origin");
+
+                    b.HasIndex("TenantId", "TransactionStatus")
+                        .HasDatabaseName("IX_CardsTransferHistory_TenantId_TransactionStatus");
+
+                    b.ToTable("CardsTransferHistory", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CardsTransferHistory_SourceNotTarget", "[SourceBranchId] <> [TargetBranchId]");
+                        });
+                });
+
+            modelBuilder.Entity("DomainLayer.Entities.CardTransferItem", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CardTransferId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("ProductItemId")
+                        .HasColumnType("bigint");
+
+                    b.Property<byte>("ReceiveStatus")
+                        .HasColumnType("tinyint");
+
+                    b.Property<long>("TenantId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductItemId")
+                        .HasDatabaseName("IX_CardTransferItems_ProductItemId");
+
+                    b.HasIndex("CardTransferId", "ProductItemId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_CardTransferItems_CardTransferId_ProductItemId");
+
+                    b.HasIndex("TenantId", "CardTransferId")
+                        .HasDatabaseName("IX_CardTransferItems_TenantId_CardTransferId");
+
+                    b.ToTable("CardTransferItems", (string)null);
+                });
+
+            modelBuilder.Entity("DomainLayer.Entities.CardTransferProduct", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CardTransferId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("DisposedQuantity")
+                        .HasColumnType("int");
+
+                    b.Property<long>("ProductId")
+                        .HasColumnType("bigint");
+
+                    b.Property<byte>("ProductTransactionWay")
+                        .HasColumnType("tinyint");
+
+                    b.Property<int?>("RealQuantityReceived")
+                        .HasColumnType("int");
+
+                    b.Property<long>("TenantId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("TransactedQuantity")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("CardTransferId", "ProductId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_CardTransferProducts_CardTransferId_ProductId");
+
+                    b.HasIndex("TenantId", "CardTransferId")
+                        .HasDatabaseName("IX_CardTransferProducts_TenantId_CardTransferId");
+
+                    b.ToTable("CardTransferProducts", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CardTransferProducts_DisposedQuantity_NonNegative", "[DisposedQuantity] IS NULL OR [DisposedQuantity] >= 0");
+
+                            t.HasCheckConstraint("CK_CardTransferProducts_RealQuantityReceived_NonNegative", "[RealQuantityReceived] IS NULL OR [RealQuantityReceived] >= 0");
+
+                            t.HasCheckConstraint("CK_CardTransferProducts_SettlementWithinTransacted", "ISNULL([RealQuantityReceived], 0) + ISNULL([DisposedQuantity], 0) <= [TransactedQuantity]");
+
+                            t.HasCheckConstraint("CK_CardTransferProducts_TransactedQuantity_Positive", "[TransactedQuantity] > 0");
+                        });
+                });
+
             modelBuilder.Entity("DomainLayer.Entities.Product", b =>
                 {
                     b.Property<long>("Id")
@@ -593,6 +836,157 @@ namespace InfrastructureLayer.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("DomainLayer.Entities.CardDisposal", b =>
+                {
+                    b.HasOne("DomainLayer.Entities.Branch", "Branch")
+                        .WithMany()
+                        .HasForeignKey("BranchId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("DomainLayer.Entities.CardTransfer", "CardTransfer")
+                        .WithMany()
+                        .HasForeignKey("CardTransferId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("DomainLayer.Entities.Tenant", "DisposedByTenant")
+                        .WithMany()
+                        .HasForeignKey("DisposedByTenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("DomainLayer.Entities.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("Branch");
+
+                    b.Navigation("CardTransfer");
+
+                    b.Navigation("DisposedByTenant");
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("DomainLayer.Entities.CardDisposalItem", b =>
+                {
+                    b.HasOne("DomainLayer.Entities.CardDisposal", "CardDisposal")
+                        .WithMany("Items")
+                        .HasForeignKey("CardDisposalId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("DomainLayer.Entities.ProductItem", "ProductItem")
+                        .WithMany()
+                        .HasForeignKey("ProductItemId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("DomainLayer.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("CardDisposal");
+
+                    b.Navigation("ProductItem");
+                });
+
+            modelBuilder.Entity("DomainLayer.Entities.CardTransfer", b =>
+                {
+                    b.HasOne("DomainLayer.Entities.Tenant", "CreatedByTenant")
+                        .WithMany()
+                        .HasForeignKey("CreatedByTenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("DomainLayer.Entities.CardTransfer", "ParentTransfer")
+                        .WithMany()
+                        .HasForeignKey("ParentTransferId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("DomainLayer.Entities.Branch", "SourceBranch")
+                        .WithMany()
+                        .HasForeignKey("SourceBranchId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("DomainLayer.Entities.Branch", "TargetBranch")
+                        .WithMany()
+                        .HasForeignKey("TargetBranchId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("DomainLayer.Entities.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("CreatedByTenant");
+
+                    b.Navigation("ParentTransfer");
+
+                    b.Navigation("SourceBranch");
+
+                    b.Navigation("TargetBranch");
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("DomainLayer.Entities.CardTransferItem", b =>
+                {
+                    b.HasOne("DomainLayer.Entities.CardTransfer", "CardTransfer")
+                        .WithMany("Items")
+                        .HasForeignKey("CardTransferId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("DomainLayer.Entities.ProductItem", "ProductItem")
+                        .WithMany()
+                        .HasForeignKey("ProductItemId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("DomainLayer.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("CardTransfer");
+
+                    b.Navigation("ProductItem");
+                });
+
+            modelBuilder.Entity("DomainLayer.Entities.CardTransferProduct", b =>
+                {
+                    b.HasOne("DomainLayer.Entities.CardTransfer", "CardTransfer")
+                        .WithMany("Products")
+                        .HasForeignKey("CardTransferId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("DomainLayer.Entities.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("DomainLayer.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("CardTransfer");
+
+                    b.Navigation("Product");
+                });
+
             modelBuilder.Entity("DomainLayer.Entities.Product", b =>
                 {
                     b.HasOne("DomainLayer.Entities.Tenant", null)
@@ -666,6 +1060,18 @@ namespace InfrastructureLayer.Migrations
             modelBuilder.Entity("DomainLayer.Entities.Batch", b =>
                 {
                     b.Navigation("CardsInBatch");
+                });
+
+            modelBuilder.Entity("DomainLayer.Entities.CardDisposal", b =>
+                {
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("DomainLayer.Entities.CardTransfer", b =>
+                {
+                    b.Navigation("Items");
+
+                    b.Navigation("Products");
                 });
 #pragma warning restore 612, 618
         }

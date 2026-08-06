@@ -21,5 +21,9 @@
         IBatchUploadService BatchUpload { get; }
         /// <summary>Card-file generation use case (Card File Generation, Phase 9.5).</summary>
         ICardFileGenerationService CardFiles { get; }
+        /// <summary>Card-transfer use cases: create, receive (disposition model), dispose (API §4.10).</summary>
+        ITransferService Transfers { get; }
+        /// <summary>Standalone card disposal use case (API §4.10, Addendum A).</summary>
+        IDisposalService Disposals { get; }
     }
 }

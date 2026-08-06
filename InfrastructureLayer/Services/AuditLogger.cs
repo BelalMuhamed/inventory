@@ -39,5 +39,31 @@ namespace InfrastructureLayer.Services
 
             await _context.SaveChangesAsync(cancellationToken);
         }
+
+        /// <inheritdoc />
+        public void StageAction(
+            long? tenantId,
+            long? actorTenantId,
+            string actorUsername,
+            string action,
+            string entityName,
+            string entityId,
+            string? newValue = null)
+        {
+            // Staged only — no SaveChanges here. The caller commits alongside its own
+            // subsequent SaveChangesAsync call, per the contract's documented trade-off.
+            _context.Set<AuditLog>().Add(new AuditLog
+            {
+                TenantId = tenantId,
+                ActorTenantId = actorTenantId,
+                ActorUsername = actorUsername,
+                Action = action,
+                EntityName = entityName,
+                EntityId = entityId,
+                NewValue = newValue,
+                IpAddress = _httpContextAccessor.HttpContext?.Connection.RemoteIpAddress?.ToString(),
+                Timestamp = DateTime.UtcNow
+            });
+        }
     }
 }

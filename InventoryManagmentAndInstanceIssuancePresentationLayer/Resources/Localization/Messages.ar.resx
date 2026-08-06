@@ -225,4 +225,172 @@
   <data name="Product.TransactionWayImmutable" xml:space="preserve">
     <value>مينفعش تغير طريقة تحويل المنتج رقم {0} لأن فيه كروت متسجلة عليه بالفعل.</value>
   </data>
+  <data name="Transfer.NotFound" xml:space="preserve">
+    <value>مفيش تحويل بالرقم {0}.</value>
+  </data>
+  <data name="Transfer.SystemAdminNotAllowed" xml:space="preserve">
+    <value>مدير النظام مش من حقه يعمل تحويلات ولا يقفلها.</value>
+  </data>
+  <data name="Transfer.SameSourceAndTarget" xml:space="preserve">
+    <value>الفرع المرسل والفرع المستقبل لازم يكونوا مختلفين.</value>
+  </data>
+  <data name="Transfer.BranchNotFound" xml:space="preserve">
+    <value>مفيش فرع بالرقم {0}.</value>
+  </data>
+  <data name="Transfer.BranchDeleted" xml:space="preserve">
+    <value>الفرع رقم {0} متمسوح ومينفعش يدخل في تحويل.</value>
+  </data>
+  <data name="Transfer.TargetBranchInactive" xml:space="preserve">
+    <value>الفرع رقم {0} موقوف ومينفعش يستلم رصيد.</value>
+  </data>
+  <data name="Transfer.NoItems" xml:space="preserve">
+    <value>التحويل لازم يكون فيه منتج واحد على الأقل.</value>
+  </data>
+  <data name="Transfer.DuplicateProduct" xml:space="preserve">
+    <value>المنتج رقم {0} متكرر أكتر من مرة. اجمع الكميات في سطر واحد.</value>
+  </data>
+  <data name="Transfer.InvalidQuantity" xml:space="preserve">
+    <value>كمية المنتج رقم {0} لازم تكون أكبر من صفر.</value>
+  </data>
+  <data name="Transfer.ProductNotFound" xml:space="preserve">
+    <value>مفيش منتج بالرقم {0}.</value>
+  </data>
+  <data name="Transfer.TooManyItems" xml:space="preserve">
+    <value>التحويل الواحد ميقدرش ينقل أكتر من {0} كارت.</value>
+  </data>
+  <data name="Transfer.ItemIdsRequired" xml:space="preserve">
+    <value>المنتج رقم {0} بيتتبع كارت كارت، فلازم تحدد الكروت اللي هتتحول بالظبط.</value>
+  </data>
+  <data name="Transfer.ItemCountMismatch" xml:space="preserve">
+    <value>عدد الكروت اللي حددتها للمنتج رقم {0} مش مطابق للكمية.</value>
+  </data>
+  <data name="Transfer.ItemIdsNotAllowedForUnknown" xml:space="preserve">
+    <value>المنتج رقم {0} مش بيتتبع كارت كارت، فمينفعش تختار كروت بعينها ليه.</value>
+  </data>
+  <data name="Transfer.DuplicateItem" xml:space="preserve">
+    <value>الكارت رقم {0} متكرر أكتر من مرة.</value>
+  </data>
+  <data name="Transfer.ItemNotFound" xml:space="preserve">
+    <value>مفيش كارت بالرقم {0}.</value>
+  </data>
+  <data name="Transfer.ItemNotAtSourceBranch" xml:space="preserve">
+    <value>الكارت {0} مش موجود في الفرع المرسل.</value>
+  </data>
+  <data name="Transfer.ItemProductMismatch" xml:space="preserve">
+    <value>الكارت {0} مش تابع للمنتج اللي محطوط تحته.</value>
+  </data>
+  <data name="Transfer.ItemNotAvailable" xml:space="preserve">
+    <value>الكارت {0} مش متاح للتحويل.</value>
+  </data>
+  <data name="Transfer.NotInProgress" xml:space="preserve">
+    <value>التحويل رقم {0} اتقفل خلاص.</value>
+  </data>
+  <data name="Transfer.ConcurrencyConflict" xml:space="preserve">
+    <value>التحويل ده اتعدل من عملية تانية. اعمل تحديث وجرب تاني.</value>
+  </data>
+  <data name="Transfer.UnknownProductInSettlement" xml:space="preserve">
+    <value>المنتج رقم {0} مش ضمن التحويل ده.</value>
+  </data>
+  <data name="Transfer.MissingProductInSettlement" xml:space="preserve">
+    <value>المنتج رقم {0} ضمن التحويل ده ولازم تحدد اتعمل فيه إيه بالظبط.</value>
+  </data>
+  <data name="Transfer.SettlementQuantityOutOfRange" xml:space="preserve">
+    <value>الكميات اللي اتستلمت واللي اتعدمت للمنتج رقم {0} مش متظبطة مع الكمية اللي اتبعتت.</value>
+  </data>
+  <data name="Transfer.DispositionsRequired" xml:space="preserve">
+    <value>المنتج رقم {0} بيتتبع كارت كارت، فلازم تحدد مصير كل كارت لوحده.</value>
+  </data>
+  <data name="Transfer.DispositionCountMismatch" xml:space="preserve">
+    <value>مصاير الكروت للمنتج رقم {0} مش مطابقة لكميات الاستلام والإعدام.</value>
+  </data>
+  <data name="Transfer.DispositionItemNotInTransfer" xml:space="preserve">
+    <value>الكارت رقم {0} مش ضمن التحويل ده.</value>
+  </data>
+  <data name="Transfer.PendingDispositionNotAllowed" xml:space="preserve">
+    <value>الكارت رقم {0} لازم تحدد إما اتستلم أو رجع أو اتعدم.</value>
+  </data>
+  <data name="Transfer.ReturnBranchUnavailable" xml:space="preserve">
+    <value>الفرع رقم {0} مش متاح، فمينفعش نرجعله الكروت الباقية.</value>
+  </data>
+  <data name="Transfer.StockInconsistency" xml:space="preserve">
+    <value>رصيد الفرع/المنتج {0} مش مطابق للكروت المسجلة. التحويل ماتمش.</value>
+  </data>
+  <data name="Disposal.ReasonRequired" xml:space="preserve">
+    <value>لازم تكتب سبب علشان تعدم الكروت.</value>
+  </data>
+  <data name="Disposal.ReasonTooLong" xml:space="preserve">
+    <value>سبب الإعدام مينفعش يزيد عن {0} حرف.</value>
+  </data>
+  <data name="Disposal.SystemAdminNotAllowed" xml:space="preserve">
+    <value>مدير النظام مش من حقه يعدم كروت.</value>
+  </data>
+  <data name="Disposal.BranchNotFound" xml:space="preserve">
+    <value>مفيش فرع بالرقم {0}.</value>
+  </data>
+  <data name="Disposal.BranchDeleted" xml:space="preserve">
+    <value>الفرع رقم {0} متمسوح ومينفعش يعدم كروت.</value>
+  </data>
+  <data name="Disposal.BranchNotPartyToTransfer" xml:space="preserve">
+    <value>الفرع رقم {0} مش طرف في التحويل ده ومينفعش يعدم كروته.</value>
+  </data>
+  <data name="Disposal.NothingToDispose" xml:space="preserve">
+    <value>لازم تحدد كارت واحد على الأقل علشان يتعدم.</value>
+  </data>
+  <data name="Disposal.SelectionAmbiguous" xml:space="preserve">
+    <value>حدد إما الكروت بعينها أو الكميات لكل منتج، مش الاتنين مع بعض.</value>
+  </data>
+  <data name="Disposal.AlreadyDisposed" xml:space="preserve">
+    <value>الكارت {0} اتعدم قبل كده.</value>
+  </data>
+  <data name="Disposal.NotDisposable" xml:space="preserve">
+    <value>الكارت {0} اتسلم للعميل وخلاص، مينفعش يتعدم.</value>
+  </data>
+  <data name="Disposal.CardNotAtBranch" xml:space="preserve">
+    <value>الكارت {0} مش موجود في الفرع اللي بيعمل الإعدام ده.</value>
+  </data>
+  <data name="Disposal.CardInTransfer" xml:space="preserve">
+    <value>الكارت {0} ضمن تحويل شغال، ولازم يتعدم وقت ما التحويل ده يتقفل.</value>
+  </data>
+  <data name="Disposal.InsufficientAvailable" xml:space="preserve">
+    <value>الفرع/المنتج {0} مفيهوش كروت متاحة كفاية علشان تتعدم.</value>
+  </data>
+  <data name="Disposal.InvalidQuantity" xml:space="preserve">
+    <value>كمية الإعدام للمنتج رقم {0} لازم تكون أكبر من صفر.</value>
+  </data>
+  <data name="Disposal.DuplicateProduct" xml:space="preserve">
+    <value>المنتج رقم {0} متكرر أكتر من مرة. اجمع الكميات في سطر واحد.</value>
+  </data>
+  <data name="Transfer.ActorNotResolved" xml:space="preserve">
+    <value>معرفناش مين اللي بيستخدم النظام دلوقتي.</value>
+  </data>
+  <data name="Transfer.DisposingBranchRequired" xml:space="preserve">
+    <value>لازم تحدد الفرع اللي عامل الإعدام لو في كمية هتتعدم.</value>
+  </data>
+  <data name="Transfer.PersistenceConflict" xml:space="preserve">
+    <value>التحويل ماتحفظش بسبب تعارض في التعديلات. جرب تاني.</value>
+  </data>
+  <data name="Transfer.ActionNotesTooLong" xml:space="preserve">
+    <value>الملاحظة مينفعش تزيد عن {0} حرف.</value>
+  </data>
+  <data name="Disposal.ActorNotResolved" xml:space="preserve">
+    <value>معرفناش مين اللي بيستخدم النظام دلوقتي.</value>
+  </data>
+  <data name="Disposal.DuplicateItem" xml:space="preserve">
+    <value>الكارت رقم {0} متكرر أكتر من مرة.</value>
+  </data>
+  <data name="Disposal.NotFound" xml:space="preserve">
+    <value>مفيش عملية إعدام بالرقم {0}.</value>
+  </data>
+  <data name="Disposal.CardNotFound" xml:space="preserve">
+    <value>مفيش كارت بالرقم {0}.</value>
+  </data>
+  <data name="Disposal.PersistenceConflict" xml:space="preserve">
+    <value>عملية الإعدام ماتحفظتش بسبب تعارض في التعديلات. جرب تاني.</value>
+  </data>
+  <data name="Branch.HasStock" xml:space="preserve">
+    <value>الفرع رقم {0} لسه فيه رصيد، مينفعش يتمسح. حوّل الرصيد أو اعدمه الأول.</value>
+  </data>
+  <data name="Branch.HasInProgressTransfer" xml:space="preserve">
+    <value>الفرع رقم {0} ليه تحويل شغال، مينفعش يتمسح غير لما يتقفل.</value>
+  </data>
 </root>
