@@ -393,4 +393,58 @@
   <data name="Branch.HasInProgressTransfer" xml:space="preserve">
     <value>Branch {0} has a transfer in progress and cannot be deleted until it is settled.</value>
   </data>
+  <data name="BranchRequest.ActorNotResolved" xml:space="preserve">
+    <value>The acting principal could not be resolved.</value>
+  </data>
+  <data name="BranchRequest.SystemAdminNotAllowed" xml:space="preserve">
+    <value>A system administrator cannot create, confirm, refuse, or cancel branch requests.</value>
+  </data>
+  <data name="BranchRequest.NotFound" xml:space="preserve">
+    <value>No branch request was found with id {0}.</value>
+  </data>
+  <data name="BranchRequest.NoItems" xml:space="preserve">
+    <value>A branch request must contain at least one product line.</value>
+  </data>
+  <data name="BranchRequest.InvalidQuantity" xml:space="preserve">
+    <value>The asked quantity for product {0} must be greater than zero.</value>
+  </data>
+  <data name="BranchRequest.DuplicateProduct" xml:space="preserve">
+    <value>Product {0} appears more than once. Combine the quantities into a single line.</value>
+  </data>
+  <data name="BranchRequest.ActionNotesTooLong" xml:space="preserve">
+    <value>The note cannot exceed {0} characters.</value>
+  </data>
+  <data name="BranchRequest.BranchNotFound" xml:space="preserve">
+    <value>No branch was found with id {0}.</value>
+  </data>
+  <data name="BranchRequest.BranchDeleted" xml:space="preserve">
+    <value>Branch {0} is deleted and cannot take part in a branch request.</value>
+  </data>
+  <data name="BranchRequest.BranchInactive" xml:space="preserve">
+    <value>Branch {0} is inactive and cannot request stock.</value>
+  </data>
+  <data name="BranchRequest.ProductNotFound" xml:space="preserve">
+    <value>No product was found with id {0}.</value>
+  </data>
+  <data name="BranchRequest.DuplicateOpenRequest" xml:space="preserve">
+    <value>Product {0} already has an open request from this branch.</value>
+  </data>
+  <data name="BranchRequest.NoTransfers" xml:space="preserve">
+    <value>A confirmation must contain at least one transfer plan.</value>
+  </data>
+  <data name="BranchRequest.NotOpenForConfirmation" xml:space="preserve">
+    <value>Branch request {0} is not open for confirmation.</value>
+  </data>
+  <data name="BranchRequest.SourceIsRequestingBranch" xml:space="preserve">
+    <value>Branch {0} is the requesting branch and cannot also be the source of a transfer that fulfils it.</value>
+  </data>
+  <data name="BranchRequest.NotOpenForClosure" xml:space="preserve">
+    <value>Branch request {0} is not open for refusal or cancellation.</value>
+  </data>
+  <data name="BranchRequest.ConcurrencyConflict" xml:space="preserve">
+    <value>This branch request was modified by another operation. Please reload and retry.</value>
+  </data>
+  <data name="BranchRequest.PersistenceConflict" xml:space="preserve">
+    <value>The branch request could not be saved because of a conflicting change. Please retry.</value>
+  </data>
 </root>

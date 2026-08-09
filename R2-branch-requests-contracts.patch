@@ -1,0 +1,844 @@
+diff --git a/ApplicationLayer/Contracts/IBranchRequestFulfilment.cs b/ApplicationLayer/Contracts/IBranchRequestFulfilment.cs
+new file mode 100644
+index 0000000..ff95d65
+--- /dev/null
++++ b/ApplicationLayer/Contracts/IBranchRequestFulfilment.cs
+@@ -0,0 +1,49 @@
++using System.Collections.Generic;
++using System.Threading;
++using System.Threading.Tasks;
++
++namespace ApplicationLayer.Contracts
++{
++    /// <summary>
++    /// The narrow seam <c>TransferService</c> uses to credit a branch request's fulfilment when
++    /// one of its generated transfers settles (API §4.9, decisions D-01/D-04). Deliberately tiny
++    /// (interface segregation) so <c>TransferService</c> never has to learn the rest of the §4.9
++    /// service surface just to report a receipt back.
++    /// <para>
++    /// <b>Scope, post the Unknown Inventory Refactor:</b> this interface covers exactly one
++    /// path — a Known-way line settling later via <c>ReceiveAsync</c>/<c>DisposeAsync</c>. An
++    /// Unknown-way line settles immediately at confirm time instead, and is credited inline by
++    /// <c>BranchRequestService.ConfirmAsync</c> in the same transaction that stages its transfer
++    /// — <c>TransferService.SettleAsync</c> never runs for a line that was never
++    /// <c>InProgress</c>, so there is nothing to call this interface from for it.
++    /// </para>
++    /// </summary>
++    public interface IBranchRequestFulfilment
++    {
++        /// <summary>
++        /// Credits received quantities to a request's lines and recomputes its status. Called
++        /// from inside the settlement transaction — stages only, never saves; the caller's own
++        /// <c>SaveChangesAsync</c> commits it alongside the settlement it belongs to.
++        /// <para>
++        /// Silently no-ops when <paramref name="branchRequestId"/> does not resolve to a request,
++        /// or when <paramref name="targetBranchId"/> does not match the request's requesting
++        /// branch (decision D-04) — an auto-generated return transfer carries the same
++        /// <paramref name="branchRequestId"/> as its parent but heads away from the requesting
++        /// branch, so it must never credit.
++        /// </para>
++        /// </summary>
++        /// <param name="branchRequestId">The request the settled transfer fulfils.</param>
++        /// <param name="targetBranchId">The settled transfer's target branch.</param>
++        /// <param name="receivedByProductId">
++        /// Quantity actually received per product, keyed by product id. A product with no
++        /// matching line on the request is silently ignored (decision D-05) — only quantities
++        /// against products the request actually asked for are credited.
++        /// </param>
++        /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
++        Task ApplyReceiptAsync(
++            long branchRequestId,
++            long targetBranchId,
++            IReadOnlyDictionary<long, int> receivedByProductId,
++            CancellationToken cancellationToken = default);
++    }
++}
+diff --git a/ApplicationLayer/Contracts/IBranchRequestRepo.cs b/ApplicationLayer/Contracts/IBranchRequestRepo.cs
+new file mode 100644
+index 0000000..56c0399
+--- /dev/null
++++ b/ApplicationLayer/Contracts/IBranchRequestRepo.cs
+@@ -0,0 +1,80 @@
++using System.Collections.Generic;
++using System.Threading;
++using System.Threading.Tasks;
++using ApplicationLayer.DTOs.BranchRequests;
++using DomainLayer.Entities;
++
++namespace ApplicationLayer.Contracts
++{
++    /// <summary>
++    /// Data-access contract for <see cref="BranchRequest"/> and its lines (ERD §4.1–§4.2,
++    /// API §4.9). All query logic is expressed here as named methods; raw predicates never reach
++    /// the service layer.
++    /// </summary>
++    public interface IBranchRequestRepo : IGenericRepo<BranchRequest, long>
++    {
++        /// <summary>
++        /// Returns a page of requests with the requesting branch and lines eager-loaded, scoped
++        /// as for stock and product items. A tenant caller passes its
++        /// <paramref name="tenantScopeId"/>; a system admin passes <c>null</c> and may filter via
++        /// <see cref="StockRequestListFilter.TenantId"/> (§11: admin access is read-only).
++        /// </summary>
++        Task<(IReadOnlyList<BranchRequest> Items, int TotalCount)> GetPagedAsync(
++            long? tenantScopeId, StockRequestListFilter filter, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Reads one request by id (no tracking) with the requesting branch, its lines, and each
++        /// line's product eager-loaded — everything <see cref="StockRequestDetailResponse"/>
++        /// needs in one query.
++        /// </summary>
++        /// <param name="id">Request id.</param>
++        /// <param name="tenantScopeId">Tenant scope, or <c>null</c> for a system admin.</param>
++        /// <returns>The request, or <c>null</c> when it does not exist or is outside scope.</returns>
++        Task<BranchRequest?> GetDetailAsync(
++            long id, long? tenantScopeId, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Loads one tracked request by id, with its lines included, for in-transaction mutation
++        /// (confirm, refuse, cancel). <see cref="BranchRequest.RowVersion"/> comes along for the
++        /// optimistic-concurrency check the caller performs before mutating (decision Q-07).
++        /// </summary>
++        /// <param name="id">Request id.</param>
++        /// <param name="tenantScopeId">Tenant scope, or <c>null</c> for a system admin.</param>
++        /// <returns>The request, or <c>null</c> when it does not exist or is outside scope.</returns>
++        Task<BranchRequest?> GetForUpdateAsync(
++            long id, long? tenantScopeId, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Stages a new request — header and lines, reachable through the aggregate's navigation
++        /// collection — for insertion in a single call.
++        /// </summary>
++        Task AddAsync(BranchRequest request, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Product ids appearing on any line of a non-terminal request (any status other than
++        /// <see cref="DomainLayer.Enums.BranchRequestStatus.Fulfilled"/>,
++        /// <see cref="DomainLayer.Enums.BranchRequestStatus.Refused"/>, or
++        /// <see cref="DomainLayer.Enums.BranchRequestStatus.Cancelled"/>) raised by the given
++        /// branch. Backs the duplicate-open-request guard at creation (decision Q-11 / D-08).
++        /// </summary>
++        Task<IReadOnlyCollection<long>> GetOpenProductIdsForBranchAsync(
++            long tenantId, long branchId, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// True when the branch is the requesting branch of any non-terminal request (same
++        /// definition as <see cref="GetOpenProductIdsForBranchAsync"/>). Backs
++        /// <c>BranchService.SoftDeleteAsync</c>'s new guard (EC-R36): a branch cannot be deleted
++        /// while it still has stock demand outstanding.
++        /// </summary>
++        Task<bool> HasOpenRequestForBranchAsync(
++            long tenantId, long branchId, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// True when the product appears on any line of any non-terminal request (same
++        /// definition as <see cref="GetOpenProductIdsForBranchAsync"/>). Backs
++        /// <c>ProductService.SoftDeleteAsync</c>'s new guard (EC-R37).
++        /// </summary>
++        Task<bool> HasOpenRequestForProductAsync(
++            long tenantId, long productId, CancellationToken cancellationToken = default);
++    }
++}
+diff --git a/ApplicationLayer/Contracts/ITransferComposer.cs b/ApplicationLayer/Contracts/ITransferComposer.cs
+new file mode 100644
+index 0000000..20e613b
+--- /dev/null
++++ b/ApplicationLayer/Contracts/ITransferComposer.cs
+@@ -0,0 +1,93 @@
++using System.Collections.Generic;
++using System.Threading;
++using System.Threading.Tasks;
++using ApplicationLayer.DTOs.Transfers;
++using DomainLayer.Common;
++using DomainLayer.Entities;
++
++namespace ApplicationLayer.Contracts
++{
++    /// <summary>
++    /// One product line resolved against the catalog: the caller's line paired with the loaded,
++    /// tenant-owned <see cref="Product"/> it refers to — so <see cref="ITransferComposer.StageAsync"/>
++    /// never has to re-query what <see cref="ITransferComposer.ValidateAsync"/> already loaded.
++    /// </summary>
++    public sealed record ValidatedTransferLine(CreateTransferLine Request, Product Product);
++
++    /// <summary>
++    /// The output of <see cref="ITransferComposer.ValidateAsync"/>: everything
++    /// <see cref="ITransferComposer.StageAsync"/> needs to build one <see cref="CardTransfer"/>,
++    /// already loaded and already validated.
++    /// </summary>
++    /// <param name="Source">The resolved, tenant-owned source branch. May be inactive.</param>
++    /// <param name="Target">The resolved, tenant-owned target branch. Confirmed active.</param>
++    /// <param name="Lines">Every product line, resolved against the catalog.</param>
++    /// <param name="ActionNotes">Free-text note to carry onto the staged transfer.</param>
++    public sealed record ValidatedTransferPlan(
++        Branch Source,
++        Branch Target,
++        IReadOnlyList<ValidatedTransferLine> Lines,
++        string? ActionNotes);
++
++    /// <summary>
++    /// Shared transfer-creation core, extracted from <c>TransferService.CreateAsync</c> (decision
++    /// Q-08) so that both a direct create (API §4.10) and a branch-request confirm (API §4.9)
++    /// build transfers from one implementation of the rules — branch loading, product-line
++    /// validation, the Known/Unknown item-id shape rules, card selection, and the stock movement
++    /// each way requires.
++    /// <para>
++    /// Split at the transaction boundary so a caller that needs to stage several transfers inside
++    /// one ambient transaction — <c>BranchRequestService.ConfirmAsync</c>, generating N transfers
++    /// for N plans — can call <see cref="ValidateAsync"/> for every plan first (read-only, so a
++    /// bad plan anywhere fails the whole confirm before anything is written), then
++    /// <see cref="StageAsync"/> for every plan inside its own single
++    /// <c>IUnitOfWork.ExecuteInTransactionAsync</c> call.
++    /// </para>
++    /// <para>
++    /// <b>Not covered here — stays with each caller:</b> the per-transfer 500-card cap
++    /// (<c>TransferService.ValidateCreateShape</c>, decision D-07, direct-create only), actor
++    /// resolution, audit staging, and detail reload/mapping.
++    /// </para>
++    /// </summary>
++    public interface ITransferComposer
++    {
++        /// <summary>
++        /// Read-only validation: loads and checks both branches (tenant-owned, not deleted,
++        /// target active — source may be inactive, EC-04), loads and checks every product line
++        /// (tenant-owned, not deleted, no duplicates), and enforces the Known/Unknown item-id
++        /// shape rules. Performs no writes and opens no transaction.
++        /// </summary>
++        /// <param name="tenantId">Owning tenant, already resolved by the caller.</param>
++        /// <param name="sourceBranchId">Branch the cards leave.</param>
++        /// <param name="targetBranchId">Branch the cards are headed to. Must differ from the source.</param>
++        /// <param name="items">Product lines. At least one, with no repeated product.</param>
++        /// <param name="actionNotes">Free-text note to carry onto the staged transfer.</param>
++        /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
++        Task<Result<ValidatedTransferPlan>> ValidateAsync(
++            long tenantId, long sourceBranchId, long targetBranchId,
++            IReadOnlyList<CreateTransferLine> items, string? actionNotes,
++            CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Stages the transfer described by <paramref name="plan"/>: for a Known-way line,
++        /// selects the named cards and pulls them out of the source (<c>BranchID = null</c>,
++        /// <c>Status = OnHold</c>), moving the source's stock <c>Available → Hold</c>; for an
++        /// Unknown-way line, moves the source's and target's stock directly
++        /// <c>Available → Available</c> with no card touched and no <c>Hold</c> on either side,
++        /// writing the line pre-settled (Unknown Inventory Refactor). If every line on the
++        /// transfer settled this way, the transfer is staged already <c>Received</c>; otherwise it
++        /// is staged <c>InProgress</c>. Must be called inside an ambient
++        /// <c>IUnitOfWork.ExecuteInTransactionAsync</c>. Never saves, never commits.
++        /// </summary>
++        /// <param name="tenantId">Owning tenant, already resolved by the caller.</param>
++        /// <param name="plan">The validated plan produced by <see cref="ValidateAsync"/>.</param>
++        /// <param name="branchRequestId">
++        /// The branch request this transfer fulfils, or <c>null</c> for a direct transfer created
++        /// outside any request.
++        /// </param>
++        /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
++        Task<Result<CardTransfer>> StageAsync(
++            long tenantId, ValidatedTransferPlan plan, long? branchRequestId,
++            CancellationToken cancellationToken = default);
++    }
++}
+diff --git a/ApplicationLayer/DTOs/BranchRequests/BranchRequestDtos.cs b/ApplicationLayer/DTOs/BranchRequests/BranchRequestDtos.cs
+new file mode 100644
+index 0000000..2cde138
+--- /dev/null
++++ b/ApplicationLayer/DTOs/BranchRequests/BranchRequestDtos.cs
+@@ -0,0 +1,222 @@
++using System;
++using System.Collections.Generic;
++using ApplicationLayer.DTOs.Transfers;
++using DomainLayer.Enums;
++
++namespace ApplicationLayer.DTOs.BranchRequests
++{
++    // =====================================================================================
++    //  Requests
++    // =====================================================================================
++
++    /// <summary>One requested product line on a new stock request.</summary>
++    /// <param name="ProductId">Product being requested.</param>
++    /// <param name="AskedQuantity">How many are needed. Must be greater than zero.</param>
++    public sealed record StockRequestLine(long ProductId, int AskedQuantity);
++
++    /// <summary>
++    /// Payload for <c>POST /api/inventory/requests</c> (API §4.9). Raises a branch's recorded
++    /// need for stock. Reserves nothing and moves no stock — see
++    /// <c>BranchRequestErrors.DuplicateOpenRequest</c> for the one guard against redundant
++    /// requests (decision Q-11 / D-08).
++    /// </summary>
++    /// <param name="RequestingBranchId">
++    /// The branch asking for stock. Caller-asserted (decision note §11: the JWT carries no
++    /// branch claim), validated as tenant-owned, not deleted, and active (decision Q-13).
++    /// </param>
++    /// <param name="Items">Requested product lines. At least one, with no repeated product.</param>
++    /// <param name="ActionNotes">Optional free-text note stored on the request.</param>
++    public sealed record CreateStockRequest(
++        long RequestingBranchId,
++        IReadOnlyList<StockRequestLine> Items,
++        string? ActionNotes = null);
++
++    /// <summary>
++    /// One transfer to be generated by a confirm call. Source is specified per transfer, not per
++    /// line (decision Q-14) — a single product split across two sources becomes two transfers.
++    /// <para>
++    /// <see cref="Items"/> deliberately reuses <see cref="CreateTransferLine"/> rather than
++    /// <see cref="StockRequestLine"/>: the shipped <c>TransferService</c>/<c>ITransferComposer</c>
++    /// requires explicit <c>ProductItemIds</c> for a Known-way line at create time, so the
++    /// confirm payload has to carry the same shape a direct transfer create does — the API
++    /// specification's <c>items[{productId, transactedQuantity}]</c> is insufficient on its own.
++    /// </para>
++    /// </summary>
++    /// <param name="SourceBranchId">
++    /// Branch the cards leave. Must differ from the request's requesting branch
++    /// (<c>BranchRequestErrors.SourceIsRequestingBranch</c>) — pre-empts the database check that
++    /// would otherwise fire when the generated transfer is staged.
++    /// </param>
++    /// <param name="Items">
++    /// Product lines for this transfer. Over-fulfilment is allowed (decision Q-03): a line's
++    /// quantity may exceed what was asked, and a product absent from the request may appear here
++    /// (see decision D-05 on how such lines are — and are not — recorded against the request).
++    /// </param>
++    /// <param name="ActionNotes">Optional free-text note stored on the generated transfer.</param>
++    public sealed record ConfirmTransferPlan(
++        long SourceBranchId,
++        IReadOnlyList<CreateTransferLine> Items,
++        string? ActionNotes = null);
++
++    /// <summary>
++    /// Payload for <c>POST /api/inventory/requests/{id}/confirm</c> (API §4.9). Generates one or
++    /// more transfers in a single transaction — either every plan validates and every transfer is
++    /// staged, or nothing is (decision Q-06 removed any cap on how many). Callable repeatedly
++    /// against the same request (decision Q-04, incremental fulfilment) from any non-terminal
++    /// status.
++    /// </summary>
++    /// <param name="Transfers">One or more transfer plans. At least one.</param>
++    /// <param name="ActionNotes">
++    /// Optional free-text note stored on the request itself (distinct from each plan's own
++    /// <see cref="ConfirmTransferPlan.ActionNotes"/>, which lands on its generated transfer).
++    /// </param>
++    public sealed record ConfirmStockRequest(
++        IReadOnlyList<ConfirmTransferPlan> Transfers,
++        string? ActionNotes = null);
++
++    /// <summary>
++    /// Payload for <c>POST /api/inventory/requests/{id}/refuse</c> (API §4.9). Closes the request
++    /// without generating anything.
++    /// </summary>
++    /// <param name="ActionNotes">
++    /// Reason for the refusal. Optional (decision Q-10) — the API specification's mandatory
++    /// reason is deliberately relaxed to match the shipped auth model, where the refuser and the
++    /// requester are necessarily the same tenant account.
++    /// </param>
++    public sealed record RefuseStockRequest(string? ActionNotes = null);
++
++    /// <summary>
++    /// Payload for <c>POST /api/inventory/requests/{id}/cancel</c> (API §4.9). Closes the
++    /// request without generating anything, from the requester's side.
++    /// </summary>
++    /// <param name="ActionNotes">Optional free-text note.</param>
++    public sealed record CancelStockRequest(string? ActionNotes = null);
++
++    // =====================================================================================
++    //  Responses
++    // =====================================================================================
++
++    /// <summary>One requested product line as returned by the request detail endpoint.</summary>
++    /// <param name="AskedQuantity">Quantity originally requested.</param>
++    /// <param name="DispatchedQuantity">
++    /// Cumulative quantity dispatched across every transfer this request has generated for this
++    /// product (decision D-01). Never decremented by a later return or disposal.
++    /// </param>
++    /// <param name="ReceivedQuantity">
++    /// Cumulative quantity actually credited to the requesting branch — the fulfilment measure
++    /// that drives the request's status (decision D-01, D-03).
++    /// </param>
++    /// <param name="OutstandingQuantity">
++    /// Derived as <c>max(0, AskedQuantity - ReceivedQuantity)</c>. Not stored: over-fulfilment
++    /// (decision Q-03) means <see cref="ReceivedQuantity"/> can exceed
++    /// <see cref="AskedQuantity"/>, and this must never go negative.
++    /// </param>
++    /// <param name="ProductTransactionWay">
++    /// Snapshotted at read time from the live product — unlike <c>CardTransferProduct</c>, a
++    /// request line carries no way of its own to snapshot, since it names a demand rather than a
++    /// dispatched shipment. Included so a client can anticipate whether a future confirm's
++    /// generated transfer will need explicit card ids.
++    /// </param>
++    public sealed record StockRequestItemResponse(
++        long ProductId,
++        string ProductName,
++        int AskedQuantity,
++        int DispatchedQuantity,
++        int ReceivedQuantity,
++        int OutstandingQuantity,
++        ProductTransactionWay ProductTransactionWay);
++
++    /// <summary>
++    /// A product dispatched under this request that was never asked for (decision D-05). Confirm
++    /// may name products outside the request's own lines (decision Q-03); since a
++    /// <c>BranchRequestItem</c> cannot represent one (its <c>AskedQuantity &gt; 0</c> check would
++    /// fail), these are surfaced instead as a read-only collection derived from the request's
++    /// linked transfers.
++    /// </summary>
++    public sealed record UnrequestedProductResponse(
++        long ProductId,
++        string ProductName,
++        int DispatchedQuantity,
++        int ReceivedQuantity);
++
++    /// <summary>Row shape for <c>GET /api/inventory/requests</c>.</summary>
++    public sealed record StockRequestListItemResponse(
++        long Id,
++        long TenantId,
++        long RequestingBranchId,
++        string RequestingBranchName,
++        BranchRequestStatus RequestStatus,
++        int LineCount,
++        int TotalAskedQuantity,
++        int TotalReceivedQuantity,
++        DateTime RequestDateTime,
++        DateTime? ActionTakenAt);
++
++    /// <summary>
++    /// Full request detail as returned by <c>GET /api/inventory/requests/{id}</c> and, wrapped in
++    /// <see cref="ConfirmStockRequestResult"/>, by a successful confirm.
++    /// </summary>
++    /// <param name="RowVersion">Base64-encoded optimistic-concurrency token (decision Q-07).</param>
++    /// <param name="Items">The request's own lines, each with its fulfilment counters.</param>
++    /// <param name="UnrequestedProducts">Products dispatched but never asked for (decision D-05).</param>
++    /// <param name="TransferIds">
++    /// Every transfer this request has generated, in creation order — including auto-generated
++    /// returns, which inherit this request's id (decision D-04). Full detail is available via
++    /// <c>GET /api/inventory/transactions?branchRequestId={id}</c>, already wired.
++    /// </param>
++    public sealed record StockRequestDetailResponse(
++        long Id,
++        long TenantId,
++        long RequestingBranchId,
++        string RequestingBranchName,
++        BranchRequestStatus RequestStatus,
++        DateTime RequestDateTime,
++        long? ActionTakenByTenantId,
++        DateTime? ActionTakenAt,
++        string? ActionNotes,
++        string RowVersion,
++        IReadOnlyList<StockRequestItemResponse> Items,
++        IReadOnlyList<UnrequestedProductResponse> UnrequestedProducts,
++        IReadOnlyList<long> TransferIds);
++
++    /// <summary>
++    /// Outcome of a successful confirm. Carries full transfer details, not just ids (decision
++    /// Q-12), so the caller does not have to make a second round trip to see what was generated.
++    /// </summary>
++    public sealed record ConfirmStockRequestResult(
++        StockRequestDetailResponse Request,
++        IReadOnlyList<TransferDetailResponse> Transfers);
++
++    // =====================================================================================
++    //  Filters
++    // =====================================================================================
++
++    /// <summary>
++    /// Filter and paging inputs for <c>GET /api/inventory/requests</c> (API §3.1, §4.9). Bound
++    /// from the query string.
++    /// </summary>
++    /// <param name="Status">Optional lifecycle filter.</param>
++    /// <param name="RequestingBranchId">Optional filter on the requesting branch.</param>
++    /// <param name="ProductId">Optional filter on a product appearing on a request line.</param>
++    /// <param name="FromDate">Inclusive lower bound on <c>RequestDateTime</c> (UTC).</param>
++    /// <param name="ToDate">Inclusive upper bound on <c>RequestDateTime</c> (UTC).</param>
++    /// <param name="TenantId">System-admin-only tenant filter; ignored for tenant callers.</param>
++    /// <param name="Page">1-based page index. Defaults to 1.</param>
++    /// <param name="PageSize">Items per page (max 100). Defaults to 20.</param>
++    /// <param name="SortBy">requestdatetime (default) | status | requestingbranchid.</param>
++    /// <param name="SortDir">
++    /// asc or desc. Defaults to <c>desc</c> — newest first, matching
++    /// <see cref="ApplicationLayer.DTOs.Transfers.TransferListFilter"/>.
++    /// </param>
++    public sealed record StockRequestListFilter(
++        BranchRequestStatus? Status = null,
++        long? RequestingBranchId = null,
++        long? ProductId = null,
++        DateTime? FromDate = null,
++        DateTime? ToDate = null,
++        long? TenantId = null,
++        int Page = 1,
++        int PageSize = 20,
++        string? SortBy = null,
++        string? SortDir = "desc");
++}
+diff --git a/ApplicationLayer/Errors/BranchRequestErrors.cs b/ApplicationLayer/Errors/BranchRequestErrors.cs
+new file mode 100644
+index 0000000..535ff3d
+--- /dev/null
++++ b/ApplicationLayer/Errors/BranchRequestErrors.cs
+@@ -0,0 +1,168 @@
++using DomainLayer.Common;
++
++namespace ApplicationLayer.Errors
++{
++    /// <summary>
++    /// Stable, localizable <see cref="Error"/> catalogue for the branch stock request module
++    /// (API §4.9).
++    /// <para>
++    /// Failures that belong to the generated transfer itself — Known/Unknown item-id shape,
++    /// insufficient stock, card-level conflicts — are deliberately absent: they already have
++    /// canonical entries in <see cref="TransferErrors"/> and <see cref="StockErrors"/>, surfaced
++    /// via <c>ITransferComposer</c>, and a confirm hitting one of them should read exactly the
++    /// same code a direct transfer create would. Only failures specific to the request itself
++    /// live here.
++    /// </para>
++    /// </summary>
++    public static class BranchRequestErrors
++    {
++        // ---- Actor resolution ---------------------------------------------------------------
++
++        /// <summary>
++        /// The caller's principal could not be resolved to a tenant (→ 401). In practice
++        /// unreachable behind <c>[Authorize]</c> with a valid tenant token; guarded anyway,
++        /// matching <see cref="TransferErrors.ActorNotResolved"/>'s convention.
++        /// </summary>
++        public static Error ActorNotResolved() =>
++            Error.Unauthorized("BranchRequest.ActorNotResolved", "The acting principal could not be resolved.");
++
++        /// <summary>
++        /// A system admin attempted to create, confirm, refuse, or cancel a request (→ 403).
++        /// Admin access to this module is read-only (§11), matching the precedent
++        /// <see cref="TransferErrors.SystemAdminNotAllowed"/> already set — an admin token also
++        /// carries no tenant id to record as <c>ActionTakenByTenantId</c>.
++        /// </summary>
++        public static Error SystemAdminNotAllowed() =>
++            Error.Forbidden("BranchRequest.SystemAdminNotAllowed",
++                "A system administrator cannot create, confirm, refuse, or cancel branch requests.");
++
++        // ---- Lookup ---------------------------------------------------------------------------
++
++        /// <summary>No branch request with that id in the caller's scope (→ 404, no existence leak).</summary>
++        public static Error NotFound(long id) =>
++            Error.NotFound("BranchRequest.NotFound", $"No branch request was found with id {id}.")
++                 .WithArg(id.ToString());
++
++        // ---- Creation: request shape ----------------------------------------------------------
++
++        /// <summary>The request carried no product lines (→ 422).</summary>
++        public static Error NoItems() =>
++            Error.Validation("BranchRequest.NoItems",
++                "A branch request must contain at least one product line.");
++
++        /// <summary>An asked quantity was zero or negative (→ 422).</summary>
++        public static Error InvalidQuantity(long productId) =>
++            Error.Validation("BranchRequest.InvalidQuantity",
++                $"The asked quantity for product {productId} must be greater than zero.")
++                .WithArg(productId.ToString());
++
++        /// <summary>The same product appears on more than one line (→ 422).</summary>
++        public static Error DuplicateProduct(long productId) =>
++            Error.Validation("BranchRequest.DuplicateProduct",
++                $"Product {productId} appears more than once. Combine the quantities into a single line.")
++                .WithArg(productId.ToString());
++
++        /// <summary>The supplied note exceeds the stored length (→ 422).</summary>
++        public static Error ActionNotesTooLong(int maximum) =>
++            Error.Validation("BranchRequest.ActionNotesTooLong",
++                $"The note cannot exceed {maximum} characters.")
++                .WithArg(maximum.ToString());
++
++        // ---- Creation: requesting branch -------------------------------------------------------
++
++        /// <summary>The requesting branch does not exist, or belongs to another tenant (→ 404).</summary>
++        public static Error BranchNotFound(long branchId) =>
++            Error.NotFound("BranchRequest.BranchNotFound", $"No branch was found with id {branchId}.")
++                 .WithArg(branchId.ToString());
++
++        /// <summary>A deleted branch cannot raise or fulfil a request (→ 422).</summary>
++        public static Error BranchDeleted(long branchId) =>
++            Error.Validation("BranchRequest.BranchDeleted",
++                $"Branch {branchId} is deleted and cannot take part in a branch request.")
++                .WithArg(branchId.ToString());
++
++        /// <summary>
++        /// The requesting branch is inactive (→ 422, decision Q-13). A request for an inactive
++        /// branch can never be confirmed — the branch would always be rejected as an inactive
++        /// transfer target (<see cref="TransferErrors.TargetBranchInactive"/>) — so creation
++        /// fails early rather than admitting a request that can only ever sit unconfirmable.
++        /// </summary>
++        public static Error BranchInactive(long branchId) =>
++            Error.Validation("BranchRequest.BranchInactive",
++                $"Branch {branchId} is inactive and cannot request stock.")
++                .WithArg(branchId.ToString());
++
++        // ---- Creation: products -----------------------------------------------------------------
++
++        /// <summary>The product does not exist, or belongs to another tenant (→ 404).</summary>
++        public static Error ProductNotFound(long productId) =>
++            Error.NotFound("BranchRequest.ProductNotFound", $"No product was found with id {productId}.")
++                 .WithArg(productId.ToString());
++
++        /// <summary>
++        /// The requesting branch already has a non-terminal request covering this product
++        /// (→ 409, decision Q-11 / D-08). Names the first offending product; the caller adds it
++        /// to the existing open request instead of raising a duplicate.
++        /// </summary>
++        public static Error DuplicateOpenRequest(long productId) =>
++            Error.Conflict("BranchRequest.DuplicateOpenRequest",
++                $"Product {productId} already has an open request from this branch.")
++                .WithArg(productId.ToString());
++
++        // ---- Confirmation -------------------------------------------------------------------
++
++        /// <summary>The confirm carried no transfer plans (→ 422).</summary>
++        public static Error NoTransfers() =>
++            Error.Validation("BranchRequest.NoTransfers",
++                "A confirmation must contain at least one transfer plan.");
++
++        /// <summary>
++        /// The request is <c>Fulfilled</c>, <c>Refused</c>, or <c>Cancelled</c> and cannot be
++        /// confirmed further (→ 409).
++        /// </summary>
++        public static Error NotOpenForConfirmation(long id) =>
++            Error.Conflict("BranchRequest.NotOpenForConfirmation",
++                $"Branch request {id} is not open for confirmation.")
++                .WithArg(id.ToString());
++
++        /// <summary>
++        /// A confirm plan named the request's own requesting branch as its source (→ 422,
++        /// checked before any write — pre-empts the database check
++        /// <c>CK_CardsTransferHistory_SourceNotTarget</c> that would otherwise fire once the
++        /// generated transfer is staged).
++        /// </summary>
++        public static Error SourceIsRequestingBranch(long branchId) =>
++            Error.Validation("BranchRequest.SourceIsRequestingBranch",
++                $"Branch {branchId} is the requesting branch and cannot also be the source of a transfer that fulfils it.")
++                .WithArg(branchId.ToString());
++
++        // ---- Refuse / cancel ------------------------------------------------------------------
++
++        /// <summary>
++        /// The request is not <c>InProgress</c> or <c>PartiallyConfirmed</c> (→ 409, decision
++        /// D-06). Once anything has been received the request cannot be walked back — refuse or
++        /// cancel a dispatched-but-unreceived shortfall by settling the transfers it already
++        /// generated, not by reopening the request.
++        /// </summary>
++        public static Error NotOpenForClosure(long id) =>
++            Error.Conflict("BranchRequest.NotOpenForClosure",
++                $"Branch request {id} is not open for refusal or cancellation.")
++                .WithArg(id.ToString());
++
++        // ---- Persistence ------------------------------------------------------------------------
++
++        /// <summary>Another operation modified this request concurrently (→ 409, decision Q-07).</summary>
++        public static Error ConcurrencyConflict() =>
++            Error.Conflict("BranchRequest.ConcurrencyConflict",
++                "This branch request was modified by another operation. Please reload and retry.");
++
++        /// <summary>
++        /// A write reached the database and failed a check constraint that the service layer's
++        /// own validation did not anticipate (→ 409), surfaced as a clear, logged conflict rather
++        /// than an opaque 500 — matching <see cref="TransferErrors.PersistenceConflict"/>.
++        /// </summary>
++        public static Error PersistenceConflict() =>
++            Error.Conflict("BranchRequest.PersistenceConflict",
++                "The branch request could not be saved because of a conflicting change. Please retry.");
++    }
++}
+diff --git a/ApplicationLayer/ServicesContracts/IBranchRequestService.cs b/ApplicationLayer/ServicesContracts/IBranchRequestService.cs
+new file mode 100644
+index 0000000..54ffc70
+--- /dev/null
++++ b/ApplicationLayer/ServicesContracts/IBranchRequestService.cs
+@@ -0,0 +1,70 @@
++using System.Threading;
++using System.Threading.Tasks;
++using ApplicationLayer.Common;
++using ApplicationLayer.DTOs.BranchRequests;
++using DomainLayer.Common;
++
++namespace ApplicationLayer.ServicesContracts
++{
++    /// <summary>
++    /// Branch stock request use cases (API §4.9): raise a request, confirm it against one or more
++    /// generated transfers (repeatable — decision Q-04), or close it early by refusal or
++    /// cancellation.
++    /// <para>
++    /// Under the shipped single-account-per-tenant auth model there is no separate requester and
++    /// confirmer — every write is performed by the same tenant account (§4, §11). Reads are
++    /// available to a system admin across tenants; every write requires an authenticated tenant
++    /// and rejects a system-admin caller outright, matching the precedent
++    /// <c>ITransferService</c> already set (decision Q7 of the Transfers workstream) — a
++    /// request's <c>ActionTakenByTenantId</c> has nowhere to point for an admin token.
++    /// </para>
++    /// </summary>
++    public interface IBranchRequestService
++    {
++        /// <summary>Lists requests in the caller's scope (API §4.9 list endpoint).</summary>
++        Task<Result<PaginatedResponse<StockRequestListItemResponse>>> GetAllAsync(
++            StockRequestListFilter filter, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Reads one request's full detail, including lines, fulfilment counters, unrequested
++        /// products (decision D-05), and the ids of every transfer it has generated.
++        /// </summary>
++        Task<Result<StockRequestDetailResponse>> GetByIdAsync(
++            long id, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Creates a stock request: validates the requesting branch (tenant-owned, not deleted,
++        /// active — decision Q-13) and every product line, and blocks a request that would
++        /// overlap an existing open one for the same branch (decision Q-11 / D-08). Reserves no
++        /// stock and moves nothing.
++        /// </summary>
++        Task<Result<StockRequestDetailResponse>> CreateAsync(
++            CreateStockRequest request, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Confirms a request against one or more transfer plans: validates every plan, then
++        /// stages every transfer and credits the request's fulfilment counters inside one
++        /// transaction — either all of it commits, or none of it does. Over-fulfilment and
++        /// products outside the request are both allowed (decision Q-03); an Unknown-way line
++        /// settles, and credits <c>ReceivedQuantity</c>, in this same call (Unknown Inventory
++        /// Refactor). Callable repeatedly from any non-terminal status.
++        /// </summary>
++        Task<Result<ConfirmStockRequestResult>> ConfirmAsync(
++            long id, ConfirmStockRequest request, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Refuses a request without generating anything. Reason is optional (decision Q-10).
++        /// Allowed from <c>InProgress</c> or <c>PartiallyConfirmed</c> only (decision D-06) —
++        /// already-dispatched transfers are left to complete their own §4.10 lifecycle.
++        /// </summary>
++        Task<Result<StockRequestDetailResponse>> RefuseAsync(
++            long id, RefuseStockRequest request, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Cancels a request without generating anything. Same status guard as
++        /// <see cref="RefuseAsync"/> (decision D-06).
++        /// </summary>
++        Task<Result<StockRequestDetailResponse>> CancelAsync(
++            long id, CancelStockRequest request, CancellationToken cancellationToken = default);
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+index dbd6829..2678fee 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+@@ -393,4 +393,58 @@
+   <data name="Branch.HasInProgressTransfer" xml:space="preserve">
+     <value>الفرع رقم {0} ليه تحويل شغال، مينفعش يتمسح غير لما يتقفل.</value>
+   </data>
++  <data name="BranchRequest.ActorNotResolved" xml:space="preserve">
++    <value>معرفناش مين اللي بيستخدم النظام دلوقتي.</value>
++  </data>
++  <data name="BranchRequest.SystemAdminNotAllowed" xml:space="preserve">
++    <value>مدير النظام مش من حقه ينشئ أو يأكد أو يرفض أو يلغي طلبات التوريد.</value>
++  </data>
++  <data name="BranchRequest.NotFound" xml:space="preserve">
++    <value>مفيش طلب توريد بالرقم {0}.</value>
++  </data>
++  <data name="BranchRequest.NoItems" xml:space="preserve">
++    <value>طلب التوريد لازم يكون فيه منتج واحد على الأقل.</value>
++  </data>
++  <data name="BranchRequest.InvalidQuantity" xml:space="preserve">
++    <value>الكمية المطلوبة للمنتج رقم {0} لازم تكون أكبر من صفر.</value>
++  </data>
++  <data name="BranchRequest.DuplicateProduct" xml:space="preserve">
++    <value>المنتج رقم {0} متكرر أكتر من مرة. اجمع الكميات في سطر واحد.</value>
++  </data>
++  <data name="BranchRequest.ActionNotesTooLong" xml:space="preserve">
++    <value>الملاحظة مينفعش تزيد عن {0} حرف.</value>
++  </data>
++  <data name="BranchRequest.BranchNotFound" xml:space="preserve">
++    <value>مفيش فرع بالرقم {0}.</value>
++  </data>
++  <data name="BranchRequest.BranchDeleted" xml:space="preserve">
++    <value>الفرع رقم {0} متمسوح ومينفعش يدخل في طلب توريد.</value>
++  </data>
++  <data name="BranchRequest.BranchInactive" xml:space="preserve">
++    <value>الفرع رقم {0} موقوف ومينفعش يطلب رصيد.</value>
++  </data>
++  <data name="BranchRequest.ProductNotFound" xml:space="preserve">
++    <value>مفيش منتج بالرقم {0}.</value>
++  </data>
++  <data name="BranchRequest.DuplicateOpenRequest" xml:space="preserve">
++    <value>المنتج رقم {0} ليه طلب توريد مفتوح من الفرع ده خلاص.</value>
++  </data>
++  <data name="BranchRequest.NoTransfers" xml:space="preserve">
++    <value>التأكيد لازم يكون فيه خطة تحويل واحدة على الأقل.</value>
++  </data>
++  <data name="BranchRequest.NotOpenForConfirmation" xml:space="preserve">
++    <value>طلب التوريد رقم {0} مش متاح للتأكيد.</value>
++  </data>
++  <data name="BranchRequest.SourceIsRequestingBranch" xml:space="preserve">
++    <value>الفرع رقم {0} هو الفرع الطالب، مينفعش يكون كمان مصدر تحويل بيلبي نفس الطلب.</value>
++  </data>
++  <data name="BranchRequest.NotOpenForClosure" xml:space="preserve">
++    <value>طلب التوريد رقم {0} مش متاح للرفض أو الإلغاء.</value>
++  </data>
++  <data name="BranchRequest.ConcurrencyConflict" xml:space="preserve">
++    <value>طلب التوريد ده اتعدل من عملية تانية. اعمل تحديث وجرب تاني.</value>
++  </data>
++  <data name="BranchRequest.PersistenceConflict" xml:space="preserve">
++    <value>طلب التوريد ماتحفظش بسبب تعارض في التعديلات. جرب تاني.</value>
++  </data>
+ </root>
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+index ae0a152..b2f6066 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+@@ -393,4 +393,58 @@
+   <data name="Branch.HasInProgressTransfer" xml:space="preserve">
+     <value>Branch {0} has a transfer in progress and cannot be deleted until it is settled.</value>
+   </data>
++  <data name="BranchRequest.ActorNotResolved" xml:space="preserve">
++    <value>The acting principal could not be resolved.</value>
++  </data>
++  <data name="BranchRequest.SystemAdminNotAllowed" xml:space="preserve">
++    <value>A system administrator cannot create, confirm, refuse, or cancel branch requests.</value>
++  </data>
++  <data name="BranchRequest.NotFound" xml:space="preserve">
++    <value>No branch request was found with id {0}.</value>
++  </data>
++  <data name="BranchRequest.NoItems" xml:space="preserve">
++    <value>A branch request must contain at least one product line.</value>
++  </data>
++  <data name="BranchRequest.InvalidQuantity" xml:space="preserve">
++    <value>The asked quantity for product {0} must be greater than zero.</value>
++  </data>
++  <data name="BranchRequest.DuplicateProduct" xml:space="preserve">
++    <value>Product {0} appears more than once. Combine the quantities into a single line.</value>
++  </data>
++  <data name="BranchRequest.ActionNotesTooLong" xml:space="preserve">
++    <value>The note cannot exceed {0} characters.</value>
++  </data>
++  <data name="BranchRequest.BranchNotFound" xml:space="preserve">
++    <value>No branch was found with id {0}.</value>
++  </data>
++  <data name="BranchRequest.BranchDeleted" xml:space="preserve">
++    <value>Branch {0} is deleted and cannot take part in a branch request.</value>
++  </data>
++  <data name="BranchRequest.BranchInactive" xml:space="preserve">
++    <value>Branch {0} is inactive and cannot request stock.</value>
++  </data>
++  <data name="BranchRequest.ProductNotFound" xml:space="preserve">
++    <value>No product was found with id {0}.</value>
++  </data>
++  <data name="BranchRequest.DuplicateOpenRequest" xml:space="preserve">
++    <value>Product {0} already has an open request from this branch.</value>
++  </data>
++  <data name="BranchRequest.NoTransfers" xml:space="preserve">
++    <value>A confirmation must contain at least one transfer plan.</value>
++  </data>
++  <data name="BranchRequest.NotOpenForConfirmation" xml:space="preserve">
++    <value>Branch request {0} is not open for confirmation.</value>
++  </data>
++  <data name="BranchRequest.SourceIsRequestingBranch" xml:space="preserve">
++    <value>Branch {0} is the requesting branch and cannot also be the source of a transfer that fulfils it.</value>
++  </data>
++  <data name="BranchRequest.NotOpenForClosure" xml:space="preserve">
++    <value>Branch request {0} is not open for refusal or cancellation.</value>
++  </data>
++  <data name="BranchRequest.ConcurrencyConflict" xml:space="preserve">
++    <value>This branch request was modified by another operation. Please reload and retry.</value>
++  </data>
++  <data name="BranchRequest.PersistenceConflict" xml:space="preserve">
++    <value>The branch request could not be saved because of a conflicting change. Please retry.</value>
++  </data>
+ </root>

@@ -393,4 +393,58 @@
   <data name="Branch.HasInProgressTransfer" xml:space="preserve">
     <value>الفرع رقم {0} ليه تحويل شغال، مينفعش يتمسح غير لما يتقفل.</value>
   </data>
+  <data name="BranchRequest.ActorNotResolved" xml:space="preserve">
+    <value>معرفناش مين اللي بيستخدم النظام دلوقتي.</value>
+  </data>
+  <data name="BranchRequest.SystemAdminNotAllowed" xml:space="preserve">
+    <value>مدير النظام مش من حقه ينشئ أو يأكد أو يرفض أو يلغي طلبات التوريد.</value>
+  </data>
+  <data name="BranchRequest.NotFound" xml:space="preserve">
+    <value>مفيش طلب توريد بالرقم {0}.</value>
+  </data>
+  <data name="BranchRequest.NoItems" xml:space="preserve">
+    <value>طلب التوريد لازم يكون فيه منتج واحد على الأقل.</value>
+  </data>
+  <data name="BranchRequest.InvalidQuantity" xml:space="preserve">
+    <value>الكمية المطلوبة للمنتج رقم {0} لازم تكون أكبر من صفر.</value>
+  </data>
+  <data name="BranchRequest.DuplicateProduct" xml:space="preserve">
+    <value>المنتج رقم {0} متكرر أكتر من مرة. اجمع الكميات في سطر واحد.</value>
+  </data>
+  <data name="BranchRequest.ActionNotesTooLong" xml:space="preserve">
+    <value>الملاحظة مينفعش تزيد عن {0} حرف.</value>
+  </data>
+  <data name="BranchRequest.BranchNotFound" xml:space="preserve">
+    <value>مفيش فرع بالرقم {0}.</value>
+  </data>
+  <data name="BranchRequest.BranchDeleted" xml:space="preserve">
+    <value>الفرع رقم {0} متمسوح ومينفعش يدخل في طلب توريد.</value>
+  </data>
+  <data name="BranchRequest.BranchInactive" xml:space="preserve">
+    <value>الفرع رقم {0} موقوف ومينفعش يطلب رصيد.</value>
+  </data>
+  <data name="BranchRequest.ProductNotFound" xml:space="preserve">
+    <value>مفيش منتج بالرقم {0}.</value>
+  </data>
+  <data name="BranchRequest.DuplicateOpenRequest" xml:space="preserve">
+    <value>المنتج رقم {0} ليه طلب توريد مفتوح من الفرع ده خلاص.</value>
+  </data>
+  <data name="BranchRequest.NoTransfers" xml:space="preserve">
+    <value>التأكيد لازم يكون فيه خطة تحويل واحدة على الأقل.</value>
+  </data>
+  <data name="BranchRequest.NotOpenForConfirmation" xml:space="preserve">
+    <value>طلب التوريد رقم {0} مش متاح للتأكيد.</value>
+  </data>
+  <data name="BranchRequest.SourceIsRequestingBranch" xml:space="preserve">
+    <value>الفرع رقم {0} هو الفرع الطالب، مينفعش يكون كمان مصدر تحويل بيلبي نفس الطلب.</value>
+  </data>
+  <data name="BranchRequest.NotOpenForClosure" xml:space="preserve">
+    <value>طلب التوريد رقم {0} مش متاح للرفض أو الإلغاء.</value>
+  </data>
+  <data name="BranchRequest.ConcurrencyConflict" xml:space="preserve">
+    <value>طلب التوريد ده اتعدل من عملية تانية. اعمل تحديث وجرب تاني.</value>
+  </data>
+  <data name="BranchRequest.PersistenceConflict" xml:space="preserve">
+    <value>طلب التوريد ماتحفظش بسبب تعارض في التعديلات. جرب تاني.</value>
+  </data>
 </root>
