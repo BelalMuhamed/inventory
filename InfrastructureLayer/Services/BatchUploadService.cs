@@ -149,12 +149,17 @@ namespace InfrastructureLayer.Services
                         continue;
                     }
 
-                    // Transactions §4.10 (T0). A card that has left inventory, or that is committed
-                    // to an in-flight transfer, must not be quietly rewritten by a re-upload. The
-                    // re-sight below would otherwise reassign BranchID and reset Status to
-                    // Available, stranding the transfer's hold quantity with no card behind it.
-                    // Rejected per row so the rest of the file still imports, and reported to the
-                    // uploader in the failed-rows workbook.
+                    // Transactions §4.10 (T0). A Known-way card that has left inventory, or that is
+                    // committed to an in-flight transfer, must not be quietly rewritten by a
+                    // re-upload. The re-sight below would otherwise reassign BranchID and reset
+                    // Status to Available, stranding the transfer's hold quantity with no card
+                    // behind it. Rejected per row so the rest of the file still imports, and
+                    // reported to the uploader in the failed-rows workbook.
+                    //
+                    // Unknown Inventory Refactor (decisions Q1/Q2): for an Unknown-way product, a
+                    // null BranchID is the card's normal resting state now - it sits unassigned in
+                    // the tenant-wide pool until printed or disposed by PAN, not "in transit." That
+                    // rejection therefore only still applies to Known-way cards.
                     if (existingItems.TryGetValue(Convert.ToHexString(fingerprint), out ProductItem? sightedItem))
                     {
                         if (sightedItem.Status == CardStatus.Disposed)
@@ -163,7 +168,7 @@ namespace InfrastructureLayer.Services
                             continue;
                         }
 
-                        if (sightedItem.BranchID is null)
+                        if (sightedItem.BranchID is null && product.ProductTransactionWay == ProductTransactionWay.Known)
                         {
                             failedRows.Add(new FailedBatchRow(row.RowNumber, maskedPan, FailureReason.CardInTransit));
                             continue;
@@ -198,15 +203,25 @@ namespace InfrastructureLayer.Services
 
                     foreach ((ParsedBatchRow row, Product product, Branch branch, string maskedPan, byte[] fingerprint) in rowsToProcess)
                     {
+                        bool isUnknownWay = product.ProductTransactionWay == ProductTransactionWay.Unknown;
+
                         if (existingItems.TryGetValue(Convert.ToHexString(fingerprint), out ProductItem? existingItem))
                         {
                             // Re-sight (§6.4): update Branch/Status only. BatchId is left as the
                             // batch that first introduced the item — not reassigned here.
-                            // BranchID is non-null here: rows whose card is in transit or disposed
-                            // were filtered into failedRows during validation above and never
-                            // reach rowsToProcess. Pattern-matched rather than null-forgiven so a
+                            //
+                            // Unknown Inventory Refactor (decisions Q1/Q2): an Unknown-way card's
+                            // BranchID is never written here - it stays whatever it already was
+                            // (null, for every card ingested under the new rule) and this re-sight
+                            // only ever refreshes Status. Re-sighting an Unknown-way row therefore
+                            // does not move Stock between branches at all; the named branch on the
+                            // row is not consulted for an existing Unknown-way card.
+                            //
+                            // Known-way is unchanged: BranchID is non-null here (rows whose card is
+                            // in transit or disposed were filtered into failedRows above and never
+                            // reach rowsToProcess), pattern-matched rather than null-forgiven so a
                             // future change to that filter breaks loudly instead of silently.
-                            if (existingItem.BranchID is long currentBranchId && currentBranchId != branch.Id)
+                            if (!isUnknownWay && existingItem.BranchID is long currentBranchId && currentBranchId != branch.Id)
                             {
                                 AddDelta(stockDeltas, currentBranchId, existingItem.ProductId, -1);
                                 AddDelta(stockDeltas, branch.Id, product.Id, +1);
@@ -220,13 +235,19 @@ namespace InfrastructureLayer.Services
                             // PAN Storage Redesign: the full PAN is never persisted in any form.
                             // MaskedPan is display-only; PanFingerprint is the sole identity/dedup
                             // key, computed once per row from the same normalized PAN.
+                            //
+                            // Unknown Inventory Refactor (decisions Q1/Q2): BranchID stays null for
+                            // a new Unknown-way card - it is only ever pinned to a branch at print
+                            // or disposal, keyed by PAN. The row's BranchName still names which
+                            // branch's Stock entitlement is credited for the ingestion (decision
+                            // Q6), even though it no longer sets the card's physical location.
                             var newItem = new ProductItem
                             {
                                 PanFingerprint = fingerprint,
                                 MaskedPan = maskedPan,
                                 TenantId = tenantId,
                                 ProductId = product.Id,
-                                BranchID = branch.Id,
+                                BranchID = isUnknownWay ? null : branch.Id,
                                 Status = CardStatus.Available,
                                 Batch = batch, // relationship fixup populates BatchId on save
                             };

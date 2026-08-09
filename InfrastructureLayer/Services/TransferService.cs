@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -164,38 +164,66 @@ namespace InfrastructureLayer.Services
                         ActionNotes = request.ActionNotes,
                     };
 
+                    bool anyOpenLine = false;
+
                     foreach ((CreateTransferLine line, Product product) in lines)
                     {
-                        IReadOnlyList<ProductItem> selected;
-
-                        if (product.ProductTransactionWay == ProductTransactionWay.Known)
+                        if (product.ProductTransactionWay == ProductTransactionWay.Unknown)
                         {
-                            IReadOnlyDictionary<long, ProductItem> found = await _unitOfWork.ProductItems
-                                .GetManyForUpdateAsync(tenantId, line.ProductItemIds!, cancellationToken);
+                            // Unknown Inventory Refactor (decisions Q1/Q2): a transfer moves Stock
+                            // *entitlement* only. No ProductItem is selected, touched, or
+                            // reassigned - physical cards stay BranchID = null and are only ever
+                            // pinned to a branch at print or disposal, keyed by PAN. There is
+                            // nothing physically in transit, so the line settles immediately
+                            // (RealQuantityReceived = TransactedQuantity) rather than entering the
+                            // usual Hold -> receive lifecycle.
+                            Stock unknownSourceStock = await _unitOfWork.Stocks.GetOrCreateForUpdateAsync(
+                                tenantId, source.Id, product.Id, cancellationToken);
 
-                            var picked = new List<ProductItem>(line.ProductItemIds!.Count);
-                            foreach (long itemId in line.ProductItemIds)
+                            int updatedAvailable = unknownSourceStock.AvailableQuantity - line.TransactedQuantity;
+                            if (updatedAvailable < 0)
+                                return Result.Failure<CardTransfer>(StockErrors.InsufficientAvailable(source.Id, product.Id));
+
+                            unknownSourceStock.AvailableQuantity = updatedAvailable;
+                            unknownSourceStock.UpdatedAt = DateTime.UtcNow;
+
+                            Stock unknownTargetStock = await _unitOfWork.Stocks.GetOrCreateForUpdateAsync(
+                                tenantId, target.Id, product.Id, cancellationToken);
+                            unknownTargetStock.AvailableQuantity += line.TransactedQuantity;
+                            unknownTargetStock.UpdatedAt = DateTime.UtcNow;
+
+                            transfer.Products.Add(new CardTransferProduct
                             {
-                                if (!found.TryGetValue(itemId, out ProductItem? card))
-                                    return Result.Failure<CardTransfer>(TransferErrors.ItemNotFound(itemId));
-                                if (card.ProductId != product.Id)
-                                    return Result.Failure<CardTransfer>(TransferErrors.ItemProductMismatch(card.MaskedPan));
-                                if (card.BranchID != source.Id)
-                                    return Result.Failure<CardTransfer>(TransferErrors.ItemNotAtSourceBranch(card.MaskedPan));
-                                if (card.Status != CardStatus.Available)
-                                    return Result.Failure<CardTransfer>(TransferErrors.ItemNotAvailable(card.MaskedPan));
-                                picked.Add(card);
-                            }
-                            selected = picked;
-                        }
-                        else
-                        {
-                            selected = await _unitOfWork.ProductItems.GetAvailableForUpdateAsync(
-                                tenantId, source.Id, product.Id, line.TransactedQuantity, cancellationToken);
+                                TenantId = tenantId,
+                                ProductId = product.Id,
+                                TransactedQuantity = line.TransactedQuantity,
+                                ProductTransactionWay = product.ProductTransactionWay,   // snapshot
+                                RealQuantityReceived = line.TransactedQuantity,          // settled now - entitlement only
+                                DisposedQuantity = 0,
+                            });
 
-                            if (selected.Count < line.TransactedQuantity)
-                                return Result.Failure<CardTransfer>(TransferErrors.StockInconsistency(source.Id, product.Id));
+                            continue;   // no ProductItem/CardTransferItem rows for this line
                         }
+
+                        anyOpenLine = true;
+
+                        IReadOnlyDictionary<long, ProductItem> found = await _unitOfWork.ProductItems
+                            .GetManyForUpdateAsync(tenantId, line.ProductItemIds!, cancellationToken);
+
+                        var picked = new List<ProductItem>(line.ProductItemIds!.Count);
+                        foreach (long itemId in line.ProductItemIds)
+                        {
+                            if (!found.TryGetValue(itemId, out ProductItem? card))
+                                return Result.Failure<CardTransfer>(TransferErrors.ItemNotFound(itemId));
+                            if (card.ProductId != product.Id)
+                                return Result.Failure<CardTransfer>(TransferErrors.ItemProductMismatch(card.MaskedPan));
+                            if (card.BranchID != source.Id)
+                                return Result.Failure<CardTransfer>(TransferErrors.ItemNotAtSourceBranch(card.MaskedPan));
+                            if (card.Status != CardStatus.Available)
+                                return Result.Failure<CardTransfer>(TransferErrors.ItemNotAvailable(card.MaskedPan));
+                            picked.Add(card);
+                        }
+                        IReadOnlyList<ProductItem> selected = picked;
 
                         // Pull every selected card out of the source: it is in transit now, at no
                         // branch, until settlement pins it somewhere (decision Q4).
@@ -230,13 +258,24 @@ namespace InfrastructureLayer.Services
                         Stock sourceStock = await _unitOfWork.Stocks.GetOrCreateForUpdateAsync(
                             tenantId, source.Id, product.Id, cancellationToken);
 
-                        int updatedAvailable = sourceStock.AvailableQuantity - line.TransactedQuantity;
-                        if (updatedAvailable < 0)
+                        int updatedKnownAvailable = sourceStock.AvailableQuantity - line.TransactedQuantity;
+                        if (updatedKnownAvailable < 0)
                             return Result.Failure<CardTransfer>(StockErrors.InsufficientAvailable(source.Id, product.Id));
 
-                        sourceStock.AvailableQuantity = updatedAvailable;
+                        sourceStock.AvailableQuantity = updatedKnownAvailable;
                         sourceStock.HoldQuantity += line.TransactedQuantity;
                         sourceStock.UpdatedAt = DateTime.UtcNow;
+                    }
+
+                    // A transfer made up entirely of Unknown-way (entitlement-only) lines has
+                    // nothing left to receive — close it out immediately rather than leaving it
+                    // InProgress forever with no Known-way remainder anyone will ever call
+                    // receive/dispose on. A transfer with at least one Known-way line still opens
+                    // InProgress as before.
+                    if (!anyOpenLine)
+                    {
+                        transfer.TransactionStatus = TransactionStatus.Received;
+                        transfer.StatusChangedAt = DateTime.UtcNow;
                     }
 
                     await _unitOfWork.CardTransfers.AddAsync(transfer, cancellationToken);
@@ -316,7 +355,7 @@ namespace InfrastructureLayer.Services
                 return Result.Failure<SettleTransferResult>(TransferErrors.NotInProgress(id));
 
             var settlements = new Dictionary<long, LineSettlement>();
-            foreach (CardTransferProduct line in transfer.Products)
+            foreach (CardTransferProduct line in transfer.Products.Where(p => p.RealQuantityReceived is null))
             {
                 IReadOnlyList<CardDispositionEntry>? dispositions = line.ProductTransactionWay == ProductTransactionWay.Known
                     ? transfer.Items
@@ -362,13 +401,22 @@ namespace InfrastructureLayer.Services
             if (transfer.TransactionStatus != TransactionStatus.InProgress)
                 return Result.Failure<SettleTransferResult>(TransferErrors.NotInProgress(transfer.Id));
 
-            // ---- Validate the settlement covers exactly the transfer's lines, one-to-one. -----
+            // ---- Validate the settlement covers exactly the transfer's still-open lines. -------
+            // Unknown-way lines settle immediately at creation (Unknown Inventory Refactor,
+            // decisions Q1/Q2) - RealQuantityReceived is already non-null for them by the time
+            // this method runs, so they are excluded from the settlement contract entirely: the
+            // caller neither supplies nor sees a settlement entry for a line that never had
+            // anything physically in transit to receive.
+            IReadOnlyList<CardTransferProduct> openLines = transfer.Products
+                .Where(p => p.RealQuantityReceived is null)
+                .ToList();
+
             foreach (long productId in settlements.Keys)
             {
-                if (transfer.Products.All(p => p.ProductId != productId))
+                if (openLines.All(p => p.ProductId != productId))
                     return Result.Failure<SettleTransferResult>(TransferErrors.UnknownProductInSettlement(productId));
             }
-            foreach (CardTransferProduct line in transfer.Products)
+            foreach (CardTransferProduct line in openLines)
             {
                 if (!settlements.ContainsKey(line.ProductId))
                     return Result.Failure<SettleTransferResult>(TransferErrors.MissingProductInSettlement(line.ProductId));
@@ -397,7 +445,7 @@ namespace InfrastructureLayer.Services
             bool anyReturned = false;
             var plans = new List<LinePlan>();
 
-            foreach (CardTransferProduct line in transfer.Products)
+            foreach (CardTransferProduct line in openLines)
             {
                 LineSettlement s = settlements[line.ProductId];
                 int received = s.Received;
