@@ -41,6 +41,9 @@ namespace ApplicationLayer.Contracts
         /// <summary>Repository for card write-offs (API §4.10, Addendum A).</summary>
         ICardDisposalRepo CardDisposals { get; }
 
+        /// <summary>Repository for branch stock requests (ERD §4.1–§4.2, API §4.9).</summary>
+        IBranchRequestRepo BranchRequests { get; }
+
         /// <summary>
         /// Runs <paramref name="work"/> inside an explicit DB transaction (ERD §3.1 invariant /
         /// Batch Upload Phased Plan §3.6 &amp; §4.8): <paramref name="work"/> stages changes via

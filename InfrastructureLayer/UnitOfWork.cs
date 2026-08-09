@@ -31,6 +31,7 @@ namespace InfrastructureLayer
             BatchRepo= new BatchRepo(context);
             CardTransfers = new CardTransferRepo(context);
             CardDisposals = new CardDisposalRepo(context);
+            BranchRequests = new BranchRequestRepo(context);
         }
 
         public ITenantRepo Tenants { get; }
@@ -43,6 +44,7 @@ namespace InfrastructureLayer
         public IBatchRepo BatchRepo { get; }
         public ICardTransferRepo CardTransfers { get; }
         public ICardDisposalRepo CardDisposals { get; }
+        public IBranchRequestRepo BranchRequests { get; }
 
 
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
