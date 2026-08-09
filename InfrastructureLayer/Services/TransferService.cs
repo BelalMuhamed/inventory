@@ -52,12 +52,16 @@ namespace InfrastructureLayer.Services
         private readonly IUnitOfWork _unitOfWork;
         private readonly ICurrentTenant _currentTenant;
         private readonly IAuditLogger _auditLogger;
+        private readonly ITransferComposer _transferComposer;
 
-        public TransferService(IUnitOfWork unitOfWork, ICurrentTenant currentTenant, IAuditLogger auditLogger)
+        public TransferService(
+            IUnitOfWork unitOfWork, ICurrentTenant currentTenant, IAuditLogger auditLogger,
+            ITransferComposer transferComposer)
         {
             _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
             _currentTenant = currentTenant ?? throw new ArgumentNullException(nameof(currentTenant));
             _auditLogger = auditLogger ?? throw new ArgumentNullException(nameof(auditLogger));
+            _transferComposer = transferComposer ?? throw new ArgumentNullException(nameof(transferComposer));
         }
 
         // =====================================================================================
@@ -103,184 +107,17 @@ namespace InfrastructureLayer.Services
             Result validation = ValidateCreateShape(request);
             if (validation.IsFailure) return Result.Failure<TransferDetailResponse>(validation.Error);
 
-            if (request.SourceBranchId == request.TargetBranchId)
-                return Result.Failure<TransferDetailResponse>(TransferErrors.SameSourceAndTarget());
-
-            (Branch? source, Error? sourceError) = await LoadBranchAsync(request.SourceBranchId, tenantId, cancellationToken);
-            if (sourceError is not null) return Result.Failure<TransferDetailResponse>(sourceError);
-
-            (Branch? target, Error? targetError) = await LoadBranchAsync(request.TargetBranchId, tenantId, cancellationToken);
-            if (targetError is not null) return Result.Failure<TransferDetailResponse>(targetError);
-            // Deliberately asymmetric (EC-04): an inactive source may still ship out — that is
-            // how a branch being wound down gets emptied. An inactive target may not receive.
-            if (!target!.IsActive) return Result.Failure<TransferDetailResponse>(TransferErrors.TargetBranchInactive(target.Id));
-
-            // Load and validate every product line before writing anything. A bad line anywhere
-            // in the request fails the whole create — nothing is partially applied.
-            var lines = new List<(CreateTransferLine Request, Product Product)>();
-            foreach (CreateTransferLine line in request.Items!)
-            {
-                Product? product = await _unitOfWork.Products.GetByIdIncludingDeletedAsync(line.ProductId, cancellationToken);
-                if (product is null || product.TenantId != tenantId || product.IsDeleted)
-                    return Result.Failure<TransferDetailResponse>(TransferErrors.ProductNotFound(line.ProductId));
-
-                bool hasItemIds = line.ProductItemIds is { Count: > 0 };
-                if (product.ProductTransactionWay == ProductTransactionWay.Known)
-                {
-                    if (!hasItemIds)
-                        return Result.Failure<TransferDetailResponse>(TransferErrors.ItemIdsRequired(line.ProductId));
-                    if (line.ProductItemIds!.Count != line.TransactedQuantity)
-                        return Result.Failure<TransferDetailResponse>(TransferErrors.ItemCountMismatch(line.ProductId));
-                    if (line.ProductItemIds.GroupBy(x => x).Any(g => g.Count() > 1))
-                        return Result.Failure<TransferDetailResponse>(
-                            TransferErrors.DuplicateItem(line.ProductItemIds.First(id => line.ProductItemIds.Count(x => x == id) > 1)));
-                }
-                else if (hasItemIds)
-                {
-                    return Result.Failure<TransferDetailResponse>(TransferErrors.ItemIdsNotAllowedForUnknown(line.ProductId));
-                }
-
-                lines.Add((line, product));
-            }
-
-            CardTransfer? transfer = null;
+            Result<ValidatedTransferPlan> planResult = await _transferComposer.ValidateAsync(
+                tenantId, request.SourceBranchId, request.TargetBranchId, request.Items!, request.ActionNotes,
+                cancellationToken);
+            if (planResult.IsFailure) return Result.Failure<TransferDetailResponse>(planResult.Error);
 
             Result<CardTransfer> transactionResult;
             try
             {
-                transactionResult = await _unitOfWork.ExecuteInTransactionAsync<CardTransfer>(async () =>
-                {
-                    transfer = new CardTransfer
-                    {
-                        TenantId = tenantId,
-                        BranchRequestId = null,   // Q2: always null until API §4.9 exists.
-                        CreatedAt = DateTime.UtcNow,
-                        CreatedByTenantId = tenantId,
-                        SourceBranchId = source!.Id,
-                        TargetBranchId = target.Id,
-                        TransactionStatus = TransactionStatus.InProgress,
-                        Origin = TransactionOrigin.UserCreated,
-                        ParentTransferId = null,
-                        ActionNotes = request.ActionNotes,
-                    };
-
-                    bool anyOpenLine = false;
-
-                    foreach ((CreateTransferLine line, Product product) in lines)
-                    {
-                        if (product.ProductTransactionWay == ProductTransactionWay.Unknown)
-                        {
-                            // Unknown Inventory Refactor (decisions Q1/Q2): a transfer moves Stock
-                            // *entitlement* only. No ProductItem is selected, touched, or
-                            // reassigned - physical cards stay BranchID = null and are only ever
-                            // pinned to a branch at print or disposal, keyed by PAN. There is
-                            // nothing physically in transit, so the line settles immediately
-                            // (RealQuantityReceived = TransactedQuantity) rather than entering the
-                            // usual Hold -> receive lifecycle.
-                            Stock unknownSourceStock = await _unitOfWork.Stocks.GetOrCreateForUpdateAsync(
-                                tenantId, source.Id, product.Id, cancellationToken);
-
-                            int updatedAvailable = unknownSourceStock.AvailableQuantity - line.TransactedQuantity;
-                            if (updatedAvailable < 0)
-                                return Result.Failure<CardTransfer>(StockErrors.InsufficientAvailable(source.Id, product.Id));
-
-                            unknownSourceStock.AvailableQuantity = updatedAvailable;
-                            unknownSourceStock.UpdatedAt = DateTime.UtcNow;
-
-                            Stock unknownTargetStock = await _unitOfWork.Stocks.GetOrCreateForUpdateAsync(
-                                tenantId, target.Id, product.Id, cancellationToken);
-                            unknownTargetStock.AvailableQuantity += line.TransactedQuantity;
-                            unknownTargetStock.UpdatedAt = DateTime.UtcNow;
-
-                            transfer.Products.Add(new CardTransferProduct
-                            {
-                                TenantId = tenantId,
-                                ProductId = product.Id,
-                                TransactedQuantity = line.TransactedQuantity,
-                                ProductTransactionWay = product.ProductTransactionWay,   // snapshot
-                                RealQuantityReceived = line.TransactedQuantity,          // settled now - entitlement only
-                                DisposedQuantity = 0,
-                            });
-
-                            continue;   // no ProductItem/CardTransferItem rows for this line
-                        }
-
-                        anyOpenLine = true;
-
-                        IReadOnlyDictionary<long, ProductItem> found = await _unitOfWork.ProductItems
-                            .GetManyForUpdateAsync(tenantId, line.ProductItemIds!, cancellationToken);
-
-                        var picked = new List<ProductItem>(line.ProductItemIds!.Count);
-                        foreach (long itemId in line.ProductItemIds)
-                        {
-                            if (!found.TryGetValue(itemId, out ProductItem? card))
-                                return Result.Failure<CardTransfer>(TransferErrors.ItemNotFound(itemId));
-                            if (card.ProductId != product.Id)
-                                return Result.Failure<CardTransfer>(TransferErrors.ItemProductMismatch(card.MaskedPan));
-                            if (card.BranchID != source.Id)
-                                return Result.Failure<CardTransfer>(TransferErrors.ItemNotAtSourceBranch(card.MaskedPan));
-                            if (card.Status != CardStatus.Available)
-                                return Result.Failure<CardTransfer>(TransferErrors.ItemNotAvailable(card.MaskedPan));
-                            picked.Add(card);
-                        }
-                        IReadOnlyList<ProductItem> selected = picked;
-
-                        // Pull every selected card out of the source: it is in transit now, at no
-                        // branch, until settlement pins it somewhere (decision Q4).
-                        foreach (ProductItem card in selected)
-                        {
-                            card.BranchID = null;
-                            card.Status = CardStatus.OnHold;
-                        }
-
-                        var productLine = new CardTransferProduct
-                        {
-                            TenantId = tenantId,
-                            ProductId = product.Id,
-                            TransactedQuantity = line.TransactedQuantity,
-                            ProductTransactionWay = product.ProductTransactionWay,   // snapshot
-                        };
-                        transfer.Products.Add(productLine);
-
-                        foreach (ProductItem card in selected)
-                        {
-                            transfer.Items.Add(new CardTransferItem
-                            {
-                                TenantId = tenantId,
-                                ProductItemId = card.ID,
-                                ReceiveStatus = TransactionItemReceiveStatus.Pending,
-                            });
-                        }
-
-                        // The only stock movement at create time: the whole line leaves the
-                        // source's Available and enters its Hold. The target is untouched until
-                        // settlement — nothing is "received" yet.
-                        Stock sourceStock = await _unitOfWork.Stocks.GetOrCreateForUpdateAsync(
-                            tenantId, source.Id, product.Id, cancellationToken);
-
-                        int updatedKnownAvailable = sourceStock.AvailableQuantity - line.TransactedQuantity;
-                        if (updatedKnownAvailable < 0)
-                            return Result.Failure<CardTransfer>(StockErrors.InsufficientAvailable(source.Id, product.Id));
-
-                        sourceStock.AvailableQuantity = updatedKnownAvailable;
-                        sourceStock.HoldQuantity += line.TransactedQuantity;
-                        sourceStock.UpdatedAt = DateTime.UtcNow;
-                    }
-
-                    // A transfer made up entirely of Unknown-way (entitlement-only) lines has
-                    // nothing left to receive — close it out immediately rather than leaving it
-                    // InProgress forever with no Known-way remainder anyone will ever call
-                    // receive/dispose on. A transfer with at least one Known-way line still opens
-                    // InProgress as before.
-                    if (!anyOpenLine)
-                    {
-                        transfer.TransactionStatus = TransactionStatus.Received;
-                        transfer.StatusChangedAt = DateTime.UtcNow;
-                    }
-
-                    await _unitOfWork.CardTransfers.AddAsync(transfer, cancellationToken);
-                    return Result.Success(transfer);
-                }, cancellationToken);
+                transactionResult = await _unitOfWork.ExecuteInTransactionAsync<CardTransfer>(
+                    () => _transferComposer.StageAsync(tenantId, planResult.Value, branchRequestId: null, cancellationToken),
+                    cancellationToken);
             }
             catch (DbUpdateConcurrencyException)
             {
@@ -632,7 +469,7 @@ namespace InfrastructureLayer.Services
                             returnTransfer ??= new CardTransfer
                             {
                                 TenantId = tenantId,
-                                BranchRequestId = null,
+                                BranchRequestId = transfer.BranchRequestId,   // D-04: return inherits its parent's request
                                 CreatedAt = DateTime.UtcNow,
                                 CreatedByTenantId = tenantId,
                                 SourceBranchId = transfer.TargetBranchId,
@@ -741,17 +578,6 @@ namespace InfrastructureLayer.Services
                 return Result.Failure(TransferErrors.TooManyItems(maxCardsPerTransfer));
 
             return Result.Success();
-        }
-
-        private async Task<(Branch? Branch, Error? Error)> LoadBranchAsync(
-            long branchId, long tenantId, CancellationToken cancellationToken)
-        {
-            Branch? branch = await _unitOfWork.Branches.GetByIdIncludingDeletedAsync(branchId, cancellationToken);
-            if (branch is null || branch.TenantId != tenantId)
-                return (null, TransferErrors.BranchNotFound(branchId));
-            if (branch.IsDeleted)
-                return (null, TransferErrors.BranchDeleted(branchId));
-            return (branch, null);
         }
 
         private async Task<(Branch? Branch, Error? Error)> LoadDisposingBranchAsync(
