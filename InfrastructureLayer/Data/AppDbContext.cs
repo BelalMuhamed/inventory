@@ -66,7 +66,11 @@ namespace InfrastructureLayer.Data
         /// <summary>Cards written off under a disposal (API §4.10, Addendum A).</summary>
         public DbSet<CardDisposalItem> CardDisposalItems => Set<CardDisposalItem>();
 
+        /// <summary>Branch stock requests (ERD §4.1, API §4.9).</summary>
+        public DbSet<BranchRequest> BranchRequests => Set<BranchRequest>();
 
+        /// <summary>Requested product lines on a branch request (ERD §4.2, API §4.9).</summary>
+        public DbSet<BranchRequestItem> BranchRequestItems => Set<BranchRequestItem>();
 
 
         /// <inheritdoc />
@@ -83,6 +87,7 @@ namespace InfrastructureLayer.Data
             ConfigureBatches(modelBuilder);
             ConfigureCardTransfers(modelBuilder);
             ConfigureCardDisposals(modelBuilder);
+            ConfigureBranchRequests(modelBuilder);
 
         }
 
@@ -440,6 +445,15 @@ namespace InfrastructureLayer.Data
                       .HasForeignKey(t => t.TargetBranchId)
                       .OnDelete(DeleteBehavior.NoAction);
 
+                // API §4.9: the branch request this transfer fulfils, or null for a direct
+                // transfer. Every existing row is NULL — the column already existed (decision Q2
+                // of the original Transfers workstream); this adds only the constraint and
+                // navigation, so no data migration is needed.
+                entity.HasOne(t => t.BranchRequest)
+                      .WithMany()
+                      .HasForeignKey(t => t.BranchRequestId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
                 // Self-reference: an auto-generated return points back at the transfer whose
                 // partial receipt produced it.
                 entity.HasOne(t => t.ParentTransfer)
@@ -623,6 +637,102 @@ namespace InfrastructureLayer.Data
                 entity.HasIndex(i => new { i.CardDisposalId, i.ProductItemId })
                       .IsUnique()
                       .HasDatabaseName("UX_CardDisposalItems_CardDisposalId_ProductItemId");
+            });
+        }
+
+        /// <summary>
+        /// Configures branch stock requests and their lines (ERD §4.1–§4.2, tables
+        /// <c>BranchRequests</c> / <c>BranchRequestItems</c>; API §4.9).
+        /// <para>
+        /// <c>BranchRequest</c> does not derive from <c>AuditableEntity</c> (decision Q-09): no
+        /// soft delete, no query filter, no restore endpoint — the same append-only-with-status
+        /// shape <see cref="ConfigureCardTransfers"/> already established for
+        /// <see cref="CardTransfer"/>.
+        /// </para>
+        /// <para>
+        /// Cascade-path check: <see cref="BranchRequestItem"/> has exactly one cascade parent
+        /// (<c>RequestId</c> → <c>BranchRequests</c>) and two NoAction parents (<c>ProductId</c>,
+        /// the denormalized <c>TenantId</c>) — the same shape as <see cref="CardTransferProduct"/>.
+        /// <see cref="BranchRequest"/> itself has zero cascade edges into it (every FK out of it
+        /// is NoAction), so there is no multiple-cascade-path risk anywhere in this aggregate.
+        /// </para>
+        /// </summary>
+        private static void ConfigureBranchRequests(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<BranchRequest>(entity =>
+            {
+                entity.ToTable("BranchRequests");   // ERD §4.1 table name
+                entity.HasKey(r => r.Id);
+
+                entity.Property(r => r.RequestStatus).HasConversion<byte>().IsRequired();
+                entity.Property(r => r.ActionNotes).HasMaxLength(500);
+
+                // Two distinct relationships to Tenants — both need their own navigation, or EF
+                // Core silently reconfigures the same one and leaves the second FK unmapped (the
+                // same pitfall CardTransfer's Tenant/CreatedByTenant pair already documents).
+                entity.HasOne(r => r.Tenant)
+                      .WithMany()
+                      .HasForeignKey(r => r.TenantId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne(r => r.ActionTakenByTenant)
+                      .WithMany()
+                      .HasForeignKey(r => r.ActionTakenByTenantId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne(r => r.RequestingBranch)
+                      .WithMany()
+                      .HasForeignKey(r => r.RequestingBranchId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                // ERD §4.1 index set.
+                entity.HasIndex(r => new { r.TenantId, r.RequestStatus })
+                      .HasDatabaseName("IX_BranchRequests_TenantId_RequestStatus");
+                entity.HasIndex(r => new { r.TenantId, r.RequestingBranchId })
+                      .HasDatabaseName("IX_BranchRequests_TenantId_RequestingBranchId");
+                entity.HasIndex(r => new { r.TenantId, r.RequestDateTime })
+                      .HasDatabaseName("IX_BranchRequests_TenantId_RequestDateTime");
+            });
+
+            modelBuilder.Entity<BranchRequestItem>(entity =>
+            {
+                entity.HasKey(i => i.Id);
+
+                entity.HasOne(i => i.Request)
+                      .WithMany(r => r.Items)
+                      .HasForeignKey(i => i.RequestId)
+                      .OnDelete(DeleteBehavior.Cascade);   // lines belong to the request (ERD §4.2)
+
+                entity.HasOne(i => i.Product)
+                      .WithMany()
+                      .HasForeignKey(i => i.ProductId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne<Tenant>()
+                      .WithMany()
+                      .HasForeignKey(i => i.TenantId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasIndex(i => new { i.TenantId, i.RequestId })
+                      .HasDatabaseName("IX_BranchRequestItems_TenantId_RequestId");
+                entity.HasIndex(i => new { i.RequestId, i.ProductId })
+                      .IsUnique()
+                      .HasDatabaseName("UX_BranchRequestItems_RequestId_ProductId");
+
+                entity.ToTable("BranchRequestItems", t =>
+                {
+                    t.HasCheckConstraint(
+                        "CK_BranchRequestItems_AskedQuantity_Positive",
+                        "[AskedQuantity] > 0");
+
+                    t.HasCheckConstraint(
+                        "CK_BranchRequestItems_DispatchedQuantity_NonNegative",
+                        "[DispatchedQuantity] >= 0");
+
+                    t.HasCheckConstraint(
+                        "CK_BranchRequestItems_ReceivedQuantity_NonNegative",
+                        "[ReceivedQuantity] >= 0");
+                });
             });
         }
     }
