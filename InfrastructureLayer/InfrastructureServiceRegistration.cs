@@ -117,6 +117,9 @@ namespace InfrastructureLayer
             services.AddScoped<System.Func<ITransferService>>(sp => sp.GetRequiredService<ITransferService>);
             services.AddScoped<IDisposalService, DisposalService>();
             services.AddScoped<System.Func<IDisposalService>>(sp => sp.GetRequiredService<IDisposalService>);
+            services.AddScoped<IBranchRequestFulfilment, BranchRequestFulfilment>();
+            services.AddScoped<IBranchRequestService, BranchRequestService>();
+            services.AddScoped<System.Func<IBranchRequestService>>(sp => sp.GetRequiredService<IBranchRequestService>);
 
             return services;
 

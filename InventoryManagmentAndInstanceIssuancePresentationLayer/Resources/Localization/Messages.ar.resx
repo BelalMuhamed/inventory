@@ -447,4 +447,10 @@
   <data name="BranchRequest.PersistenceConflict" xml:space="preserve">
     <value>طلب التوريد ماتحفظش بسبب تعارض في التعديلات. جرب تاني.</value>
   </data>
+  <data name="Branch.HasOpenRequest" xml:space="preserve">
+    <value>الفرع رقم {0} ليه طلبات توريد مفتوحة، ومينفعش يتمسح غير لما تتقفل أو تكتمل.</value>
+  </data>
+  <data name="Product.HasOpenRequest" xml:space="preserve">
+    <value>المنتج رقم {0} ضمن بنود طلب توريد مفتوح، ومينفعش يتمسح.</value>
+  </data>
 </root>

@@ -117,6 +117,12 @@ namespace InfrastructureLayer.Services
                 return Result.Failure(BranchErrors.HasStock(id));
             if (await _unitOfWork.CardTransfers.HasInProgressTransferAsync(branch.TenantId, id, cancellationToken))
                 return Result.Failure(BranchErrors.HasInProgressTransfer(id));
+            if (await _unitOfWork.Stocks.HasNonZeroStockAsync(branch.TenantId, id, cancellationToken))
+                return Result.Failure(BranchErrors.HasStock(id));
+            if (await _unitOfWork.CardTransfers.HasInProgressTransferAsync(branch.TenantId, id, cancellationToken))
+                return Result.Failure(BranchErrors.HasInProgressTransfer(id));
+            if (await _unitOfWork.BranchRequests.HasOpenRequestForBranchAsync(branch.TenantId, id, cancellationToken))
+                return Result.Failure(BranchErrors.HasOpenRequest(id));
 
             (long? actorId, Error? actorError) = await ResolveActorIdAsync(cancellationToken);
             if (actorError is not null) return Result.Failure(actorError);

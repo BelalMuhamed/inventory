@@ -53,15 +53,17 @@ namespace InfrastructureLayer.Services
         private readonly ICurrentTenant _currentTenant;
         private readonly IAuditLogger _auditLogger;
         private readonly ITransferComposer _transferComposer;
+        private readonly IBranchRequestFulfilment _branchRequestFulfilment;
 
         public TransferService(
             IUnitOfWork unitOfWork, ICurrentTenant currentTenant, IAuditLogger auditLogger,
-            ITransferComposer transferComposer)
+            ITransferComposer transferComposer, IBranchRequestFulfilment branchRequestFulfilment)
         {
             _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
             _currentTenant = currentTenant ?? throw new ArgumentNullException(nameof(currentTenant));
             _auditLogger = auditLogger ?? throw new ArgumentNullException(nameof(auditLogger));
             _transferComposer = transferComposer ?? throw new ArgumentNullException(nameof(transferComposer));
+            _branchRequestFulfilment = branchRequestFulfilment ?? throw new ArgumentNullException(nameof(branchRequestFulfilment));
         }
 
         // =====================================================================================
@@ -499,6 +501,18 @@ namespace InfrastructureLayer.Services
                         }
                     }
 
+                    // API §4.9, decision D-04: credit the fulfilling request's counters when this
+                    // transfer settles a request line. Every plan built here was always a
+                    // Known-way line — SettleAsync only ever runs over openLines (Unknown-way
+                    // lines settle at create time instead, per §1.4) — so no branching on
+                    // ProductTransactionWay is needed at this call site.
+                    if (transfer.BranchRequestId is long brId)
+                    {
+                        var receivedByProductId = plans.ToDictionary(p => p.Line.ProductId, p => p.Received);
+                        await _branchRequestFulfilment.ApplyReceiptAsync(
+                            brId, transfer.TargetBranchId, receivedByProductId, cancellationToken);
+                    }
+
                     // ---- This transfer's own final status. ------------------------------------
                     transfer.TransactionStatus =
                         totalReturned == 0 && totalDisposed == 0 ? TransactionStatus.Received :
@@ -626,7 +640,14 @@ namespace InfrastructureLayer.Services
             t.Products.Count, t.Products.Sum(p => p.TransactedQuantity),
             t.CreatedAt, t.StatusChangedAt);
 
-        private static TransferDetailResponse MapDetail(CardTransfer t)
+        /// <summary>
+        /// Maps a fully-loaded transfer to its detail response. Internal (not private): reused by
+        /// <see cref="BranchRequestService.ConfirmAsync"/> (API §4.9, decision Q-12) so a
+        /// confirm's generated transfers are mapped through the exact same code a direct
+        /// <c>GET /api/inventory/transactions/{id}</c> call uses, rather than a second copy of
+        /// this logic living in a sibling service.
+        /// </summary>
+        internal static TransferDetailResponse MapDetail(CardTransfer t)
         {
             var knownProductIds = t.Products
                 .Where(p => p.ProductTransactionWay == ProductTransactionWay.Known)

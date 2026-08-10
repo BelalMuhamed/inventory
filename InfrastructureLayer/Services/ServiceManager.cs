@@ -19,6 +19,7 @@ namespace InfrastructureLayer.Services
         private readonly Lazy<ICardFileGenerationService> _cardFiles;
         private readonly Lazy<ITransferService> _transfers;
         private readonly Lazy<IDisposalService> _disposals;
+        private readonly Lazy<IBranchRequestService> _branchRequests;
 
         public ServiceManager(
             Func<IAuthService> authFactory,
@@ -30,7 +31,8 @@ namespace InfrastructureLayer.Services
             Func<IBatchUploadService> batchUploadFactory,
             Func<ICardFileGenerationService> cardFileFactory,
             Func<ITransferService> transferFactory,
-            Func<IDisposalService> disposalFactory)
+            Func<IDisposalService> disposalFactory,
+            Func<IBranchRequestService> branchRequestFactory)
         {
             _auth = new Lazy<IAuthService>(authFactory);
             _tenants = new Lazy<ITenantService>(tenantFactory);
@@ -42,6 +44,7 @@ namespace InfrastructureLayer.Services
             _cardFiles = new Lazy<ICardFileGenerationService>(cardFileFactory);
             _transfers = new Lazy<ITransferService>(transferFactory);
             _disposals = new Lazy<IDisposalService>(disposalFactory);
+            _branchRequests = new Lazy<IBranchRequestService>(branchRequestFactory);
         }
 
         public IAuthService Auth => _auth.Value;
@@ -54,5 +57,6 @@ namespace InfrastructureLayer.Services
         public ICardFileGenerationService CardFiles => _cardFiles.Value;
         public ITransferService Transfers => _transfers.Value;
         public IDisposalService Disposals => _disposals.Value;
+        public IBranchRequestService BranchRequests => _branchRequests.Value;
     }
 }

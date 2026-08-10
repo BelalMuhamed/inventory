@@ -39,5 +39,12 @@ namespace ApplicationLayer.Errors
 
         // NOTE (stock seam): when Stock/Transactions exist, add Product.HasStock / Product.HasOpenTransactions
         // (Conflict → 409) to enforce the API §4.6 delete-guard "blocked if open transactions or non-zero stock".
+        /// <summary>
+        /// The product is part of an open stock request line and cannot be deleted (→ 409).
+        /// </summary>
+        public static Error HasOpenRequest(long id) =>
+            Error.Conflict("Product.HasOpenRequest",
+                $"Product {id} is part of an open stock request line and cannot be deleted.")
+                .WithArg(id.ToString());
     }
 }

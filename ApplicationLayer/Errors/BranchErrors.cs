@@ -47,5 +47,12 @@ namespace ApplicationLayer.Errors
             Error.Conflict("Branch.HasInProgressTransfer",
                 $"Branch {id} has a transfer in progress and cannot be deleted until it is settled.")
                 .WithArg(id.ToString());
+        /// <summary>
+        /// The branch has open stock requests and cannot be deleted until they are closed or fulfilled (→ 409).
+        /// </summary>
+        public static Error HasOpenRequest(long id) =>
+            Error.Conflict("Branch.HasOpenRequest",
+                $"Branch {id} has open stock requests and cannot be deleted until they are closed or fulfilled.")
+                .WithArg(id.ToString());
     }
 }

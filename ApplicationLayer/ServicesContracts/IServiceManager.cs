@@ -25,5 +25,7 @@
         ITransferService Transfers { get; }
         /// <summary>Standalone card disposal use case (API §4.10, Addendum A).</summary>
         IDisposalService Disposals { get; }
+        /// <summary>Branch stock request use cases: raise, confirm, refuse, cancel (API §4.9).</summary>
+        IBranchRequestService BranchRequests { get; }
     }
 }

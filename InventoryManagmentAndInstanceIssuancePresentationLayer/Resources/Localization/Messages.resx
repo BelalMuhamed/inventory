@@ -447,4 +447,10 @@
   <data name="BranchRequest.PersistenceConflict" xml:space="preserve">
     <value>The branch request could not be saved because of a conflicting change. Please retry.</value>
   </data>
+  <data name="Branch.HasOpenRequest" xml:space="preserve">
+    <value>Branch {0} has open stock requests and cannot be deleted until they are closed or fulfilled.</value>
+  </data>
+  <data name="Product.HasOpenRequest" xml:space="preserve">
+    <value>Product {0} is part of an open stock request line and cannot be deleted.</value>
+  </data>
 </root>
