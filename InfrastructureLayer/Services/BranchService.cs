@@ -117,10 +117,9 @@ namespace InfrastructureLayer.Services
                 return Result.Failure(BranchErrors.HasStock(id));
             if (await _unitOfWork.CardTransfers.HasInProgressTransferAsync(branch.TenantId, id, cancellationToken))
                 return Result.Failure(BranchErrors.HasInProgressTransfer(id));
-            if (await _unitOfWork.Stocks.HasNonZeroStockAsync(branch.TenantId, id, cancellationToken))
-                return Result.Failure(BranchErrors.HasStock(id));
-            if (await _unitOfWork.CardTransfers.HasInProgressTransferAsync(branch.TenantId, id, cancellationToken))
-                return Result.Failure(BranchErrors.HasInProgressTransfer(id));
+
+            // API §4.9 guard (EC-R36): a branch with an open stock request of its own cannot be
+            // deleted while that request is still open.
             if (await _unitOfWork.BranchRequests.HasOpenRequestForBranchAsync(branch.TenantId, id, cancellationToken))
                 return Result.Failure(BranchErrors.HasOpenRequest(id));
 

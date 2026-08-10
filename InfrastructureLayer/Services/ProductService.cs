@@ -130,9 +130,13 @@ namespace InfrastructureLayer.Services
             if (product!.IsDeleted) return Result.Failure(ProductErrors.AlreadyDeleted(id));
 
             // TODO (stock seam): per API §4.6 block deletion when the product has non-zero stock or
-            // open transactions, returning a 409 (e.g. ProductErrors.HasStock). Unconditional if (await _unitOfWork.BranchRequests.HasOpenRequestForProductAsync(product.TenantId, id, cancellationToken))
-            return Result.Failure(ProductErrors.HasOpenRequest(id));
-            // the Stock/Transactions modules exist.
+            // open transactions, returning a 409 (e.g. ProductErrors.HasStock). Still unconditional
+            // until the Stock/Transactions modules add that check.
+            //
+            // API §4.9 guard (EC-R37): a product referenced by an open branch stock request line
+            // cannot be deleted while that request is still open.
+            if (await _unitOfWork.BranchRequests.HasOpenRequestForProductAsync(product.TenantId, id, cancellationToken))
+                return Result.Failure(ProductErrors.HasOpenRequest(id));
 
             (long? actorId, Error? actorError) = await ResolveActorIdAsync(cancellationToken);
             if (actorError is not null) return Result.Failure(actorError);
