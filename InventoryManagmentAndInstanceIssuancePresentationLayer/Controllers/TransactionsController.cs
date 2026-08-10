@@ -14,9 +14,20 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
     /// settles its own tenant's transfers; a system admin has read-only access across tenants
     /// (decision Q7) — create, receive, and dispose all reject an admin token outright.
     /// <para>
+    /// Every line — Known-way or Unknown-way — now follows the same create-then-settle shape
+    /// (Unknown-way Maker-Checker workflow): creating a transfer never finalizes stock movement by
+    /// itself, and every transfer opens <c>InProgress</c> until a separate <see cref="Receive"/>
+    /// call states what was actually confirmed. The same account may create and later settle a
+    /// transfer — both identities are recorded on the transfer regardless (see
+    /// <c>TransferDetailResponse.CreatedByUsername</c>/<c>CheckedByUsername</c>).
+    /// </para>
+    /// <para>
     /// There is no separate refuse endpoint. Every settlement outcome — received, disposed, or
     /// (for whatever is left over) returned — goes through <see cref="Receive"/>, which carries a
-    /// disposition per product line rather than a single accept/reject flag.
+    /// disposition per product line: an explicit per-card outcome for a Known-way line, or a
+    /// received quantity plus (when there's a remainder) a difference action for an Unknown-way
+    /// line. An Unknown-way line cannot be disposed of — it moves entitlement only, so there is no
+    /// physical card to write off.
     /// </para>
     /// </summary>
     /// <response code="401">No valid bearer token was supplied.</response>
@@ -60,7 +71,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
 
         /// <summary>
         /// Settles an in-progress transfer: a per-product disposition of received and disposed
-        /// quantities, with whatever is left over spawning a new transfer back to the source.
+        /// quantities. For a Known-way line, whatever is left over always spawns a new transfer
+        /// back to the source. For an Unknown-way line with a remainder, the caller states a
+        /// difference action: <c>ReturnedToSource</c> spawns a return transfer exactly like the
+        /// Known-way case, while <c>KeptAtDestination</c> credits the full quantity to the target
+        /// immediately and spawns nothing.
         /// </summary>
         [HttpPost("{id:long}/receive")]
         [ProducesResponseType(typeof(ApiResponse<SettleTransferResult>), StatusCodes.Status200OK)]

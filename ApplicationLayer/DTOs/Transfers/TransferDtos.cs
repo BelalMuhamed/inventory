@@ -62,11 +62,19 @@ namespace ApplicationLayer.DTOs.Transfers
     /// Per-card outcomes. Required for a Known-way line and must account for every card on it;
     /// rejected for an Unknown-way line.
     /// </param>
+    /// <param name="DifferenceAction">
+    /// How to resolve an Unknown-way line's remainder (<c>RealQuantityReceived &lt;
+    /// TransactedQuantity</c>). Required exactly when that remainder is greater than zero on an
+    /// Unknown-way line; rejected otherwise — including for any Known-way line, whose remainder is
+    /// always resolved per card via <paramref name="ItemDispositions"/> instead. Disposal
+    /// (<paramref name="DisposedQuantity"/> &gt; 0) is not supported for an Unknown-way line.
+    /// </param>
     public sealed record ReceiveTransferLine(
         long ProductId,
         int RealQuantityReceived,
         int DisposedQuantity,
-        IReadOnlyList<CardDispositionEntry>? ItemDispositions = null);
+        IReadOnlyList<CardDispositionEntry>? ItemDispositions = null,
+        TransferDifferenceAction? DifferenceAction = null);
 
     /// <summary>
     /// Payload for <c>POST /api/inventory/transactions/{id}/receive</c> (API §4.10, Addendum A
@@ -141,6 +149,13 @@ namespace ApplicationLayer.DTOs.Transfers
     /// Derived as <c>transacted − received − disposed</c>. Not stored: a persisted copy could
     /// drift from the three values it is computed from.
     /// </param>
+    /// <param name="DifferenceAction">
+    /// How this line's remainder was, or will be, resolved — set only for an Unknown-way line
+    /// once it has a remainder (<c>null</c> for a Known-way line, and for any line with nothing
+    /// left over). Surfaced explicitly rather than left implicit in the quantities, per the
+    /// Unknown-way Maker-Checker workflow's audit requirement that the difference never be
+    /// silently hidden.
+    /// </param>
     public sealed record TransferProductResponse(
         long ProductId,
         string ProductName,
@@ -149,7 +164,8 @@ namespace ApplicationLayer.DTOs.Transfers
         int? DisposedQuantity,
         int ReturnedQuantity,
         ProductTransactionWay ProductTransactionWay,
-        ProductReceiveOutcome Outcome);
+        ProductReceiveOutcome Outcome,
+        TransferDifferenceAction? DifferenceAction);
 
     /// <summary>
     /// One card on a Known-way transfer. Identified by its masked PAN — the full PAN is never
@@ -196,7 +212,9 @@ namespace ApplicationLayer.DTOs.Transfers
         string? ActionNotes,
         DateTime CreatedAt,
         long CreatedByTenantId,
+        string CreatedByUsername,
         DateTime? StatusChangedAt,
+        string? CheckedByUsername,
         string RowVersion,
         IReadOnlyList<TransferProductResponse> Products,
         IReadOnlyList<TransferItemResponse> Items);

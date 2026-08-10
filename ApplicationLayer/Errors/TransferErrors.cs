@@ -224,6 +224,43 @@ namespace ApplicationLayer.Errors
                 $"Card {productItemId} must be settled as received, returned, or disposed.")
                 .WithArg(productItemId.ToString());
 
+        // ---- Settlement: Unknown-way remainder (Maker-Checker workflow) -------------------
+
+        /// <summary>
+        /// An Unknown-way line was settled with a remainder but no stated resolution (→ 422).
+        /// Omission is not read as an implicit choice — the same reasoning as
+        /// <see cref="MissingProductInSettlement"/>.
+        /// </summary>
+        public static Error DifferenceActionRequired(long productId) =>
+            Error.Validation("Transfer.DifferenceActionRequired",
+                $"Product {productId} was not fully received, so a difference action must be specified.")
+                .WithArg(productId.ToString());
+
+        /// <summary>
+        /// A difference action was supplied for a line with nothing left to resolve, or for a
+        /// Known-way line — whose remainder is always resolved per card instead (→ 422).
+        /// </summary>
+        public static Error DifferenceActionNotApplicable(long productId) =>
+            Error.Validation("Transfer.DifferenceActionNotApplicable",
+                $"Product {productId} has no unreceived remainder, or is tracked per card, so a difference action does not apply.")
+                .WithArg(productId.ToString());
+
+        /// <summary>The difference action supplied is not a recognized value (→ 422).</summary>
+        public static Error InvalidDifferenceAction(long productId) =>
+            Error.Validation("Transfer.InvalidDifferenceAction",
+                $"The difference action supplied for product {productId} is not recognized.")
+                .WithArg(productId.ToString());
+
+        /// <summary>
+        /// An Unknown-way line cannot be written off (→ 422) — it moves entitlement only, so
+        /// there is no physical card to dispose of. A partial or zero receipt on an Unknown-way
+        /// line is resolved with a difference action instead.
+        /// </summary>
+        public static Error DisposalNotAllowedForUnknown(long productId) =>
+            Error.Validation("Transfer.DisposalNotAllowedForUnknown",
+                $"Product {productId} is not tracked per card, so it cannot be disposed of. Settle it with a difference action instead.")
+                .WithArg(productId.ToString());
+
         /// <summary>
         /// A remainder has to go back but the branch it came from is no longer usable (→ 409).
         /// The whole settlement is refused rather than partly applied — receiving cards while

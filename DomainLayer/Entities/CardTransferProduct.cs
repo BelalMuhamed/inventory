@@ -63,5 +63,23 @@ namespace DomainLayer.Entities
         /// </para>
         /// </summary>
         public ProductTransactionWay ProductTransactionWay { get; set; }
+
+        /// <summary>
+        /// How this line's remainder was resolved at settlement, or <c>null</c> until settled or
+        /// when there was no remainder to resolve.
+        /// <para>
+        /// Meaningful only for an Unknown-way line whose remainder
+        /// (<c>TransactedQuantity - RealQuantityReceived</c>) is greater than zero — a Known-way
+        /// line's remainder is always resolved per card via <c>CardDispositionEntry</c> instead,
+        /// so this stays <c>null</c> for it. Stored per line (not per transfer): a single transfer
+        /// can carry more than one Unknown-way line, each settled independently.
+        /// </para>
+        /// <para>
+        /// <b>Schema note:</b> not in the original ERD; added for the Unknown-way Maker-Checker
+        /// workflow (approved). Flagged for DBA review, matching every other post-ERD addition to
+        /// this aggregate.
+        /// </para>
+        /// </summary>
+        public TransferDifferenceAction? DifferenceAction { get; set; }
     }
 }

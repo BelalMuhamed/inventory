@@ -15,10 +15,11 @@ namespace DomainLayer.Entities
     /// Q-03) means neither can be derived from the other:
     /// <see cref="DispatchedQuantity"/> is the cumulative quantity across every transfer
     /// generated for this line, credited at confirm; <see cref="ReceivedQuantity"/> is the
-    /// cumulative quantity actually credited to the requesting branch — credited at settlement
-    /// for a Known-way line, or immediately at confirm time for an Unknown-way line, which
-    /// settles in the same call under the Unknown Inventory Refactor (see
-    /// <c>BranchRequestService.ConfirmAsync</c>). Neither counter is ever decremented.
+    /// cumulative quantity actually credited to the requesting branch — credited at settlement,
+    /// uniformly for a Known-way or an Unknown-way line (Unknown-way Maker-Checker workflow,
+    /// supersedes the earlier Unknown Inventory Refactor: a confirm only stages a transfer now,
+    /// it never settles one — see <c>BranchRequestService.ConfirmAsync</c> and
+    /// <c>BranchRequestFulfilment.ApplyReceiptAsync</c>). Neither counter is ever decremented.
     /// </para>
     /// </summary>
     public class BranchRequestItem
@@ -85,11 +86,19 @@ namespace DomainLayer.Entities
         public void CreditDispatched(int amount) => DispatchedQuantity += amount;
 
         /// <summary>
-        /// Credits <paramref name="amount"/> to <see cref="ReceivedQuantity"/>. Called from two
-        /// sites: <c>BranchRequestService.ConfirmAsync</c>, for an Unknown-way line that settles
-        /// immediately at confirm time (Unknown Inventory Refactor), and
-        /// <c>BranchRequestFulfilment.ApplyReceiptAsync</c>, for a Known-way line settling later
-        /// via <c>receive</c>/<c>dispose</c>.
+        /// Credits <paramref name="amount"/> to <see cref="ReceivedQuantity"/>.
+        /// <para>
+        /// Called from <c>BranchRequestFulfilment.ApplyReceiptAsync</c> when a generated
+        /// transfer settles — the single credit point since the Unknown-way Maker-Checker
+        /// workflow, for a Known-way or an Unknown-way line alike.
+        /// </para>
+        /// <para>
+        /// <c>BranchRequestService.ConfirmAsync</c> also holds a call to this method, guarded by
+        /// <c>RealQuantityReceived is int</c> — that condition can no longer be true for any line
+        /// a confirm stages (every line is pending immediately after staging now), so that call
+        /// site is effectively dead today. It is left in place, rather than removed, as the
+        /// single correct credit point should some future line shape ever settle inline again.
+        /// </para>
         /// </summary>
         /// <param name="amount">Quantity received. Expected non-negative.</param>
         public void CreditReceived(int amount) => ReceivedQuantity += amount;

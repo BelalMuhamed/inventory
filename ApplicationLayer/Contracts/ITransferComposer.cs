@@ -72,11 +72,11 @@ namespace ApplicationLayer.Contracts
         /// Stages the transfer described by <paramref name="plan"/>: for a Known-way line,
         /// selects the named cards and pulls them out of the source (<c>BranchID = null</c>,
         /// <c>Status = OnHold</c>), moving the source's stock <c>Available → Hold</c>; for an
-        /// Unknown-way line, moves the source's and target's stock directly
-        /// <c>Available → Available</c> with no card touched and no <c>Hold</c> on either side,
-        /// writing the line pre-settled (Unknown Inventory Refactor). If every line on the
-        /// transfer settled this way, the transfer is staged already <c>Received</c>; otherwise it
-        /// is staged <c>InProgress</c>. Must be called inside an ambient
+        /// Unknown-way line, moves the source's stock <c>Available → Hold</c> as well, with no
+        /// card touched (there is none to touch) and the target left alone (Unknown-way
+        /// Maker-Checker workflow). Every line, Known or Unknown, is therefore staged pending —
+        /// the transfer always opens <c>InProgress</c> and always needs its own <c>receive</c>
+        /// call before it can close. Must be called inside an ambient
         /// <c>IUnitOfWork.ExecuteInTransactionAsync</c>. Never saves, never commits.
         /// </summary>
         /// <param name="tenantId">Owning tenant, already resolved by the caller.</param>
@@ -85,9 +85,15 @@ namespace ApplicationLayer.Contracts
         /// The branch request this transfer fulfils, or <c>null</c> for a direct transfer created
         /// outside any request.
         /// </param>
+        /// <param name="createdByUsername">
+        /// The acting account's username (Maker-Checker workflow) — recorded on the staged
+        /// transfer as <c>CardTransfer.CreatedByUsername</c>. Resolution stays with the caller,
+        /// matching <paramref name="tenantId"/>'s own convention; this composer never reads
+        /// <c>ICurrentTenant</c> itself.
+        /// </param>
         /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
         Task<Result<CardTransfer>> StageAsync(
-            long tenantId, ValidatedTransferPlan plan, long? branchRequestId,
+            long tenantId, ValidatedTransferPlan plan, long? branchRequestId, string createdByUsername,
             CancellationToken cancellationToken = default);
     }
 }

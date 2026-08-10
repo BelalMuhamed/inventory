@@ -1,0 +1,2800 @@
+From 66b5f8d266d7cb92576f30ec5b02ecff17fb6e22 Mon Sep 17 00:00:00 2001
+From: Claude <claude@anthropic.com>
+Date: Mon, 10 Aug 2026 12:01:07 +0000
+Subject: [PATCH] U1: Unknown-way transfer Maker-Checker workflow
+
+Unknown-way transfer lines no longer settle immediately at creation or
+branch-request confirm. They now follow the same create -> pending ->
+settle lifecycle Known-way lines already had:
+
+- TransferComposer.StageAsync: Unknown-way lines move source
+  Available -> Hold at create time (mirroring Known-way exactly, minus
+  item selection) and leave the target untouched. Every line, Known or
+  Unknown, is staged pending; the transfer always opens InProgress.
+- TransferService.SettleAsync: Unknown-way lines are now real openLines.
+  A remainder requires an explicit CardTransferProduct.DifferenceAction
+  (ReturnedToSource spawns an auto-generated return transfer exactly
+  like the Known-way path; KeptAtDestination credits the target's
+  Available in full and spawns nothing). Disposal is rejected for
+  Unknown-way (no physical card to write off).
+- Maker/Checker identity: CardTransfer.CreatedByUsername (required) and
+  .CheckedByUsername (nullable, set at settlement) record the acting
+  account on every transfer. Per the repo owner: it is fine for the
+  same account to be both Maker and Checker (this system has one
+  account per tenant, so there is no per-user identity to compare) -
+  what matters is that identity is recorded.
+- BranchRequestService.ConfirmAsync / BranchRequestFulfilment: an
+  Unknown-way line confirmed via a branch request no longer credits
+  ReceivedQuantity inline - BranchRequestFulfilment.ApplyReceiptAsync
+  is now the single credit path for every settled line, Known or
+  Unknown, applied identically per the repo owner's confirmation.
+- New: TransferDifferenceAction enum, four TransferErrors entries
+  (DifferenceActionRequired/NotApplicable, InvalidDifferenceAction,
+  DisposalNotAllowedForUnknown), EN/AR localization, migration
+  U1-UnknownTransferMakerChecker.
+- Corrected two stale doc comments (CardTransferItem entity, and this
+  project's own PROJECT_KNOWLEDGE.md) that incorrectly claimed
+  Unknown-way lines get CardTransferItem rows - they never have.
+
+Verification note: no .NET SDK / NuGet access in the working sandbox
+for this pass - verified by careful manual re-read of every edited
+file and call site, not the usual Roslyn semantic compile. Recommend
+a real build before merging.
+---
+ .../Contracts/IBranchRequestFulfilment.cs     |   11 +-
+ .../Contracts/ITransferComposer.cs            |   18 +-
+ .../DTOs/Transfers/TransferDtos.cs            |   22 +-
+ ApplicationLayer/Errors/TransferErrors.cs     |   37 +
+ DomainLayer/Entities/CardTransfer.cs          |   31 +
+ DomainLayer/Entities/CardTransferItem.cs      |   21 +-
+ DomainLayer/Entities/CardTransferProduct.cs   |   18 +
+ DomainLayer/Enums/TransferDifferenceAction.cs |   38 +
+ InfrastructureLayer/Data/AppDbContext.cs      |   13 +
+ ...U1-UnknownTransferMakerChecker.Designer.cs | 1261 +++++++++++++++++
+ ...10120000_U1-UnknownTransferMakerChecker.cs |   57 +
+ .../Migrations/AppDbContextModelSnapshot.cs   |   13 +
+ .../Services/BranchRequestFulfilment.cs       |    4 +-
+ .../Services/BranchRequestService.cs          |   16 +-
+ .../Services/TransferComposer.cs              |   48 +-
+ .../Services/TransferService.cs               |  148 +-
+ .../Controllers/TransactionsController.cs     |   19 +-
+ .../Resources/Localization/Messages.ar.resx   |   12 +
+ .../Resources/Localization/Messages.resx      |   12 +
+ docs/PROJECT_KNOWLEDGE.md                     |  473 +++++++
+ 20 files changed, 2166 insertions(+), 106 deletions(-)
+ create mode 100644 DomainLayer/Enums/TransferDifferenceAction.cs
+ create mode 100644 InfrastructureLayer/Migrations/20260810120000_U1-UnknownTransferMakerChecker.Designer.cs
+ create mode 100644 InfrastructureLayer/Migrations/20260810120000_U1-UnknownTransferMakerChecker.cs
+ create mode 100644 docs/PROJECT_KNOWLEDGE.md
+
+diff --git a/ApplicationLayer/Contracts/IBranchRequestFulfilment.cs b/ApplicationLayer/Contracts/IBranchRequestFulfilment.cs
+index ff95d65..dcc49d7 100644
+--- a/ApplicationLayer/Contracts/IBranchRequestFulfilment.cs
++++ b/ApplicationLayer/Contracts/IBranchRequestFulfilment.cs
+@@ -10,12 +10,11 @@ namespace ApplicationLayer.Contracts
+     /// (interface segregation) so <c>TransferService</c> never has to learn the rest of the §4.9
+     /// service surface just to report a receipt back.
+     /// <para>
+-    /// <b>Scope, post the Unknown Inventory Refactor:</b> this interface covers exactly one
+-    /// path — a Known-way line settling later via <c>ReceiveAsync</c>/<c>DisposeAsync</c>. An
+-    /// Unknown-way line settles immediately at confirm time instead, and is credited inline by
+-    /// <c>BranchRequestService.ConfirmAsync</c> in the same transaction that stages its transfer
+-    /// — <c>TransferService.SettleAsync</c> never runs for a line that was never
+-    /// <c>InProgress</c>, so there is nothing to call this interface from for it.
++    /// <b>Scope, post the Unknown-way Maker-Checker workflow:</b> every line a confirm generates,
++    /// Known or Unknown, now settles later via <c>ReceiveAsync</c>/<c>DisposeAsync</c> — a confirm
++    /// only stages transfers (<c>ITransferComposer.StageAsync</c>), it never settles one. This
++    /// interface is therefore the single credit path for both ways; the "settled inline at
++    /// confirm" case this comment used to describe no longer exists for any line shape.
+     /// </para>
+     /// </summary>
+     public interface IBranchRequestFulfilment
+diff --git a/ApplicationLayer/Contracts/ITransferComposer.cs b/ApplicationLayer/Contracts/ITransferComposer.cs
+index 20e613b..48b62af 100644
+--- a/ApplicationLayer/Contracts/ITransferComposer.cs
++++ b/ApplicationLayer/Contracts/ITransferComposer.cs
+@@ -72,11 +72,11 @@ namespace ApplicationLayer.Contracts
+         /// Stages the transfer described by <paramref name="plan"/>: for a Known-way line,
+         /// selects the named cards and pulls them out of the source (<c>BranchID = null</c>,
+         /// <c>Status = OnHold</c>), moving the source's stock <c>Available → Hold</c>; for an
+-        /// Unknown-way line, moves the source's and target's stock directly
+-        /// <c>Available → Available</c> with no card touched and no <c>Hold</c> on either side,
+-        /// writing the line pre-settled (Unknown Inventory Refactor). If every line on the
+-        /// transfer settled this way, the transfer is staged already <c>Received</c>; otherwise it
+-        /// is staged <c>InProgress</c>. Must be called inside an ambient
++        /// Unknown-way line, moves the source's stock <c>Available → Hold</c> as well, with no
++        /// card touched (there is none to touch) and the target left alone (Unknown-way
++        /// Maker-Checker workflow). Every line, Known or Unknown, is therefore staged pending —
++        /// the transfer always opens <c>InProgress</c> and always needs its own <c>receive</c>
++        /// call before it can close. Must be called inside an ambient
+         /// <c>IUnitOfWork.ExecuteInTransactionAsync</c>. Never saves, never commits.
+         /// </summary>
+         /// <param name="tenantId">Owning tenant, already resolved by the caller.</param>
+@@ -85,9 +85,15 @@ namespace ApplicationLayer.Contracts
+         /// The branch request this transfer fulfils, or <c>null</c> for a direct transfer created
+         /// outside any request.
+         /// </param>
++        /// <param name="createdByUsername">
++        /// The acting account's username (Maker-Checker workflow) — recorded on the staged
++        /// transfer as <c>CardTransfer.CreatedByUsername</c>. Resolution stays with the caller,
++        /// matching <paramref name="tenantId"/>'s own convention; this composer never reads
++        /// <c>ICurrentTenant</c> itself.
++        /// </param>
+         /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
+         Task<Result<CardTransfer>> StageAsync(
+-            long tenantId, ValidatedTransferPlan plan, long? branchRequestId,
++            long tenantId, ValidatedTransferPlan plan, long? branchRequestId, string createdByUsername,
+             CancellationToken cancellationToken = default);
+     }
+ }
+diff --git a/ApplicationLayer/DTOs/Transfers/TransferDtos.cs b/ApplicationLayer/DTOs/Transfers/TransferDtos.cs
+index e86b685..c0590ab 100644
+--- a/ApplicationLayer/DTOs/Transfers/TransferDtos.cs
++++ b/ApplicationLayer/DTOs/Transfers/TransferDtos.cs
+@@ -62,11 +62,19 @@ namespace ApplicationLayer.DTOs.Transfers
+     /// Per-card outcomes. Required for a Known-way line and must account for every card on it;
+     /// rejected for an Unknown-way line.
+     /// </param>
++    /// <param name="DifferenceAction">
++    /// How to resolve an Unknown-way line's remainder (<c>RealQuantityReceived &lt;
++    /// TransactedQuantity</c>). Required exactly when that remainder is greater than zero on an
++    /// Unknown-way line; rejected otherwise — including for any Known-way line, whose remainder is
++    /// always resolved per card via <paramref name="ItemDispositions"/> instead. Disposal
++    /// (<paramref name="DisposedQuantity"/> &gt; 0) is not supported for an Unknown-way line.
++    /// </param>
+     public sealed record ReceiveTransferLine(
+         long ProductId,
+         int RealQuantityReceived,
+         int DisposedQuantity,
+-        IReadOnlyList<CardDispositionEntry>? ItemDispositions = null);
++        IReadOnlyList<CardDispositionEntry>? ItemDispositions = null,
++        TransferDifferenceAction? DifferenceAction = null);
+ 
+     /// <summary>
+     /// Payload for <c>POST /api/inventory/transactions/{id}/receive</c> (API §4.10, Addendum A
+@@ -141,6 +149,13 @@ namespace ApplicationLayer.DTOs.Transfers
+     /// Derived as <c>transacted − received − disposed</c>. Not stored: a persisted copy could
+     /// drift from the three values it is computed from.
+     /// </param>
++    /// <param name="DifferenceAction">
++    /// How this line's remainder was, or will be, resolved — set only for an Unknown-way line
++    /// once it has a remainder (<c>null</c> for a Known-way line, and for any line with nothing
++    /// left over). Surfaced explicitly rather than left implicit in the quantities, per the
++    /// Unknown-way Maker-Checker workflow's audit requirement that the difference never be
++    /// silently hidden.
++    /// </param>
+     public sealed record TransferProductResponse(
+         long ProductId,
+         string ProductName,
+@@ -149,7 +164,8 @@ namespace ApplicationLayer.DTOs.Transfers
+         int? DisposedQuantity,
+         int ReturnedQuantity,
+         ProductTransactionWay ProductTransactionWay,
+-        ProductReceiveOutcome Outcome);
++        ProductReceiveOutcome Outcome,
++        TransferDifferenceAction? DifferenceAction);
+ 
+     /// <summary>
+     /// One card on a Known-way transfer. Identified by its masked PAN — the full PAN is never
+@@ -196,7 +212,9 @@ namespace ApplicationLayer.DTOs.Transfers
+         string? ActionNotes,
+         DateTime CreatedAt,
+         long CreatedByTenantId,
++        string CreatedByUsername,
+         DateTime? StatusChangedAt,
++        string? CheckedByUsername,
+         string RowVersion,
+         IReadOnlyList<TransferProductResponse> Products,
+         IReadOnlyList<TransferItemResponse> Items);
+diff --git a/ApplicationLayer/Errors/TransferErrors.cs b/ApplicationLayer/Errors/TransferErrors.cs
+index f62e02b..dab6362 100644
+--- a/ApplicationLayer/Errors/TransferErrors.cs
++++ b/ApplicationLayer/Errors/TransferErrors.cs
+@@ -224,6 +224,43 @@ namespace ApplicationLayer.Errors
+                 $"Card {productItemId} must be settled as received, returned, or disposed.")
+                 .WithArg(productItemId.ToString());
+ 
++        // ---- Settlement: Unknown-way remainder (Maker-Checker workflow) -------------------
++
++        /// <summary>
++        /// An Unknown-way line was settled with a remainder but no stated resolution (→ 422).
++        /// Omission is not read as an implicit choice — the same reasoning as
++        /// <see cref="MissingProductInSettlement"/>.
++        /// </summary>
++        public static Error DifferenceActionRequired(long productId) =>
++            Error.Validation("Transfer.DifferenceActionRequired",
++                $"Product {productId} was not fully received, so a difference action must be specified.")
++                .WithArg(productId.ToString());
++
++        /// <summary>
++        /// A difference action was supplied for a line with nothing left to resolve, or for a
++        /// Known-way line — whose remainder is always resolved per card instead (→ 422).
++        /// </summary>
++        public static Error DifferenceActionNotApplicable(long productId) =>
++            Error.Validation("Transfer.DifferenceActionNotApplicable",
++                $"Product {productId} has no unreceived remainder, or is tracked per card, so a difference action does not apply.")
++                .WithArg(productId.ToString());
++
++        /// <summary>The difference action supplied is not a recognized value (→ 422).</summary>
++        public static Error InvalidDifferenceAction(long productId) =>
++            Error.Validation("Transfer.InvalidDifferenceAction",
++                $"The difference action supplied for product {productId} is not recognized.")
++                .WithArg(productId.ToString());
++
++        /// <summary>
++        /// An Unknown-way line cannot be written off (→ 422) — it moves entitlement only, so
++        /// there is no physical card to dispose of. A partial or zero receipt on an Unknown-way
++        /// line is resolved with a difference action instead.
++        /// </summary>
++        public static Error DisposalNotAllowedForUnknown(long productId) =>
++            Error.Validation("Transfer.DisposalNotAllowedForUnknown",
++                $"Product {productId} is not tracked per card, so it cannot be disposed of. Settle it with a difference action instead.")
++                .WithArg(productId.ToString());
++
+         /// <summary>
+         /// A remainder has to go back but the branch it came from is no longer usable (→ 409).
+         /// The whole settlement is refused rather than partly applied — receiving cards while
+diff --git a/DomainLayer/Entities/CardTransfer.cs b/DomainLayer/Entities/CardTransfer.cs
+index 5d6ec12..f90db4e 100644
+--- a/DomainLayer/Entities/CardTransfer.cs
++++ b/DomainLayer/Entities/CardTransfer.cs
+@@ -80,6 +80,37 @@ namespace DomainLayer.Entities
+         /// <summary>Navigation to the creating tenant.</summary>
+         public Tenant CreatedByTenant { get; set; } = null!;
+ 
++        /// <summary>
++        /// Username of the account that created this transfer (the "Maker").
++        /// <para>
++        /// <b>Why alongside <see cref="CreatedByTenantId"/>:</b> this system has one account per
++        /// tenant (no separate users table), so <see cref="CreatedByTenantId"/> alone cannot
++        /// distinguish "who" within a tenant acted. This column exists so the Maker's identity is
++        /// always recorded even though, today, it will equal the tenant's single username - it is
++        /// fine for the same account to be both Maker and Checker (Unknown-way Maker-Checker
++        /// workflow, decision confirmed with the repo owner); what matters is that the identity is
++        /// captured, not that two different identities be proven.
++        /// </para>
++        /// <para>
++        /// <b>Schema note:</b> not in the original ERD; added for the Unknown-way Maker-Checker
++        /// workflow (approved). Flagged for DBA review.
++        /// </para>
++        /// </summary>
++        public string CreatedByUsername { get; set; } = string.Empty;
++
++        /// <summary>
++        /// Username of the account that settled this transfer (the "Checker") - the caller of
++        /// <c>receive</c> or <c>dispose</c>, whichever ran <see cref="Enums.TransactionStatus"/>'s
++        /// terminal transition. <c>null</c> while <see cref="TransactionStatus"/> is still
++        /// <see cref="Enums.TransactionStatus.InProgress"/>. See <see cref="CreatedByUsername"/>
++        /// for why this is a username rather than a per-user id.
++        /// <para>
++        /// <b>Schema note:</b> not in the original ERD; added for the Unknown-way Maker-Checker
++        /// workflow (approved). Flagged for DBA review.
++        /// </para>
++        /// </summary>
++        public string? CheckedByUsername { get; set; }
++
+         /// <summary>Branch the cards left (FK → Branches.Id).</summary>
+         public long SourceBranchId { get; set; }
+ 
+diff --git a/DomainLayer/Entities/CardTransferItem.cs b/DomainLayer/Entities/CardTransferItem.cs
+index 1cf63bc..755f99e 100644
+--- a/DomainLayer/Entities/CardTransferItem.cs
++++ b/DomainLayer/Entities/CardTransferItem.cs
+@@ -6,17 +6,16 @@ namespace DomainLayer.Entities
+     /// <summary>
+     /// One individually tracked card on a transfer (ERD §4.5, table <c>CardTransferItems</c>).
+     /// <para>
+-    /// <b>Correction from the original T1 note on this type:</b> rows exist for every product
+-    /// line, Known or Unknown — not only Known. ERD §8's "individual items are not enumerated"
+-    /// describes what the <em>caller</em> sees, not what the system needs internally: settling an
+-    /// Unknown-way line still has to know exactly which physical cards left the source, so that
+-    /// receive/dispose can act on them and the null-branch pool (decision Q4a) is fed by real
+-    /// rows rather than by a number with nothing behind it. The system selects those cards itself
+-    /// (FIFO — see <c>IProductItemRepo.GetAvailableForUpdateAsync</c>) and never asks the caller
+-    /// for them, which is exactly what "not enumerated" means at the API surface: an Unknown-way
+-    /// line accepts no <c>productItemIds</c> and the transfer's public
+-    /// <c>TransferDetailResponse.Items</c> projection omits these rows for it (Addendum,
+-    /// T2/T4 §DTO note) — but the database rows exist regardless.
++    /// <b>Correction, superseding an earlier (incorrect) note on this type:</b> rows exist only
++    /// for Known-way product lines. An Unknown-way line moves <c>Stock</c> entitlement alone — no
++    /// <c>ProductItem</c> is ever selected, touched, or reassigned for it, so there is nothing for
++    /// a row here to reference. This holds both before and after the Unknown-way Maker-Checker
++    /// workflow: an Unknown-way line's create-time Hold and its later receive-time settlement
++    /// (<see cref="Enums.TransferDifferenceAction"/>) are both expressed purely as quantities on
++    /// <see cref="CardTransferProduct"/>. ERD §8's "individual items are not enumerated" describes
++    /// exactly this: an Unknown-way line accepts no <c>productItemIds</c> from the caller and
++    /// carries no item rows internally either, matching <c>CardTransfer.Items</c>' own doc
++    /// comment.
+     /// </para>
+     /// <para>
+     /// A card returned by a partial receipt gets a <em>fresh</em> row on the auto-generated return
+diff --git a/DomainLayer/Entities/CardTransferProduct.cs b/DomainLayer/Entities/CardTransferProduct.cs
+index 9051cf3..ac0d45d 100644
+--- a/DomainLayer/Entities/CardTransferProduct.cs
++++ b/DomainLayer/Entities/CardTransferProduct.cs
+@@ -63,5 +63,23 @@ namespace DomainLayer.Entities
+         /// </para>
+         /// </summary>
+         public ProductTransactionWay ProductTransactionWay { get; set; }
++
++        /// <summary>
++        /// How this line's remainder was resolved at settlement, or <c>null</c> until settled or
++        /// when there was no remainder to resolve.
++        /// <para>
++        /// Meaningful only for an Unknown-way line whose remainder
++        /// (<c>TransactedQuantity - RealQuantityReceived</c>) is greater than zero — a Known-way
++        /// line's remainder is always resolved per card via <c>CardDispositionEntry</c> instead,
++        /// so this stays <c>null</c> for it. Stored per line (not per transfer): a single transfer
++        /// can carry more than one Unknown-way line, each settled independently.
++        /// </para>
++        /// <para>
++        /// <b>Schema note:</b> not in the original ERD; added for the Unknown-way Maker-Checker
++        /// workflow (approved). Flagged for DBA review, matching every other post-ERD addition to
++        /// this aggregate.
++        /// </para>
++        /// </summary>
++        public TransferDifferenceAction? DifferenceAction { get; set; }
+     }
+ }
+diff --git a/DomainLayer/Enums/TransferDifferenceAction.cs b/DomainLayer/Enums/TransferDifferenceAction.cs
+new file mode 100644
+index 0000000..1e55289
+--- /dev/null
++++ b/DomainLayer/Enums/TransferDifferenceAction.cs
+@@ -0,0 +1,38 @@
++namespace DomainLayer.Enums
++{
++    /// <summary>
++    /// How an Unknown-way transfer line's unreceived remainder was resolved at settlement
++    /// (Unknown-way Maker-Checker workflow). Persisted as <c>TINYINT</c>.
++    /// <para>
++    /// Meaningful only for a line whose snapshotted <see cref="ProductTransactionWay"/> is
++    /// <see cref="ProductTransactionWay.Unknown"/> and whose settlement leaves a remainder
++    /// (<c>TransactedQuantity - RealQuantityReceived &gt; 0</c>). A Known-way line resolves its
++    /// remainder per card via <c>CardDispositionEntry</c> instead - the two mechanisms are not
++    /// interchangeable, since a Known-way line's cards are always individually accounted for.
++    /// </para>
++    /// <para>
++    /// <b>Schema note:</b> not in the original ERD; added for the Unknown-way Maker-Checker
++    /// workflow (approved). Flagged for DBA review, matching the precedent of every other
++    /// post-ERD addition to this aggregate.
++    /// </para>
++    /// </summary>
++    public enum TransferDifferenceAction : byte
++    {
++        /// <summary>
++        /// The remainder was never dispatched in substance - since an Unknown-way line moves
++        /// entitlement rather than physical cards, it is credited straight back to the source
++        /// branch's stock through an auto-generated return transfer, mirroring how a Known-way
++        /// line's unreceived remainder is returned. ERD-equivalent value 0.
++        /// </summary>
++        ReturnedToSource = 0,
++
++        /// <summary>
++        /// The remainder is assigned to the target branch anyway, despite only part of it being
++        /// physically/operationally confirmed - the target's stock is credited in full
++        /// (<c>TransactedQuantity</c>), while <see cref="CardTransferProduct.RealQuantityReceived"/>
++        /// keeps the true confirmed quantity, so the discrepancy stays visible rather than
++        /// silently absorbed. ERD-equivalent value 1.
++        /// </summary>
++        KeptAtDestination = 1
++    }
++}
+diff --git a/InfrastructureLayer/Data/AppDbContext.cs b/InfrastructureLayer/Data/AppDbContext.cs
+index 8478758..71d438e 100644
+--- a/InfrastructureLayer/Data/AppDbContext.cs
++++ b/InfrastructureLayer/Data/AppDbContext.cs
+@@ -425,6 +425,14 @@ namespace InfrastructureLayer.Data
+                 entity.Property(t => t.Origin).HasConversion<byte>().IsRequired();
+                 entity.Property(t => t.ActionNotes).HasMaxLength(500);
+ 
++                // Maker-Checker workflow (Q1): identity is always recorded, even though it is
++                // fine for the same account to be both Maker and Checker. CreatedByUsername has a
++                // default so existing historical rows (this table is append-only, ERD §6.5) don't
++                // need a data migration; CheckedByUsername stays nullable, matching
++                // StatusChangedAt's own null-until-settled shape.
++                entity.Property(t => t.CreatedByUsername).IsRequired().HasMaxLength(100).HasDefaultValue("unknown");
++                entity.Property(t => t.CheckedByUsername).HasMaxLength(100);
++
+                 entity.HasOne(t => t.Tenant)
+                       .WithMany()
+                       .HasForeignKey(t => t.TenantId)
+@@ -484,6 +492,11 @@ namespace InfrastructureLayer.Data
+ 
+                 entity.Property(p => p.ProductTransactionWay).HasConversion<byte>().IsRequired();
+ 
++                // Unknown-way Maker-Checker workflow: nullable (meaningful only once a remainder
++                // exists on an Unknown-way line), no IsRequired() call - matches
++                // RealQuantityReceived/DisposedQuantity's own nullable-until-settled shape.
++                entity.Property(p => p.DifferenceAction).HasConversion<byte>();
++
+                 entity.HasOne(p => p.CardTransfer)
+                       .WithMany(t => t.Products)
+                       .HasForeignKey(p => p.CardTransferId)
+diff --git a/InfrastructureLayer/Migrations/20260810120000_U1-UnknownTransferMakerChecker.Designer.cs b/InfrastructureLayer/Migrations/20260810120000_U1-UnknownTransferMakerChecker.Designer.cs
+new file mode 100644
+index 0000000..5297cfe
+--- /dev/null
++++ b/InfrastructureLayer/Migrations/20260810120000_U1-UnknownTransferMakerChecker.Designer.cs
+@@ -0,0 +1,1261 @@
++﻿// <auto-generated />
++using System;
++using InfrastructureLayer.Data;
++using Microsoft.EntityFrameworkCore;
++using Microsoft.EntityFrameworkCore.Infrastructure;
++using Microsoft.EntityFrameworkCore.Metadata;
++using Microsoft.EntityFrameworkCore.Migrations;
++using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
++
++#nullable disable
++
++namespace InfrastructureLayer.Migrations
++{
++    [DbContext(typeof(AppDbContext))]
++    [Migration("20260810120000_U1-UnknownTransferMakerChecker")]
++    partial class U1UnknownTransferMakerChecker
++    {
++        /// <inheritdoc />
++        protected override void BuildTargetModel(ModelBuilder modelBuilder)
++        {
++#pragma warning disable 612, 618
++            modelBuilder
++                .HasAnnotation("ProductVersion", "8.0.27")
++                .HasAnnotation("Relational:MaxIdentifierLength", 128);
++
++            SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
++
++            modelBuilder.Entity("DomainLayer.Entities.AuditLog", b =>
++                {
++                    b.Property<long>("Id")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("bigint");
++
++                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
++
++                    b.Property<string>("Action")
++                        .IsRequired()
++                        .HasMaxLength(50)
++                        .HasColumnType("nvarchar(50)");
++
++                    b.Property<long?>("ActorTenantId")
++                        .HasColumnType("bigint");
++
++                    b.Property<string>("ActorUsername")
++                        .IsRequired()
++                        .HasMaxLength(100)
++                        .HasColumnType("nvarchar(100)");
++
++                    b.Property<string>("EntityId")
++                        .IsRequired()
++                        .HasMaxLength(50)
++                        .HasColumnType("nvarchar(50)");
++
++                    b.Property<string>("EntityName")
++                        .IsRequired()
++                        .HasMaxLength(100)
++                        .HasColumnType("nvarchar(100)");
++
++                    b.Property<string>("IpAddress")
++                        .HasMaxLength(45)
++                        .HasColumnType("nvarchar(45)");
++
++                    b.Property<string>("NewValue")
++                        .HasColumnType("nvarchar(max)");
++
++                    b.Property<string>("OldValue")
++                        .HasColumnType("nvarchar(max)");
++
++                    b.Property<long?>("TenantId")
++                        .HasColumnType("bigint");
++
++                    b.Property<DateTime>("Timestamp")
++                        .HasColumnType("datetime2");
++
++                    b.HasKey("Id");
++
++                    b.HasIndex("ActorTenantId", "Timestamp");
++
++                    b.HasIndex("EntityName", "EntityId");
++
++                    b.HasIndex("TenantId", "Timestamp");
++
++                    b.ToTable("AuditLogs", (string)null);
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.Batch", b =>
++                {
++                    b.Property<long>("Id")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("bigint");
++
++                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
++
++                    b.Property<long>("BankId")
++                        .HasColumnType("bigint");
++
++                    b.Property<int>("BatchCardAmount")
++                        .HasColumnType("int");
++
++                    b.Property<int>("BatchStatus")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("int")
++                        .HasDefaultValue(2);
++
++                    b.Property<DateTime>("CreatedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<DateTime?>("DeletedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<long?>("DeletedBy")
++                        .HasColumnType("bigint");
++
++                    b.Property<string>("FileMac")
++                        .IsRequired()
++                        .HasMaxLength(128)
++                        .HasColumnType("nvarchar(128)");
++
++                    b.Property<bool>("IsDeleted")
++                        .HasColumnType("bit");
++
++                    b.Property<string>("Name")
++                        .IsRequired()
++                        .HasMaxLength(200)
++                        .HasColumnType("nvarchar(200)");
++
++                    b.Property<string>("OriginalFileName")
++                        .IsRequired()
++                        .HasMaxLength(300)
++                        .HasColumnType("nvarchar(300)");
++
++                    b.Property<int>("ProcessedRowCount")
++                        .HasColumnType("int");
++
++                    b.Property<string>("ProcessingError")
++                        .HasColumnType("nvarchar(max)");
++
++                    b.Property<DateTime?>("UpdatedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<long>("UploadedByTenantId")
++                        .HasColumnType("bigint");
++
++                    b.Property<DateTime>("UploadedTime")
++                        .HasColumnType("datetime2");
++
++                    b.HasKey("Id");
++
++                    b.HasIndex("BankId");
++
++                    b.HasIndex("BatchStatus")
++                        .HasDatabaseName("IX_batch_status");
++
++                    b.HasIndex("Name")
++                        .HasDatabaseName("IX_batch_name");
++
++                    b.HasIndex("UploadedByTenantId", "FileMac")
++                        .IsUnique()
++                        .HasDatabaseName("IX_Batches_UploadedByTenantId_FileMac")
++                        .HasFilter("[IsDeleted] = 0");
++
++                    b.HasIndex("UploadedByTenantId", "UploadedTime")
++                        .HasDatabaseName("IX_Batches_UploadedByTenantId_UploadedTime");
++
++                    b.ToTable("Batches");
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.Branch", b =>
++                {
++                    b.Property<long>("Id")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("bigint");
++
++                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
++
++                    b.Property<DateTime>("CreatedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<DateTime?>("DeletedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<long?>("DeletedBy")
++                        .HasColumnType("bigint");
++
++                    b.Property<bool>("IsActive")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("bit")
++                        .HasDefaultValue(true);
++
++                    b.Property<bool>("IsDeleted")
++                        .HasColumnType("bit");
++
++                    b.Property<string>("Location")
++                        .HasMaxLength(500)
++                        .HasColumnType("nvarchar(500)");
++
++                    b.Property<string>("Name")
++                        .IsRequired()
++                        .HasMaxLength(200)
++                        .HasColumnType("nvarchar(200)");
++
++                    b.Property<long>("TenantId")
++                        .HasColumnType("bigint");
++
++                    b.Property<DateTime?>("UpdatedAt")
++                        .HasColumnType("datetime2");
++
++                    b.HasKey("Id");
++
++                    b.HasIndex("Name")
++                        .HasDatabaseName("IX_Category_Name");
++
++                    b.HasIndex("TenantId");
++
++                    b.HasIndex("TenantId", "Name")
++                        .IsUnique()
++                        .HasDatabaseName("IX_Branch_TenantId_Name")
++                        .HasFilter("[IsDeleted] = 0");
++
++                    b.ToTable("Branches", (string)null);
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.BranchRequest", b =>
++                {
++                    b.Property<long>("Id")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("bigint");
++
++                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
++
++                    b.Property<string>("ActionNotes")
++                        .HasMaxLength(500)
++                        .HasColumnType("nvarchar(500)");
++
++                    b.Property<DateTime?>("ActionTakenAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<long?>("ActionTakenByTenantId")
++                        .HasColumnType("bigint");
++
++                    b.Property<DateTime>("RequestDateTime")
++                        .HasColumnType("datetime2");
++
++                    b.Property<byte>("RequestStatus")
++                        .HasColumnType("tinyint");
++
++                    b.Property<long>("RequestingBranchId")
++                        .HasColumnType("bigint");
++
++                    b.Property<byte[]>("RowVersion")
++                        .IsConcurrencyToken()
++                        .IsRequired()
++                        .ValueGeneratedOnAddOrUpdate()
++                        .HasColumnType("rowversion");
++
++                    b.Property<long>("TenantId")
++                        .HasColumnType("bigint");
++
++                    b.HasKey("Id");
++
++                    b.HasIndex("ActionTakenByTenantId");
++
++                    b.HasIndex("RequestingBranchId");
++
++                    b.HasIndex("TenantId", "RequestDateTime")
++                        .HasDatabaseName("IX_BranchRequests_TenantId_RequestDateTime");
++
++                    b.HasIndex("TenantId", "RequestStatus")
++                        .HasDatabaseName("IX_BranchRequests_TenantId_RequestStatus");
++
++                    b.HasIndex("TenantId", "RequestingBranchId")
++                        .HasDatabaseName("IX_BranchRequests_TenantId_RequestingBranchId");
++
++                    b.ToTable("BranchRequests", (string)null);
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.BranchRequestItem", b =>
++                {
++                    b.Property<long>("Id")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("bigint");
++
++                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
++
++                    b.Property<int>("AskedQuantity")
++                        .HasColumnType("int");
++
++                    b.Property<int>("DispatchedQuantity")
++                        .HasColumnType("int");
++
++                    b.Property<long>("ProductId")
++                        .HasColumnType("bigint");
++
++                    b.Property<int>("ReceivedQuantity")
++                        .HasColumnType("int");
++
++                    b.Property<long>("RequestId")
++                        .HasColumnType("bigint");
++
++                    b.Property<long>("TenantId")
++                        .HasColumnType("bigint");
++
++                    b.HasKey("Id");
++
++                    b.HasIndex("ProductId");
++
++                    b.HasIndex("RequestId", "ProductId")
++                        .IsUnique()
++                        .HasDatabaseName("UX_BranchRequestItems_RequestId_ProductId");
++
++                    b.HasIndex("TenantId", "RequestId")
++                        .HasDatabaseName("IX_BranchRequestItems_TenantId_RequestId");
++
++                    b.ToTable("BranchRequestItems", null, t =>
++                        {
++                            t.HasCheckConstraint("CK_BranchRequestItems_AskedQuantity_Positive", "[AskedQuantity] > 0");
++
++                            t.HasCheckConstraint("CK_BranchRequestItems_DispatchedQuantity_NonNegative", "[DispatchedQuantity] >= 0");
++
++                            t.HasCheckConstraint("CK_BranchRequestItems_ReceivedQuantity_NonNegative", "[ReceivedQuantity] >= 0");
++                        });
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.CardDisposal", b =>
++                {
++                    b.Property<long>("Id")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("bigint");
++
++                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
++
++                    b.Property<long>("BranchId")
++                        .HasColumnType("bigint");
++
++                    b.Property<long?>("CardTransferId")
++                        .HasColumnType("bigint");
++
++                    b.Property<DateTime>("DisposedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<long>("DisposedByTenantId")
++                        .HasColumnType("bigint");
++
++                    b.Property<string>("Reason")
++                        .IsRequired()
++                        .HasMaxLength(500)
++                        .HasColumnType("nvarchar(500)");
++
++                    b.Property<long>("TenantId")
++                        .HasColumnType("bigint");
++
++                    b.HasKey("Id");
++
++                    b.HasIndex("BranchId");
++
++                    b.HasIndex("CardTransferId")
++                        .HasDatabaseName("IX_CardDisposals_CardTransferId");
++
++                    b.HasIndex("DisposedByTenantId");
++
++                    b.HasIndex("TenantId", "BranchId")
++                        .HasDatabaseName("IX_CardDisposals_TenantId_BranchId");
++
++                    b.HasIndex("TenantId", "DisposedAt")
++                        .HasDatabaseName("IX_CardDisposals_TenantId_DisposedAt");
++
++                    b.ToTable("CardDisposals", (string)null);
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.CardDisposalItem", b =>
++                {
++                    b.Property<long>("Id")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("bigint");
++
++                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
++
++                    b.Property<long>("CardDisposalId")
++                        .HasColumnType("bigint");
++
++                    b.Property<long>("ProductItemId")
++                        .HasColumnType("bigint");
++
++                    b.Property<long>("TenantId")
++                        .HasColumnType("bigint");
++
++                    b.HasKey("Id");
++
++                    b.HasIndex("ProductItemId");
++
++                    b.HasIndex("CardDisposalId", "ProductItemId")
++                        .IsUnique()
++                        .HasDatabaseName("UX_CardDisposalItems_CardDisposalId_ProductItemId");
++
++                    b.HasIndex("TenantId", "CardDisposalId")
++                        .HasDatabaseName("IX_CardDisposalItems_TenantId_CardDisposalId");
++
++                    b.ToTable("CardDisposalItems", (string)null);
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.CardTransfer", b =>
++                {
++                    b.Property<long>("Id")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("bigint");
++
++                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
++
++                    b.Property<string>("ActionNotes")
++                        .HasMaxLength(500)
++                        .HasColumnType("nvarchar(500)");
++
++                    b.Property<long?>("BranchRequestId")
++                        .HasColumnType("bigint");
++
++                    b.Property<string>("CheckedByUsername")
++                        .HasMaxLength(100)
++                        .HasColumnType("nvarchar(100)");
++
++                    b.Property<DateTime>("CreatedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<long>("CreatedByTenantId")
++                        .HasColumnType("bigint");
++
++                    b.Property<string>("CreatedByUsername")
++                        .IsRequired()
++                        .HasMaxLength(100)
++                        .HasColumnType("nvarchar(100)")
++                        .HasDefaultValue("unknown");
++
++                    b.Property<byte>("Origin")
++                        .HasColumnType("tinyint");
++
++                    b.Property<long?>("ParentTransferId")
++                        .HasColumnType("bigint");
++
++                    b.Property<byte[]>("RowVersion")
++                        .IsConcurrencyToken()
++                        .IsRequired()
++                        .ValueGeneratedOnAddOrUpdate()
++                        .HasColumnType("rowversion");
++
++                    b.Property<long>("SourceBranchId")
++                        .HasColumnType("bigint");
++
++                    b.Property<DateTime?>("StatusChangedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<long>("TargetBranchId")
++                        .HasColumnType("bigint");
++
++                    b.Property<long>("TenantId")
++                        .HasColumnType("bigint");
++
++                    b.Property<byte>("TransactionStatus")
++                        .HasColumnType("tinyint");
++
++                    b.HasKey("Id");
++
++                    b.HasIndex("BranchRequestId");
++
++                    b.HasIndex("CreatedByTenantId");
++
++                    b.HasIndex("ParentTransferId")
++                        .HasDatabaseName("IX_CardsTransferHistory_ParentTransferId");
++
++                    b.HasIndex("SourceBranchId")
++                        .HasDatabaseName("IX_CardsTransferHistory_SourceBranchId");
++
++                    b.HasIndex("TargetBranchId")
++                        .HasDatabaseName("IX_CardsTransferHistory_TargetBranchId");
++
++                    b.HasIndex("TenantId", "BranchRequestId")
++                        .HasDatabaseName("IX_CardsTransferHistory_TenantId_BranchRequestId");
++
++                    b.HasIndex("TenantId", "CreatedAt")
++                        .HasDatabaseName("IX_CardsTransferHistory_TenantId_CreatedAt");
++
++                    b.HasIndex("TenantId", "Origin")
++                        .HasDatabaseName("IX_CardsTransferHistory_TenantId_Origin");
++
++                    b.HasIndex("TenantId", "TransactionStatus")
++                        .HasDatabaseName("IX_CardsTransferHistory_TenantId_TransactionStatus");
++
++                    b.ToTable("CardsTransferHistory", null, t =>
++                        {
++                            t.HasCheckConstraint("CK_CardsTransferHistory_SourceNotTarget", "[SourceBranchId] <> [TargetBranchId]");
++                        });
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.CardTransferItem", b =>
++                {
++                    b.Property<long>("Id")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("bigint");
++
++                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
++
++                    b.Property<long>("CardTransferId")
++                        .HasColumnType("bigint");
++
++                    b.Property<long>("ProductItemId")
++                        .HasColumnType("bigint");
++
++                    b.Property<byte>("ReceiveStatus")
++                        .HasColumnType("tinyint");
++
++                    b.Property<long>("TenantId")
++                        .HasColumnType("bigint");
++
++                    b.HasKey("Id");
++
++                    b.HasIndex("ProductItemId")
++                        .HasDatabaseName("IX_CardTransferItems_ProductItemId");
++
++                    b.HasIndex("CardTransferId", "ProductItemId")
++                        .IsUnique()
++                        .HasDatabaseName("UX_CardTransferItems_CardTransferId_ProductItemId");
++
++                    b.HasIndex("TenantId", "CardTransferId")
++                        .HasDatabaseName("IX_CardTransferItems_TenantId_CardTransferId");
++
++                    b.ToTable("CardTransferItems", (string)null);
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.CardTransferProduct", b =>
++                {
++                    b.Property<long>("Id")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("bigint");
++
++                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
++
++                    b.Property<long>("CardTransferId")
++                        .HasColumnType("bigint");
++
++                    b.Property<byte?>("DifferenceAction")
++                        .HasColumnType("tinyint");
++
++                    b.Property<int?>("DisposedQuantity")
++                        .HasColumnType("int");
++
++                    b.Property<long>("ProductId")
++                        .HasColumnType("bigint");
++
++                    b.Property<byte>("ProductTransactionWay")
++                        .HasColumnType("tinyint");
++
++                    b.Property<int?>("RealQuantityReceived")
++                        .HasColumnType("int");
++
++                    b.Property<long>("TenantId")
++                        .HasColumnType("bigint");
++
++                    b.Property<int>("TransactedQuantity")
++                        .HasColumnType("int");
++
++                    b.HasKey("Id");
++
++                    b.HasIndex("ProductId");
++
++                    b.HasIndex("CardTransferId", "ProductId")
++                        .IsUnique()
++                        .HasDatabaseName("UX_CardTransferProducts_CardTransferId_ProductId");
++
++                    b.HasIndex("TenantId", "CardTransferId")
++                        .HasDatabaseName("IX_CardTransferProducts_TenantId_CardTransferId");
++
++                    b.ToTable("CardTransferProducts", null, t =>
++                        {
++                            t.HasCheckConstraint("CK_CardTransferProducts_DisposedQuantity_NonNegative", "[DisposedQuantity] IS NULL OR [DisposedQuantity] >= 0");
++
++                            t.HasCheckConstraint("CK_CardTransferProducts_RealQuantityReceived_NonNegative", "[RealQuantityReceived] IS NULL OR [RealQuantityReceived] >= 0");
++
++                            t.HasCheckConstraint("CK_CardTransferProducts_SettlementWithinTransacted", "ISNULL([RealQuantityReceived], 0) + ISNULL([DisposedQuantity], 0) <= [TransactedQuantity]");
++
++                            t.HasCheckConstraint("CK_CardTransferProducts_TransactedQuantity_Positive", "[TransactedQuantity] > 0");
++                        });
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.Product", b =>
++                {
++                    b.Property<long>("Id")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("bigint");
++
++                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
++
++                    b.Property<byte>("ActivationStatus")
++                        .HasColumnType("tinyint");
++
++                    b.Property<DateTime>("CreatedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<DateTime?>("DeletedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<long?>("DeletedBy")
++                        .HasColumnType("bigint");
++
++                    b.Property<bool>("IsDeleted")
++                        .HasColumnType("bit");
++
++                    b.Property<int>("LowProductThreshold")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("int")
++                        .HasDefaultValue(0);
++
++                    b.Property<string>("Name")
++                        .IsRequired()
++                        .HasMaxLength(200)
++                        .HasColumnType("nvarchar(200)");
++
++                    b.Property<byte>("ProductTransactionWay")
++                        .HasColumnType("tinyint");
++
++                    b.Property<long>("TenantId")
++                        .HasColumnType("bigint");
++
++                    b.Property<DateTime?>("UpdatedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<byte>("UsingPrinterType")
++                        .HasColumnType("tinyint");
++
++                    b.HasKey("Id");
++
++                    b.HasIndex("TenantId");
++
++                    b.HasIndex("TenantId", "Name")
++                        .IsUnique()
++                        .HasDatabaseName("IX_Product_TenantId_Name")
++                        .HasFilter("[IsDeleted] = 0");
++
++                    b.ToTable("Products", (string)null);
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.ProductItem", b =>
++                {
++                    b.Property<long>("ID")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("bigint");
++
++                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("ID"));
++
++                    b.Property<long>("BatchId")
++                        .HasColumnType("bigint");
++
++                    b.Property<long?>("BranchID")
++                        .HasColumnType("bigint");
++
++                    b.Property<string>("CardHolderName")
++                        .HasColumnType("nvarchar(450)");
++
++                    b.Property<DateTime>("CreatedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<DateTime?>("DeletedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<long?>("DeletedBy")
++                        .HasColumnType("bigint");
++
++                    b.Property<bool>("IsDeleted")
++                        .HasColumnType("bit");
++
++                    b.Property<string>("MaskedPan")
++                        .IsRequired()
++                        .HasMaxLength(32)
++                        .HasColumnType("nvarchar(32)");
++
++                    b.Property<string>("Notes")
++                        .HasColumnType("nvarchar(max)");
++
++                    b.Property<byte[]>("PanFingerprint")
++                        .IsRequired()
++                        .HasColumnType("binary(32)")
++                        .IsFixedLength();
++
++                    b.Property<long>("ProductId")
++                        .HasColumnType("bigint");
++
++                    b.Property<int>("Status")
++                        .HasColumnType("int");
++
++                    b.Property<long>("TenantId")
++                        .HasColumnType("bigint");
++
++                    b.Property<DateTime?>("UpdatedAt")
++                        .HasColumnType("datetime2");
++
++                    b.HasKey("ID");
++
++                    b.HasIndex("BatchId");
++
++                    b.HasIndex("BranchID");
++
++                    b.HasIndex("CardHolderName")
++                        .HasDatabaseName("IX_card_holder_name");
++
++                    b.HasIndex("ProductId");
++
++                    b.HasIndex("Status")
++                        .HasDatabaseName("IX_card_status_name");
++
++                    b.HasIndex("TenantId", "PanFingerprint")
++                        .IsUnique()
++                        .HasDatabaseName("IX_Cards_TenantId_PanFingerprint")
++                        .HasFilter("[IsDeleted] = 0");
++
++                    b.HasIndex("TenantId", "BranchID", "Status")
++                        .HasDatabaseName("IX_Cards_TenantId_BranchId_Status");
++
++                    b.HasIndex("TenantId", "ProductId", "BranchID", "PanFingerprint")
++                        .HasDatabaseName("IX_Cards_TenantId_ProductId_BranchId_PanFingerprint");
++
++                    b.ToTable("Cards");
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.RefreshToken", b =>
++                {
++                    b.Property<long>("Id")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("bigint");
++
++                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
++
++                    b.Property<DateTime>("CreatedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<DateTime>("ExpiresAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<bool>("IsSystemAdmin")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("bit")
++                        .HasDefaultValue(false);
++
++                    b.Property<string>("ReplacedByTokenHash")
++                        .HasMaxLength(128)
++                        .HasColumnType("nvarchar(128)");
++
++                    b.Property<DateTime?>("RevokedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<long?>("TenantId")
++                        .HasColumnType("bigint");
++
++                    b.Property<string>("TokenHash")
++                        .IsRequired()
++                        .HasMaxLength(128)
++                        .HasColumnType("nvarchar(128)");
++
++                    b.Property<string>("userName")
++                        .IsRequired()
++                        .HasColumnType("nvarchar(450)");
++
++                    b.HasKey("Id");
++
++                    b.HasIndex("TokenHash")
++                        .IsUnique();
++
++                    b.HasIndex("userName");
++
++                    b.ToTable("RefreshTokens", (string)null);
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.Stock", b =>
++                {
++                    b.Property<long>("TenantId")
++                        .HasColumnType("bigint");
++
++                    b.Property<long>("BranchId")
++                        .HasColumnType("bigint");
++
++                    b.Property<long>("ProductId")
++                        .HasColumnType("bigint");
++
++                    b.Property<int>("AvailableQuantity")
++                        .HasColumnType("int");
++
++                    b.Property<DateTime>("CreatedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<DateTime?>("DeletedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<long?>("DeletedBy")
++                        .HasColumnType("bigint");
++
++                    b.Property<int>("HoldQuantity")
++                        .HasColumnType("int");
++
++                    b.Property<bool>("IsDeleted")
++                        .HasColumnType("bit");
++
++                    b.Property<byte[]>("RowVersion")
++                        .IsConcurrencyToken()
++                        .IsRequired()
++                        .ValueGeneratedOnAddOrUpdate()
++                        .HasColumnType("rowversion");
++
++                    b.Property<DateTime>("UpdatedAt")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("datetime2")
++                        .HasDefaultValueSql("GETUTCDATE()");
++
++                    b.HasKey("TenantId", "BranchId", "ProductId");
++
++                    b.HasIndex("BranchId");
++
++                    b.HasIndex("ProductId");
++
++                    b.HasIndex("TenantId", "ProductId")
++                        .HasDatabaseName("IX_Stocks_TenantId_ProductId");
++
++                    b.ToTable("Stocks", t =>
++                        {
++                            t.HasCheckConstraint("CK_Stocks_AvailableQuantity_NonNegative", "[AvailableQuantity] >= 0");
++
++                            t.HasCheckConstraint("CK_Stocks_HoldQuantity_NonNegative", "[HoldQuantity] >= 0");
++                        });
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.SystemAdmin", b =>
++                {
++                    b.Property<long>("Id")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("bigint");
++
++                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
++
++                    b.Property<DateTime>("CreatedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<DateTime?>("DeletedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<long?>("DeletedBy")
++                        .HasColumnType("bigint");
++
++                    b.Property<bool>("IsActive")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("bit")
++                        .HasDefaultValue(true);
++
++                    b.Property<bool>("IsDeleted")
++                        .HasColumnType("bit");
++
++                    b.Property<string>("PasswordHash")
++                        .IsRequired()
++                        .HasMaxLength(256)
++                        .HasColumnType("nvarchar(256)");
++
++                    b.Property<DateTime?>("UpdatedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<string>("Username")
++                        .IsRequired()
++                        .HasMaxLength(100)
++                        .HasColumnType("nvarchar(100)");
++
++                    b.HasKey("Id");
++
++                    b.HasIndex("Username")
++                        .IsUnique()
++                        .HasFilter("[IsDeleted] = 0");
++
++                    b.ToTable("SystemAdmins", (string)null);
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.Tenant", b =>
++                {
++                    b.Property<long>("Id")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("bigint");
++
++                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
++
++                    b.Property<string>("Code")
++                        .IsRequired()
++                        .HasMaxLength(50)
++                        .HasColumnType("nvarchar(50)");
++
++                    b.Property<DateTime>("CreatedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<DateTime?>("DeletedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<long?>("DeletedBy")
++                        .HasColumnType("bigint");
++
++                    b.Property<bool>("IsActive")
++                        .ValueGeneratedOnAdd()
++                        .HasColumnType("bit")
++                        .HasDefaultValue(true);
++
++                    b.Property<bool>("IsDeleted")
++                        .HasColumnType("bit");
++
++                    b.Property<string>("PasswordHash")
++                        .IsRequired()
++                        .HasMaxLength(256)
++                        .HasColumnType("nvarchar(256)");
++
++                    b.Property<DateTime?>("UpdatedAt")
++                        .HasColumnType("datetime2");
++
++                    b.Property<string>("Username")
++                        .IsRequired()
++                        .HasMaxLength(100)
++                        .HasColumnType("nvarchar(100)");
++
++                    b.HasKey("Id");
++
++                    b.HasIndex("Code")
++                        .IsUnique();
++
++                    b.HasIndex("IsDeleted")
++                        .HasFilter("[IsDeleted] = 0");
++
++                    b.HasIndex("Username")
++                        .IsUnique();
++
++                    b.ToTable("Tenants", (string)null);
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.Batch", b =>
++                {
++                    b.HasOne("DomainLayer.Entities.Tenant", "Bank")
++                        .WithMany()
++                        .HasForeignKey("BankId")
++                        .OnDelete(DeleteBehavior.Cascade)
++                        .IsRequired();
++
++                    b.HasOne("DomainLayer.Entities.Tenant", "Tenant")
++                        .WithMany()
++                        .HasForeignKey("UploadedByTenantId")
++                        .OnDelete(DeleteBehavior.Cascade)
++                        .IsRequired();
++
++                    b.Navigation("Bank");
++
++                    b.Navigation("Tenant");
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.Branch", b =>
++                {
++                    b.HasOne("DomainLayer.Entities.Tenant", null)
++                        .WithMany()
++                        .HasForeignKey("TenantId")
++                        .OnDelete(DeleteBehavior.NoAction)
++                        .IsRequired();
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.BranchRequest", b =>
++                {
++                    b.HasOne("DomainLayer.Entities.Tenant", "ActionTakenByTenant")
++                        .WithMany()
++                        .HasForeignKey("ActionTakenByTenantId")
++                        .OnDelete(DeleteBehavior.NoAction);
++
++                    b.HasOne("DomainLayer.Entities.Branch", "RequestingBranch")
++                        .WithMany()
++                        .HasForeignKey("RequestingBranchId")
++                        .OnDelete(DeleteBehavior.NoAction)
++                        .IsRequired();
++
++                    b.HasOne("DomainLayer.Entities.Tenant", "Tenant")
++                        .WithMany()
++                        .HasForeignKey("TenantId")
++                        .OnDelete(DeleteBehavior.NoAction)
++                        .IsRequired();
++
++                    b.Navigation("ActionTakenByTenant");
++
++                    b.Navigation("RequestingBranch");
++
++                    b.Navigation("Tenant");
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.BranchRequestItem", b =>
++                {
++                    b.HasOne("DomainLayer.Entities.Product", "Product")
++                        .WithMany()
++                        .HasForeignKey("ProductId")
++                        .OnDelete(DeleteBehavior.NoAction)
++                        .IsRequired();
++
++                    b.HasOne("DomainLayer.Entities.BranchRequest", "Request")
++                        .WithMany("Items")
++                        .HasForeignKey("RequestId")
++                        .OnDelete(DeleteBehavior.Cascade)
++                        .IsRequired();
++
++                    b.HasOne("DomainLayer.Entities.Tenant", null)
++                        .WithMany()
++                        .HasForeignKey("TenantId")
++                        .OnDelete(DeleteBehavior.NoAction)
++                        .IsRequired();
++
++                    b.Navigation("Product");
++
++                    b.Navigation("Request");
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.CardDisposal", b =>
++                {
++                    b.HasOne("DomainLayer.Entities.Branch", "Branch")
++                        .WithMany()
++                        .HasForeignKey("BranchId")
++                        .OnDelete(DeleteBehavior.NoAction)
++                        .IsRequired();
++
++                    b.HasOne("DomainLayer.Entities.CardTransfer", "CardTransfer")
++                        .WithMany()
++                        .HasForeignKey("CardTransferId")
++                        .OnDelete(DeleteBehavior.NoAction);
++
++                    b.HasOne("DomainLayer.Entities.Tenant", "DisposedByTenant")
++                        .WithMany()
++                        .HasForeignKey("DisposedByTenantId")
++                        .OnDelete(DeleteBehavior.NoAction)
++                        .IsRequired();
++
++                    b.HasOne("DomainLayer.Entities.Tenant", "Tenant")
++                        .WithMany()
++                        .HasForeignKey("TenantId")
++                        .OnDelete(DeleteBehavior.NoAction)
++                        .IsRequired();
++
++                    b.Navigation("Branch");
++
++                    b.Navigation("CardTransfer");
++
++                    b.Navigation("DisposedByTenant");
++
++                    b.Navigation("Tenant");
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.CardDisposalItem", b =>
++                {
++                    b.HasOne("DomainLayer.Entities.CardDisposal", "CardDisposal")
++                        .WithMany("Items")
++                        .HasForeignKey("CardDisposalId")
++                        .OnDelete(DeleteBehavior.Cascade)
++                        .IsRequired();
++
++                    b.HasOne("DomainLayer.Entities.ProductItem", "ProductItem")
++                        .WithMany()
++                        .HasForeignKey("ProductItemId")
++                        .OnDelete(DeleteBehavior.NoAction)
++                        .IsRequired();
++
++                    b.HasOne("DomainLayer.Entities.Tenant", null)
++                        .WithMany()
++                        .HasForeignKey("TenantId")
++                        .OnDelete(DeleteBehavior.NoAction)
++                        .IsRequired();
++
++                    b.Navigation("CardDisposal");
++
++                    b.Navigation("ProductItem");
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.CardTransfer", b =>
++                {
++                    b.HasOne("DomainLayer.Entities.BranchRequest", "BranchRequest")
++                        .WithMany()
++                        .HasForeignKey("BranchRequestId")
++                        .OnDelete(DeleteBehavior.NoAction);
++
++                    b.HasOne("DomainLayer.Entities.Tenant", "CreatedByTenant")
++                        .WithMany()
++                        .HasForeignKey("CreatedByTenantId")
++                        .OnDelete(DeleteBehavior.NoAction)
++                        .IsRequired();
++
++                    b.HasOne("DomainLayer.Entities.CardTransfer", "ParentTransfer")
++                        .WithMany()
++                        .HasForeignKey("ParentTransferId")
++                        .OnDelete(DeleteBehavior.NoAction);
++
++                    b.HasOne("DomainLayer.Entities.Branch", "SourceBranch")
++                        .WithMany()
++                        .HasForeignKey("SourceBranchId")
++                        .OnDelete(DeleteBehavior.NoAction)
++                        .IsRequired();
++
++                    b.HasOne("DomainLayer.Entities.Branch", "TargetBranch")
++                        .WithMany()
++                        .HasForeignKey("TargetBranchId")
++                        .OnDelete(DeleteBehavior.NoAction)
++                        .IsRequired();
++
++                    b.HasOne("DomainLayer.Entities.Tenant", "Tenant")
++                        .WithMany()
++                        .HasForeignKey("TenantId")
++                        .OnDelete(DeleteBehavior.NoAction)
++                        .IsRequired();
++
++                    b.Navigation("BranchRequest");
++
++                    b.Navigation("CreatedByTenant");
++
++                    b.Navigation("ParentTransfer");
++
++                    b.Navigation("SourceBranch");
++
++                    b.Navigation("TargetBranch");
++
++                    b.Navigation("Tenant");
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.CardTransferItem", b =>
++                {
++                    b.HasOne("DomainLayer.Entities.CardTransfer", "CardTransfer")
++                        .WithMany("Items")
++                        .HasForeignKey("CardTransferId")
++                        .OnDelete(DeleteBehavior.Cascade)
++                        .IsRequired();
++
++                    b.HasOne("DomainLayer.Entities.ProductItem", "ProductItem")
++                        .WithMany()
++                        .HasForeignKey("ProductItemId")
++                        .OnDelete(DeleteBehavior.NoAction)
++                        .IsRequired();
++
++                    b.HasOne("DomainLayer.Entities.Tenant", null)
++                        .WithMany()
++                        .HasForeignKey("TenantId")
++                        .OnDelete(DeleteBehavior.NoAction)
++                        .IsRequired();
++
++                    b.Navigation("CardTransfer");
++
++                    b.Navigation("ProductItem");
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.CardTransferProduct", b =>
++                {
++                    b.HasOne("DomainLayer.Entities.CardTransfer", "CardTransfer")
++                        .WithMany("Products")
++                        .HasForeignKey("CardTransferId")
++                        .OnDelete(DeleteBehavior.Cascade)
++                        .IsRequired();
++
++                    b.HasOne("DomainLayer.Entities.Product", "Product")
++                        .WithMany()
++                        .HasForeignKey("ProductId")
++                        .OnDelete(DeleteBehavior.NoAction)
++                        .IsRequired();
++
++                    b.HasOne("DomainLayer.Entities.Tenant", null)
++                        .WithMany()
++                        .HasForeignKey("TenantId")
++                        .OnDelete(DeleteBehavior.NoAction)
++                        .IsRequired();
++
++                    b.Navigation("CardTransfer");
++
++                    b.Navigation("Product");
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.Product", b =>
++                {
++                    b.HasOne("DomainLayer.Entities.Tenant", null)
++                        .WithMany()
++                        .HasForeignKey("TenantId")
++                        .OnDelete(DeleteBehavior.NoAction)
++                        .IsRequired();
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.ProductItem", b =>
++                {
++                    b.HasOne("DomainLayer.Entities.Batch", "Batch")
++                        .WithMany("CardsInBatch")
++                        .HasForeignKey("BatchId")
++                        .OnDelete(DeleteBehavior.Cascade)
++                        .IsRequired();
++
++                    b.HasOne("DomainLayer.Entities.Branch", "Branch")
++                        .WithMany()
++                        .HasForeignKey("BranchID")
++                        .OnDelete(DeleteBehavior.NoAction);
++
++                    b.HasOne("DomainLayer.Entities.Product", "Product")
++                        .WithMany()
++                        .HasForeignKey("ProductId")
++                        .OnDelete(DeleteBehavior.Cascade)
++                        .IsRequired();
++
++                    b.HasOne("DomainLayer.Entities.Tenant", "Tenant")
++                        .WithMany()
++                        .HasForeignKey("TenantId")
++                        .OnDelete(DeleteBehavior.Cascade)
++                        .IsRequired();
++
++                    b.Navigation("Batch");
++
++                    b.Navigation("Branch");
++
++                    b.Navigation("Product");
++
++                    b.Navigation("Tenant");
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.Stock", b =>
++                {
++                    b.HasOne("DomainLayer.Entities.Branch", "SettledBranch")
++                        .WithMany()
++                        .HasForeignKey("BranchId")
++                        .OnDelete(DeleteBehavior.Restrict)
++                        .IsRequired();
++
++                    b.HasOne("DomainLayer.Entities.Product", "CardType")
++                        .WithMany()
++                        .HasForeignKey("ProductId")
++                        .OnDelete(DeleteBehavior.Restrict)
++                        .IsRequired();
++
++                    b.HasOne("DomainLayer.Entities.Tenant", "Bank")
++                        .WithMany()
++                        .HasForeignKey("TenantId")
++                        .OnDelete(DeleteBehavior.Restrict)
++                        .IsRequired();
++
++                    b.Navigation("Bank");
++
++                    b.Navigation("CardType");
++
++                    b.Navigation("SettledBranch");
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.Batch", b =>
++                {
++                    b.Navigation("CardsInBatch");
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.BranchRequest", b =>
++                {
++                    b.Navigation("Items");
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.CardDisposal", b =>
++                {
++                    b.Navigation("Items");
++                });
++
++            modelBuilder.Entity("DomainLayer.Entities.CardTransfer", b =>
++                {
++                    b.Navigation("Items");
++
++                    b.Navigation("Products");
++                });
++#pragma warning restore 612, 618
++        }
++    }
++}
+diff --git a/InfrastructureLayer/Migrations/20260810120000_U1-UnknownTransferMakerChecker.cs b/InfrastructureLayer/Migrations/20260810120000_U1-UnknownTransferMakerChecker.cs
+new file mode 100644
+index 0000000..827a489
+--- /dev/null
++++ b/InfrastructureLayer/Migrations/20260810120000_U1-UnknownTransferMakerChecker.cs
+@@ -0,0 +1,57 @@
++﻿using Microsoft.EntityFrameworkCore.Migrations;
++
++#nullable disable
++
++namespace InfrastructureLayer.Migrations
++{
++    /// <inheritdoc />
++    public partial class U1UnknownTransferMakerChecker : Migration
++    {
++        /// <inheritdoc />
++        protected override void Up(MigrationBuilder migrationBuilder)
++        {
++            // Maker-Checker identity (Q1): CreatedByUsername gets a default so this
++            // append-only table's existing historical rows don't need a data backfill;
++            // CheckedByUsername stays nullable, matching StatusChangedAt's own
++            // null-until-settled shape.
++            migrationBuilder.AddColumn<string>(
++                name: "CreatedByUsername",
++                table: "CardsTransferHistory",
++                type: "nvarchar(100)",
++                maxLength: 100,
++                nullable: false,
++                defaultValue: "unknown");
++
++            migrationBuilder.AddColumn<string>(
++                name: "CheckedByUsername",
++                table: "CardsTransferHistory",
++                type: "nvarchar(100)",
++                maxLength: 100,
++                nullable: true);
++
++            // Unknown-way remainder resolution (Q2/Q3): nullable, per line - meaningful only
++            // once an Unknown-way line has a remainder to resolve.
++            migrationBuilder.AddColumn<byte>(
++                name: "DifferenceAction",
++                table: "CardTransferProducts",
++                type: "tinyint",
++                nullable: true);
++        }
++
++        /// <inheritdoc />
++        protected override void Down(MigrationBuilder migrationBuilder)
++        {
++            migrationBuilder.DropColumn(
++                name: "DifferenceAction",
++                table: "CardTransferProducts");
++
++            migrationBuilder.DropColumn(
++                name: "CheckedByUsername",
++                table: "CardsTransferHistory");
++
++            migrationBuilder.DropColumn(
++                name: "CreatedByUsername",
++                table: "CardsTransferHistory");
++        }
++    }
++}
+diff --git a/InfrastructureLayer/Migrations/AppDbContextModelSnapshot.cs b/InfrastructureLayer/Migrations/AppDbContextModelSnapshot.cs
+index 0a18d0b..3bc1897 100644
+--- a/InfrastructureLayer/Migrations/AppDbContextModelSnapshot.cs
++++ b/InfrastructureLayer/Migrations/AppDbContextModelSnapshot.cs
+@@ -410,12 +410,22 @@ namespace InfrastructureLayer.Migrations
+                     b.Property<long?>("BranchRequestId")
+                         .HasColumnType("bigint");
+ 
++                    b.Property<string>("CheckedByUsername")
++                        .HasMaxLength(100)
++                        .HasColumnType("nvarchar(100)");
++
+                     b.Property<DateTime>("CreatedAt")
+                         .HasColumnType("datetime2");
+ 
+                     b.Property<long>("CreatedByTenantId")
+                         .HasColumnType("bigint");
+ 
++                    b.Property<string>("CreatedByUsername")
++                        .IsRequired()
++                        .HasMaxLength(100)
++                        .HasColumnType("nvarchar(100)")
++                        .HasDefaultValue("unknown");
++
+                     b.Property<byte>("Origin")
+                         .HasColumnType("tinyint");
+ 
+@@ -522,6 +532,9 @@ namespace InfrastructureLayer.Migrations
+                     b.Property<long>("CardTransferId")
+                         .HasColumnType("bigint");
+ 
++                    b.Property<byte?>("DifferenceAction")
++                        .HasColumnType("tinyint");
++
+                     b.Property<int?>("DisposedQuantity")
+                         .HasColumnType("int");
+ 
+diff --git a/InfrastructureLayer/Services/BranchRequestFulfilment.cs b/InfrastructureLayer/Services/BranchRequestFulfilment.cs
+index 89e67bc..48b993a 100644
+--- a/InfrastructureLayer/Services/BranchRequestFulfilment.cs
++++ b/InfrastructureLayer/Services/BranchRequestFulfilment.cs
+@@ -9,8 +9,8 @@ namespace InfrastructureLayer.Services
+ {
+     /// <summary>
+     /// EF Core implementation of <see cref="IBranchRequestFulfilment"/> (API §4.9, decisions
+-    /// D-01/D-04). Covers exactly one settlement path — see the interface's own doc comment for
+-    /// why the Unknown-way path never reaches this class at all.
++    /// D-01/D-04). Covers every settlement path since the Unknown-way Maker-Checker workflow —
++    /// see the interface's own doc comment.
+     /// </summary>
+     public sealed class BranchRequestFulfilment : IBranchRequestFulfilment
+     {
+diff --git a/InfrastructureLayer/Services/BranchRequestService.cs b/InfrastructureLayer/Services/BranchRequestService.cs
+index 1d165bc..e5abaad 100644
+--- a/InfrastructureLayer/Services/BranchRequestService.cs
++++ b/InfrastructureLayer/Services/BranchRequestService.cs
+@@ -199,6 +199,7 @@ namespace InfrastructureLayer.Services
+             }
+ 
+             var stagedTransfers = new List<CardTransfer>(validatedPlans.Count);
++            string createdByUsername = _currentTenant.Username ?? "unknown";
+ 
+             Result transactionResult;
+             try
+@@ -208,7 +209,7 @@ namespace InfrastructureLayer.Services
+                     foreach (ValidatedTransferPlan plan in validatedPlans)
+                     {
+                         Result<CardTransfer> staged = await _transferComposer.StageAsync(
+-                            tenantId, plan, branchRequestId: branchRequest.Id, cancellationToken);
++                            tenantId, plan, branchRequestId: branchRequest.Id, createdByUsername, cancellationToken);
+                         if (staged.IsFailure) return Result.Failure(staged.Error);
+ 
+                         CardTransfer transfer = staged.Value;
+@@ -224,11 +225,14 @@ namespace InfrastructureLayer.Services
+ 
+                             item.CreditDispatched(line.TransactedQuantity);
+ 
+-                            // Unknown Inventory Refactor: a line settled by the composer already
+-                            // (RealQuantityReceived non-null) has no later receive call coming —
+-                            // credit ReceivedQuantity here, in the same call, or it never happens.
+-                            // A Known-way line's RealQuantityReceived is still null at this point;
+-                            // it is credited later by BranchRequestFulfilment.ApplyReceiptAsync.
++                            // Unknown-way Maker-Checker workflow: every line staged by the
++                            // composer is pending now (RealQuantityReceived null), Known or
++                            // Unknown alike — this check only ever fires for a line the composer
++                            // settled inline, which no longer happens for either way. Left in
++                            // place (rather than removed) as the single correct credit point for
++                            // any future line shape that *does* settle inline; today,
++                            // ReceivedQuantity for every line generated here is credited later by
++                            // BranchRequestFulfilment.ApplyReceiptAsync when its transfer settles.
+                             if (line.RealQuantityReceived is int received)
+                                 item.CreditReceived(received);
+                         }
+diff --git a/InfrastructureLayer/Services/TransferComposer.cs b/InfrastructureLayer/Services/TransferComposer.cs
+index 965d007..103684f 100644
+--- a/InfrastructureLayer/Services/TransferComposer.cs
++++ b/InfrastructureLayer/Services/TransferComposer.cs
+@@ -103,7 +103,7 @@ namespace InfrastructureLayer.Services
+         }
+ 
+         public async Task<Result<CardTransfer>> StageAsync(
+-            long tenantId, ValidatedTransferPlan plan, long? branchRequestId,
++            long tenantId, ValidatedTransferPlan plan, long? branchRequestId, string createdByUsername,
+             CancellationToken cancellationToken = default)
+         {
+             var transfer = new CardTransfer
+@@ -112,6 +112,7 @@ namespace InfrastructureLayer.Services
+                 BranchRequestId = branchRequestId,
+                 CreatedAt = DateTime.UtcNow,
+                 CreatedByTenantId = tenantId,
++                CreatedByUsername = createdByUsername,
+                 SourceBranchId = plan.Source.Id,
+                 TargetBranchId = plan.Target.Id,
+                 TransactionStatus = TransactionStatus.InProgress,
+@@ -120,8 +121,6 @@ namespace InfrastructureLayer.Services
+                 ActionNotes = plan.ActionNotes,
+             };
+ 
+-            bool anyOpenLine = false;
+-
+             foreach (ValidatedTransferLine line in plan.Lines)
+             {
+                 Product product = line.Product;
+@@ -129,12 +128,15 @@ namespace InfrastructureLayer.Services
+ 
+                 if (product.ProductTransactionWay == ProductTransactionWay.Unknown)
+                 {
+-                    // Unknown Inventory Refactor (decisions Q1/Q2): a transfer moves Stock
+-                    // *entitlement* only. No ProductItem is selected, touched, or reassigned -
+-                    // physical cards stay BranchID = null and are only ever pinned to a branch at
+-                    // print or disposal, keyed by PAN. There is nothing physically in transit, so
+-                    // the line settles immediately (RealQuantityReceived = TransactedQuantity)
+-                    // rather than entering the usual Hold -> receive lifecycle.
++                    // Unknown-way Maker-Checker workflow (supersedes the earlier Unknown
++                    // Inventory Refactor, which settled this line immediately): a transfer still
++                    // moves Stock *entitlement* only - no ProductItem is selected, touched, or
++                    // reassigned, because physical cards stay BranchID = null and are only ever
++                    // pinned to a branch at print or disposal, keyed by PAN. What changes is
++                    // timing: the line now enters the same Hold -> receive lifecycle a Known-way
++                    // line already has, just without any card to select. The target is left
++                    // untouched here; RealQuantityReceived stays null (pending) until a separate
++                    // `receive` call states what was actually confirmed.
+                     Stock unknownSourceStock = await _unitOfWork.Stocks.GetOrCreateForUpdateAsync(
+                         tenantId, plan.Source.Id, product.Id, cancellationToken);
+ 
+@@ -143,28 +145,22 @@ namespace InfrastructureLayer.Services
+                         return Result.Failure<CardTransfer>(StockErrors.InsufficientAvailable(plan.Source.Id, product.Id));
+ 
+                     unknownSourceStock.AvailableQuantity = updatedAvailable;
++                    unknownSourceStock.HoldQuantity += request.TransactedQuantity;
+                     unknownSourceStock.UpdatedAt = DateTime.UtcNow;
+ 
+-                    Stock unknownTargetStock = await _unitOfWork.Stocks.GetOrCreateForUpdateAsync(
+-                        tenantId, plan.Target.Id, product.Id, cancellationToken);
+-                    unknownTargetStock.AvailableQuantity += request.TransactedQuantity;
+-                    unknownTargetStock.UpdatedAt = DateTime.UtcNow;
+-
+                     transfer.Products.Add(new CardTransferProduct
+                     {
+                         TenantId = tenantId,
+                         ProductId = product.Id,
+                         TransactedQuantity = request.TransactedQuantity,
+                         ProductTransactionWay = product.ProductTransactionWay,   // snapshot
+-                        RealQuantityReceived = request.TransactedQuantity,      // settled now - entitlement only
+-                        DisposedQuantity = 0,
++                        // RealQuantityReceived / DisposedQuantity left null - pending, exactly
++                        // like a Known-way line, resolved later by TransferService.SettleAsync.
+                     });
+ 
+-                    continue;   // no ProductItem/CardTransferItem rows for this line
++                    continue;   // still no ProductItem/CardTransferItem rows for this line - there is nothing physical to select
+                 }
+ 
+-                anyOpenLine = true;
+-
+                 IReadOnlyDictionary<long, ProductItem> found = await _unitOfWork.ProductItems
+                     .GetManyForUpdateAsync(tenantId, request.ProductItemIds!, cancellationToken);
+ 
+@@ -225,16 +221,10 @@ namespace InfrastructureLayer.Services
+                 sourceStock.UpdatedAt = DateTime.UtcNow;
+             }
+ 
+-            // A transfer made up entirely of Unknown-way (entitlement-only) lines has nothing
+-            // left to receive — close it out immediately rather than leaving it InProgress
+-            // forever with no Known-way remainder anyone will ever call receive/dispose on. A
+-            // transfer with at least one Known-way line still opens InProgress as before.
+-            if (!anyOpenLine)
+-            {
+-                transfer.TransactionStatus = TransactionStatus.Received;
+-                transfer.StatusChangedAt = DateTime.UtcNow;
+-            }
+-
++            // Every line, Known or Unknown, is now staged pending (Maker-Checker workflow) - the
++            // transfer always opens InProgress, per its constructor default, and always needs its
++            // own `receive` call before it can close. There is no longer a case where staging
++            // closes a transfer outright.
+             await _unitOfWork.CardTransfers.AddAsync(transfer, cancellationToken);
+             return Result.Success(transfer);
+         }
+diff --git a/InfrastructureLayer/Services/TransferService.cs b/InfrastructureLayer/Services/TransferService.cs
+index 2e1986c..2a6e234 100644
+--- a/InfrastructureLayer/Services/TransferService.cs
++++ b/InfrastructureLayer/Services/TransferService.cs
+@@ -46,6 +46,18 @@ namespace InfrastructureLayer.Services
+     /// rising) has already happened as part of that same settlement. Running it through the normal
+     /// create path afterwards would double-count it.
+     /// </para>
++    /// <para>
++    /// <b>Unknown-way Maker-Checker workflow addendum:</b> an Unknown-way line follows the exact
++    /// same rule above when its remainder resolves as <see cref="TransferDifferenceAction.ReturnedToSource"/>
++    /// — <c>R</c> credits the target's <c>Available</c>, the remainder spawns a return transfer,
++    /// nothing physical is ever touched because there is none. The one genuine deviation is
++    /// <see cref="TransferDifferenceAction.KeptAtDestination"/>: the target's <c>Available</c>
++    /// receives the <em>full</em> transacted quantity rather than only <c>R</c>, and no return
++    /// transfer is spawned at all — the discrepancy between what was confirmed
++    /// (<c>RealQuantityReceived</c>) and what was credited stays visible on the line rather than
++    /// being expressed as stock in transit, because nothing is actually in transit for an
++    /// Unknown-way remainder resolved this way.
++    /// </para>
+     /// </summary>
+     public sealed class TransferService : ITransferService
+     {
+@@ -114,11 +126,14 @@ namespace InfrastructureLayer.Services
+                 cancellationToken);
+             if (planResult.IsFailure) return Result.Failure<TransferDetailResponse>(planResult.Error);
+ 
++            string createdByUsername = _currentTenant.Username ?? "unknown";
++
+             Result<CardTransfer> transactionResult;
+             try
+             {
+                 transactionResult = await _unitOfWork.ExecuteInTransactionAsync<CardTransfer>(
+-                    () => _transferComposer.StageAsync(tenantId, planResult.Value, branchRequestId: null, cancellationToken),
++                    () => _transferComposer.StageAsync(
++                        tenantId, planResult.Value, branchRequestId: null, createdByUsername, cancellationToken),
+                     cancellationToken);
+             }
+             catch (DbUpdateConcurrencyException)
+@@ -164,7 +179,7 @@ namespace InfrastructureLayer.Services
+             foreach (ReceiveTransferLine line in request.Items)
+             {
+                 if (!settlements.TryAdd(line.ProductId,
+-                    new LineSettlement(line.RealQuantityReceived, line.DisposedQuantity, line.ItemDispositions)))
++                    new LineSettlement(line.RealQuantityReceived, line.DisposedQuantity, line.ItemDispositions, line.DifferenceAction)))
+                 {
+                     return Result.Failure<SettleTransferResult>(TransferErrors.DuplicateProduct(line.ProductId));
+                 }
+@@ -193,17 +208,24 @@ namespace InfrastructureLayer.Services
+             if (transfer.TransactionStatus != TransactionStatus.InProgress)
+                 return Result.Failure<SettleTransferResult>(TransferErrors.NotInProgress(id));
+ 
++            // An Unknown-way line moves entitlement only - there is no physical card to write
++            // off, so "dispose everything still open" cannot cover it (decision confirmed with
++            // the repo owner). Rejected up front rather than silently skipped, matching this
++            // endpoint's own "resolve everything open in one step" contract.
++            CardTransferProduct? openUnknownLine = transfer.Products.FirstOrDefault(
++                p => p.RealQuantityReceived is null && p.ProductTransactionWay == ProductTransactionWay.Unknown);
++            if (openUnknownLine is not null)
++                return Result.Failure<SettleTransferResult>(TransferErrors.DisposalNotAllowedForUnknown(openUnknownLine.ProductId));
++
+             var settlements = new Dictionary<long, LineSettlement>();
+             foreach (CardTransferProduct line in transfer.Products.Where(p => p.RealQuantityReceived is null))
+             {
+-                IReadOnlyList<CardDispositionEntry>? dispositions = line.ProductTransactionWay == ProductTransactionWay.Known
+-                    ? transfer.Items
+-                        .Where(i => i.ProductItem.ProductId == line.ProductId)
+-                        .Select(i => new CardDispositionEntry(i.ProductItemId, TransactionItemReceiveStatus.Disposed))
+-                        .ToList()
+-                    : null;
+-
+-                settlements[line.ProductId] = new LineSettlement(0, line.TransactedQuantity, dispositions);
++                IReadOnlyList<CardDispositionEntry> dispositions = transfer.Items
++                    .Where(i => i.ProductItem.ProductId == line.ProductId)
++                    .Select(i => new CardDispositionEntry(i.ProductItemId, TransactionItemReceiveStatus.Disposed))
++                    .ToList();
++
++                settlements[line.ProductId] = new LineSettlement(0, line.TransactedQuantity, dispositions, DifferenceAction: null);
+             }
+ 
+             return await SettleAsync(
+@@ -240,12 +262,18 @@ namespace InfrastructureLayer.Services
+             if (transfer.TransactionStatus != TransactionStatus.InProgress)
+                 return Result.Failure<SettleTransferResult>(TransferErrors.NotInProgress(transfer.Id));
+ 
++            // Maker-Checker workflow (Q1): the acting account's identity is always recorded, even
++            // though it is fine — by design, given this system has one account per tenant — for
++            // the Checker to be the same account as the Maker. Resolved once and reused both for
++            // this transfer's own CheckedByUsername and for any auto-generated return's
++            // CreatedByUsername (that return's "Maker" is whoever triggered this settlement).
++            string checkedByUsername = _currentTenant.Username ?? "unknown";
++
+             // ---- Validate the settlement covers exactly the transfer's still-open lines. -------
+-            // Unknown-way lines settle immediately at creation (Unknown Inventory Refactor,
+-            // decisions Q1/Q2) - RealQuantityReceived is already non-null for them by the time
+-            // this method runs, so they are excluded from the settlement contract entirely: the
+-            // caller neither supplies nor sees a settlement entry for a line that never had
+-            // anything physically in transit to receive.
++            // Both Known- and Unknown-way lines are open here (Unknown-way Maker-Checker
++            // workflow) - RealQuantityReceived is null for either until this method runs. A line
++            // only ever ends up excluded from openLines once it has actually been settled, by a
++            // prior call to this same method (e.g. an auto-generated return already resolved).
+             IReadOnlyList<CardTransferProduct> openLines = transfer.Products
+                 .Where(p => p.RealQuantityReceived is null)
+                 .ToList();
+@@ -294,7 +322,6 @@ namespace InfrastructureLayer.Services
+                     return Result.Failure<SettleTransferResult>(TransferErrors.SettlementQuantityOutOfRange(line.ProductId));
+ 
+                 int returned = line.TransactedQuantity - received - disposed;
+-                if (returned > 0) anyReturned = true;
+ 
+                 List<CardTransferItem> lineItems = transfer.Items
+                     .Where(i => i.ProductItem.ProductId == line.ProductId)
+@@ -302,6 +329,11 @@ namespace InfrastructureLayer.Services
+ 
+                 if (line.ProductTransactionWay == ProductTransactionWay.Known)
+                 {
++                    if (returned > 0) anyReturned = true;
++
++                    if (s.DifferenceAction is not null)
++                        return Result.Failure<SettleTransferResult>(TransferErrors.DifferenceActionNotApplicable(line.ProductId));
++
+                     if (s.ItemDispositions is null || s.ItemDispositions.Count == 0)
+                         return Result.Failure<SettleTransferResult>(TransferErrors.DispositionsRequired(line.ProductId));
+                     if (s.ItemDispositions.Count != lineItems.Count)
+@@ -332,28 +364,40 @@ namespace InfrastructureLayer.Services
+                     if (dr != received || dd != disposed || dx != returned)
+                         return Result.Failure<SettleTransferResult>(TransferErrors.DispositionCountMismatch(line.ProductId));
+ 
+-                    plans.Add(new LinePlan(line, received, disposed, returned, lineItems, s.ItemDispositions));
++                    plans.Add(new LinePlan(line, received, disposed, returned, lineItems, s.ItemDispositions, DifferenceAction: null));
+                 }
+                 else
+                 {
++                    // Unknown-way, open (Maker-Checker workflow) — no cards, so no per-item
++                    // dispositions and no disposal (decision confirmed with the repo owner): the
++                    // line is settled purely as quantities, and any remainder must be resolved
++                    // explicitly rather than inferred.
+                     if (s.ItemDispositions is { Count: > 0 })
+                         return Result.Failure<SettleTransferResult>(TransferErrors.ItemIdsNotAllowedForUnknown(line.ProductId));
++                    if (disposed > 0)
++                        return Result.Failure<SettleTransferResult>(TransferErrors.DisposalNotAllowedForUnknown(line.ProductId));
+ 
+-                    // System-assigned order for the pool: received first, then disposed, then
+-                    // returned. Individual card identity is not caller-visible for Unknown-way, so
+-                    // any deterministic order is correct — this one is simplest to implement and
+-                    // to reason about when reading the code later.
+-                    var dispositions = new List<CardDispositionEntry>(lineItems.Count);
+-                    for (int i = 0; i < lineItems.Count; i++)
++                    if (returned > 0)
++                    {
++                        if (s.DifferenceAction is null)
++                            return Result.Failure<SettleTransferResult>(TransferErrors.DifferenceActionRequired(line.ProductId));
++                        if (s.DifferenceAction is not (TransferDifferenceAction.ReturnedToSource or TransferDifferenceAction.KeptAtDestination))
++                            return Result.Failure<SettleTransferResult>(TransferErrors.InvalidDifferenceAction(line.ProductId));
++
++                        // Only a "returned" resolution spawns an auto-generated return transfer
++                        // (mirroring Known-way, decision confirmed with the repo owner) — a "kept"
++                        // resolution settles entirely at the target, nothing goes back anywhere.
++                        if (s.DifferenceAction == TransferDifferenceAction.ReturnedToSource) anyReturned = true;
++                    }
++                    else if (s.DifferenceAction is not null)
+                     {
+-                        TransactionItemReceiveStatus outcome =
+-                            i < received ? TransactionItemReceiveStatus.Received :
+-                            i < received + disposed ? TransactionItemReceiveStatus.Disposed :
+-                            TransactionItemReceiveStatus.NotReceived;
+-                        dispositions.Add(new CardDispositionEntry(lineItems[i].ProductItemId, outcome));
++                        return Result.Failure<SettleTransferResult>(TransferErrors.DifferenceActionNotApplicable(line.ProductId));
+                     }
+ 
+-                    plans.Add(new LinePlan(line, received, disposed, returned, lineItems, dispositions));
++                    plans.Add(new LinePlan(
++                        line, received, disposed: 0, returned,
++                        Items: Array.Empty<CardTransferItem>(), Dispositions: Array.Empty<CardDispositionEntry>(),
++                        DifferenceAction: s.DifferenceAction));
+                 }
+             }
+ 
+@@ -456,17 +500,32 @@ namespace InfrastructureLayer.Services
+                         sourceStock.HoldQuantity = releasedHold;
+                         sourceStock.UpdatedAt = DateTime.UtcNow;
+ 
+-                        if (plan.Received > 0 || plan.Returned > 0)
++                        // ---- Target credit: Known and Unknown/ReturnedToSource both leave the
++                        // remainder in transit (Hold, pending its own return-leg receive);
++                        // Unknown/KeptAtDestination instead settles the whole quantity at the
++                        // target immediately, with nothing left over to send anywhere.
++                        int availableCredit = plan.Received;
++                        int holdCredit = plan.Returned;
++                        if (line.ProductTransactionWay == ProductTransactionWay.Unknown &&
++                            plan.DifferenceAction == TransferDifferenceAction.KeptAtDestination)
++                        {
++                            availableCredit += plan.Returned;
++                            holdCredit = 0;
++                        }
++
++                        if (availableCredit > 0 || holdCredit > 0)
+                         {
+                             Stock targetStock = await _unitOfWork.Stocks.GetOrCreateForUpdateAsync(
+                                 tenantId, transfer.TargetBranchId, line.ProductId, cancellationToken);
+-                            targetStock.AvailableQuantity += plan.Received;
+-                            targetStock.HoldQuantity += plan.Returned;
++                            targetStock.AvailableQuantity += availableCredit;
++                            targetStock.HoldQuantity += holdCredit;
+                             targetStock.UpdatedAt = DateTime.UtcNow;
+                         }
+ 
+                         // ---- Return leg: fresh line + fresh item rows on the return transfer. -
+-                        if (plan.Returned > 0)
++                        // Gated on holdCredit, not the raw remainder — a KeptAtDestination
++                        // resolution has a remainder but sends nothing back anywhere.
++                        if (holdCredit > 0)
+                         {
+                             returnTransfer ??= new CardTransfer
+                             {
+@@ -474,6 +533,7 @@ namespace InfrastructureLayer.Services
+                                 BranchRequestId = transfer.BranchRequestId,   // D-04: return inherits its parent's request
+                                 CreatedAt = DateTime.UtcNow,
+                                 CreatedByTenantId = tenantId,
++                                CreatedByUsername = checkedByUsername,   // the Checker who settled the parent is this return's Maker
+                                 SourceBranchId = transfer.TargetBranchId,
+                                 TargetBranchId = transfer.SourceBranchId,
+                                 TransactionStatus = TransactionStatus.InProgress,
+@@ -502,10 +562,10 @@ namespace InfrastructureLayer.Services
+                     }
+ 
+                     // API §4.9, decision D-04: credit the fulfilling request's counters when this
+-                    // transfer settles a request line. Every plan built here was always a
+-                    // Known-way line — SettleAsync only ever runs over openLines (Unknown-way
+-                    // lines settle at create time instead, per §1.4) — so no branching on
+-                    // ProductTransactionWay is needed at this call site.
++                    // transfer settles a request line. Plans built here can now be Known- or
++                    // Unknown-way (Unknown-way Maker-Checker workflow — it no longer settles at
++                    // create time, §1.4/§1.7) — no branching on ProductTransactionWay is needed at
++                    // this call site regardless, since it only ever reads `Received` per line.
+                     if (transfer.BranchRequestId is long brId)
+                     {
+                         var receivedByProductId = plans.ToDictionary(p => p.Line.ProductId, p => p.Received);
+@@ -520,6 +580,7 @@ namespace InfrastructureLayer.Services
+                         totalReceived == 0 && totalDisposed == 0 ? TransactionStatus.ReturnedBack :
+                         TransactionStatus.PartiallyReceived;
+                     transfer.StatusChangedAt = DateTime.UtcNow;
++                    transfer.CheckedByUsername = checkedByUsername;
+                     if (!string.IsNullOrWhiteSpace(actionNotes)) transfer.ActionNotes = actionNotes;
+ 
+                     if (disposal is not null) await _unitOfWork.CardDisposals.AddAsync(disposal, cancellationToken);
+@@ -665,7 +726,8 @@ namespace InfrastructureLayer.Services
+                 t.SourceBranchId, t.SourceBranch.Name,
+                 t.TargetBranchId, t.TargetBranch.Name,
+                 t.TransactionStatus, t.Origin, t.ParentTransferId, t.BranchRequestId,
+-                t.ActionNotes, t.CreatedAt, t.CreatedByTenantId, t.StatusChangedAt,
++                t.ActionNotes, t.CreatedAt, t.CreatedByTenantId, t.CreatedByUsername,
++                t.StatusChangedAt, t.CheckedByUsername,
+                 Convert.ToBase64String(t.RowVersion),
+                 t.Products.Select(MapProductLine).ToList(),
+                 items);
+@@ -677,7 +739,7 @@ namespace InfrastructureLayer.Services
+             {
+                 return new TransferProductResponse(
+                     p.ProductId, p.Product?.Name ?? string.Empty, p.TransactedQuantity,
+-                    null, null, 0, p.ProductTransactionWay, ProductReceiveOutcome.Pending);
++                    null, null, 0, p.ProductTransactionWay, ProductReceiveOutcome.Pending, p.DifferenceAction);
+             }
+ 
+             int received = p.RealQuantityReceived.Value;
+@@ -692,12 +754,13 @@ namespace InfrastructureLayer.Services
+ 
+             return new TransferProductResponse(
+                 p.ProductId, p.Product?.Name ?? string.Empty, p.TransactedQuantity,
+-                received, disposed, returned, p.ProductTransactionWay, outcome);
++                received, disposed, returned, p.ProductTransactionWay, outcome, p.DifferenceAction);
+         }
+ 
+         /// <summary>Caller-stated settlement for one product line, before validation.</summary>
+         private readonly record struct LineSettlement(
+-            int Received, int Disposed, IReadOnlyList<CardDispositionEntry>? ItemDispositions);
++            int Received, int Disposed, IReadOnlyList<CardDispositionEntry>? ItemDispositions,
++            TransferDifferenceAction? DifferenceAction);
+ 
+         /// <summary>Validated, ready-to-apply settlement plan for one product line.</summary>
+         private sealed record LinePlan(
+@@ -706,6 +769,7 @@ namespace InfrastructureLayer.Services
+             int Disposed,
+             int Returned,
+             IReadOnlyList<CardTransferItem> Items,
+-            IReadOnlyList<CardDispositionEntry> Dispositions);
++            IReadOnlyList<CardDispositionEntry> Dispositions,
++            TransferDifferenceAction? DifferenceAction);
+     }
+ }
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/TransactionsController.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/TransactionsController.cs
+index 0e7614e..9395406 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/TransactionsController.cs
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/TransactionsController.cs
+@@ -14,9 +14,20 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+     /// settles its own tenant's transfers; a system admin has read-only access across tenants
+     /// (decision Q7) — create, receive, and dispose all reject an admin token outright.
+     /// <para>
++    /// Every line — Known-way or Unknown-way — now follows the same create-then-settle shape
++    /// (Unknown-way Maker-Checker workflow): creating a transfer never finalizes stock movement by
++    /// itself, and every transfer opens <c>InProgress</c> until a separate <see cref="Receive"/>
++    /// call states what was actually confirmed. The same account may create and later settle a
++    /// transfer — both identities are recorded on the transfer regardless (see
++    /// <c>TransferDetailResponse.CreatedByUsername</c>/<c>CheckedByUsername</c>).
++    /// </para>
++    /// <para>
+     /// There is no separate refuse endpoint. Every settlement outcome — received, disposed, or
+     /// (for whatever is left over) returned — goes through <see cref="Receive"/>, which carries a
+-    /// disposition per product line rather than a single accept/reject flag.
++    /// disposition per product line: an explicit per-card outcome for a Known-way line, or a
++    /// received quantity plus (when there's a remainder) a difference action for an Unknown-way
++    /// line. An Unknown-way line cannot be disposed of — it moves entitlement only, so there is no
++    /// physical card to write off.
+     /// </para>
+     /// </summary>
+     /// <response code="401">No valid bearer token was supplied.</response>
+@@ -60,7 +71,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+ 
+         /// <summary>
+         /// Settles an in-progress transfer: a per-product disposition of received and disposed
+-        /// quantities, with whatever is left over spawning a new transfer back to the source.
++        /// quantities. For a Known-way line, whatever is left over always spawns a new transfer
++        /// back to the source. For an Unknown-way line with a remainder, the caller states a
++        /// difference action: <c>ReturnedToSource</c> spawns a return transfer exactly like the
++        /// Known-way case, while <c>KeptAtDestination</c> credits the full quantity to the target
++        /// immediately and spawns nothing.
+         /// </summary>
+         [HttpPost("{id:long}/receive")]
+         [ProducesResponseType(typeof(ApiResponse<SettleTransferResult>), StatusCodes.Status200OK)]
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+index 2c2057e..99cea5d 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+@@ -372,6 +372,18 @@
+   <data name="Transfer.ActionNotesTooLong" xml:space="preserve">
+     <value>الملاحظة مينفعش تزيد عن {0} حرف.</value>
+   </data>
++  <data name="Transfer.DifferenceActionRequired" xml:space="preserve">
++    <value>المنتج {0} ماوصلش بالكامل، لازم تحدد هيتعمل ايه في الفرق.</value>
++  </data>
++  <data name="Transfer.DifferenceActionNotApplicable" xml:space="preserve">
++    <value>المنتج {0} مفيهوش فرق متبقي، أو بيتتبع بالكارت، فمفيش داعي تحدد هيتعمل ايه في الفرق.</value>
++  </data>
++  <data name="Transfer.InvalidDifferenceAction" xml:space="preserve">
++    <value>القيمة اللي اتبعتت لحل الفرق بتاع المنتج {0} مش متعرفة.</value>
++  </data>
++  <data name="Transfer.DisposalNotAllowedForUnknown" xml:space="preserve">
++    <value>المنتج {0} مش متتبع بالكارت، فمينفعش يتعدم. سوّي الفرق باستخدام قرار حل الفرق بدل كده.</value>
++  </data>
+   <data name="Disposal.ActorNotResolved" xml:space="preserve">
+     <value>معرفناش مين اللي بيستخدم النظام دلوقتي.</value>
+   </data>
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+index 4cc4bd1..c752bdd 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+@@ -372,6 +372,18 @@
+   <data name="Transfer.ActionNotesTooLong" xml:space="preserve">
+     <value>The note cannot exceed {0} characters.</value>
+   </data>
++  <data name="Transfer.DifferenceActionRequired" xml:space="preserve">
++    <value>Product {0} was not fully received, so a difference action must be specified.</value>
++  </data>
++  <data name="Transfer.DifferenceActionNotApplicable" xml:space="preserve">
++    <value>Product {0} has no unreceived remainder, or is tracked per card, so a difference action does not apply.</value>
++  </data>
++  <data name="Transfer.InvalidDifferenceAction" xml:space="preserve">
++    <value>The difference action supplied for product {0} is not recognized.</value>
++  </data>
++  <data name="Transfer.DisposalNotAllowedForUnknown" xml:space="preserve">
++    <value>Product {0} is not tracked per card, so it cannot be disposed of. Settle it with a difference action instead.</value>
++  </data>
+   <data name="Disposal.ActorNotResolved" xml:space="preserve">
+     <value>The acting principal could not be resolved.</value>
+   </data>
+diff --git a/docs/PROJECT_KNOWLEDGE.md b/docs/PROJECT_KNOWLEDGE.md
+new file mode 100644
+index 0000000..c9006bc
+--- /dev/null
++++ b/docs/PROJECT_KNOWLEDGE.md
+@@ -0,0 +1,473 @@
++# Project Knowledge
++
++> Living technical documentation for this repository.
++> This file must be updated whenever project behavior, architecture,
++> database structure, APIs, integrations, or important technical decisions change.
++
++## AI Agent Instructions
++
++Before modifying the project:
++
++1. Read this file.
++2. Inspect the relevant code — always re-clone/re-read from disk; never work from a prior summary or this file alone.
++3. Treat the code as the source of truth. Where this file and the code disagree, the code wins — fix this file, not your understanding of the code.
++4. Identify affected modules and invariants (§4, §11).
++5. Update this file when the change affects documented knowledge (see §"Automatic Maintenance Rule" at the end).
++
++Do not assume this document is complete. Several areas are marked `⚠️ Unclear / requires confirmation` — verify those against the code before relying on them.
++
++---
++
++## 1. Project Overview
++
++**Purpose:** A multi-tenant inventory management and card issuance platform ("calimly"). Tenants (banks) manage a catalog of card products, receive physical cards via encrypted batch upload, track per-branch stock, transfer cards between their own branches, dispose of written-off cards, generate encrypted card files for printers, and raise/fulfil inter-branch stock requests.
++
++**Main business responsibilities:**
++- Tenant & branch management (auth identity = tenant account, no separate users table)
++- Product catalog (card types / SKUs)
++- Batch card ingestion (encrypted `.dat` file upload → parse → validate → persist `ProductItem` rows)
++- Stock tracking per (tenant, branch, product) with available/hold quantities
++- Card transfers between branches, with partial-receipt/dispose/return lifecycle
++- Branch stock requests (a branch asks for more of a product; another branch's transfer(s) fulfil it)
++- Card write-off (disposal) with mandatory reason
++- Encrypted card-file generation for print integration
++- Audit logging of all CRUD and key non-CRUD actions
++
++**Main applications:** Single ASP.NET Core Web API (no separate front-end in this repo).
++
++**Main technologies:** .NET 8, ASP.NET Core, EF Core 8.0.27, SQL Server, Serilog (with AES-encrypted file sinks), ClosedXML (Excel failed-rows reports), Swashbuckle 6.6.2, JWT bearer auth (`Microsoft.AspNetCore.Authentication.JwtBearer`), PBKDF2 via `Microsoft.Extensions.Identity.Core`.
++
++**Runtime/framework versions:** All four projects target `net8.0`. The API Endpoint Specification document references .NET 10 — the codebase has **not** been retargeted (see README, confirmed still accurate). Nullable reference types and implicit usings are enabled everywhere.
++
++**Important external dependencies:** SQL Server only. No message broker, no cache, no cloud storage, no third-party HTTP integrations exist in this codebase today. No background job runner (Hangfire etc.) — batch upload runs synchronously inside the request.
++
++---
++
++## 2. Repository Structure
++
++```
++InventoryManagmentAndInstanceIssuanceSolution.sln
++├── DomainLayer/                                              # Zero dependencies
++│   ├── Common/          Result, Result<T>, Error, ErrorCategory, AuditableEntity
++│   ├── Entities/         All EF entities (POCOs, no EF Core reference)
++│   └── Enums/            All persisted enums (TINYINT via HasConversion<byte>())
++├── ApplicationLayer/                                          # Depends on Domain only
++│   ├── common/           PaginatedResponse<T>
++│   ├── Contracts/        IUnitOfWork, IGenericRepo<T,TKey>, named repo interfaces,
++│   │                     ICurrentTenant, security/crypto contracts, ITransferComposer
++│   ├── DTOs/              Request/response DTOs, grouped by module folder
++│   ├── Errors/            Static *Errors classes — one per module, all Error factories
++│   ├── Options/           Strongly-typed config sections (Options pattern)
++│   ├── ServicesContracts/ IServiceManager + one interface per service
++│   ├── BatchUpload/       .dat wire-format spec, row parser, failure-reason model
++│   └── CardFiles/         Card-file line/writer contracts, rejection reasons
++├── InfrastructureLayer/                                       # Depends on Application + Domain
++│   ├── Data/              AppDbContext (all Fluent API config), DbSeeder, SaveChanges interceptor
++│   ├── Migrations/        EF Core migrations (committed as source, 16 as of R1-BranchRequests)
++│   ├── Repositories/      One repo class per aggregate, implementing the named-method contracts
++│   ├── Security/          JwtTokenGenerator, Pbkdf2PasswordHasher, PanFingerprintGenerator, BatchFileCipher
++│   ├── Services/          One service class per ServicesContracts interface + ServiceManager facade
++│   ├── Reporting/         FailedRowsReportBuilder (ClosedXML)
++│   ├── Logging/           Serilog encrypted file sink + options
++│   └── UnitOfWork.cs      IUnitOfWork implementation (repo aggregation + ExecuteInTransactionAsync)
++└── InventoryManagmentAndInstanceIssuancePresentationLayer/     # Depends on Application only
++    ├── Controllers/        One controller per resource (see §6)
++    ├── Common/              ApiResponse<T>, ApiError, ResultExtensions (Result → IActionResult), ValidationResponseFactory
++    ├── MiddleWares/         GlobalExceptionMiddleware
++    ├── Security/             AuthorizationPolicies, CurrentTenant (ICurrentTenant impl from JWT claims)
++    ├── Filters/              LocalizeErrorResultFilter (Error.Code → IStringLocalizer message)
++    ├── Swagger/              AcceptLanguageHeaderOperationFilter
++    ├── Resources/Localization/ Messages.resx (EN) + Messages.ar.resx (AR), Messages.cs bundle
++    └── Program.cs            Composition root
++```
++
++Root of the repo also holds a sequence of `git format-patch` files (`R1..R6-*.patch`, `T0..T6-*.patch`, `phase1..phase9-*.patch`, etc.) — these are the delivery artifacts for each implementation phase, already applied to `main`. They are historical delivery records, not living documentation; do not treat their presence as meaning the corresponding work is unapplied.
++
++---
++
++## 3. Architecture
++
++**Style:** Strict Onion / Clean Architecture. Dependency direction: `Presentation → Application ← Infrastructure`, with `Domain` at the center depended on by everything. Infrastructure is never referenced from Domain or Application. The Presentation layer is the composition root (`Program.cs`) and is the only place `InfrastructureServiceRegistration.AddInfrastructure` is called from.
++
++**Key architectural patterns:**
++
++| Pattern | Where | Notes |
++|---|---|---|
++| Result monad | `DomainLayer.Common.Result` / `Result<T>` | No thrown exceptions for business outcomes. `Result`'s constructor throws `InvalidOperationException` if success/error are inconsistent — a correctness guard, not a business-flow exception. |
++| Response envelope | `ApiResponse<T>` (Presentation) | `{ success, data, error }` on every endpoint, success or failure. `ResultExtensions.ToActionResult(this)` is the one-liner controller convention. |
++| Error → HTTP mapping | `ErrorCategory` enum | `Validation`→422, `Conflict`→409, `NotFound`→404, `Unauthorized`→401, `Forbidden`→403, `Internal`→500 (introduced for batch-upload's own boundary catch). |
++| Repository + Unit of Work | `IGenericRepo<T,TKey>` + named repo interfaces, `IUnitOfWork` | Raw query predicates never appear in services; every query is a named repo method. Repos share one `AppDbContext` per request/UoW instance. |
++| Multi-tenancy | `ICurrentTenant` (claims-derived) | **Not** enforced via global EF query filters for tenant — only soft-delete has a global filter (`!IsDeleted`) on `AuditableEntity`-derived types with one. Tenant scoping is manual: every repo method that should be tenant-scoped takes an explicit tenant id/scope parameter. `AuditSaveChangesInterceptor` and `AppDbContext` constructor both take `ICurrentTenant` for cross-cutting behavior (audit rows, no query filter). |
++| Service façade | `IServiceManager` | One property per service interface; controllers depend on `IServiceManager` only, not individual services. |
++| Lazy factory pattern | `System.Func<IXxxService>` registrations in `InfrastructureServiceRegistration` | Registered alongside most services (e.g. `services.AddScoped<Func<IBranchService>>(...)`) — ⚠️ Unclear/requires confirmation: no `ServiceManager.cs` consumer of these `Func<>` registrations was inspected in this pass; verify whether `ServiceManager` actually injects `Lazy<T>`/`Func<T>` or resolves services directly before relying on this pattern in new code. |
++| Concurrency control | `[Timestamp] byte[] RowVersion` | On `CardTransfer`, `BranchRequest`, `Stock`. `DbUpdateConcurrencyException` is caught at both the service layer (mapped to a module-specific `ConcurrencyConflict()` error, 409) and, as a last-resort net, in `GlobalExceptionMiddleware` (also 409). |
++| Enum persistence | `.HasConversion<byte>()` in Fluent API, on every persisted enum | Enum values documented in each enum's XML doc as "ERD value N"; new values are always appended, never renumbered, to avoid silent remapping of already-persisted rows. |
++| Cross-aggregate FKs | `DeleteBehavior.NoAction` | Applied on essentially every FK that isn't a strict parent→child ownership edge, specifically to avoid SQL Server's multiple-cascade-path error and to keep movement/audit history intact even if a branch/product is later deleted. |
++| Cascade FKs | `DeleteBehavior.Cascade` | Only on true parent-owns-child edges: `Batch→ProductItem`, `CardTransfer→{Products,Items}`, `CardDisposal→Items`, `BranchRequest→Items`. |
++| Controller shape | One-liner actions | `(await _services.X.YAsync(...)).ToActionResult(this)` — no logic in controllers. |
++| Validate-then-write | Services validate every input line before any write | e.g. `BranchRequestService.CreateAsync` loads/validates every product line before constructing the entity; `ConfirmAsync` calls `ITransferComposer.ValidateAsync` for every plan before any `StageAsync` runs inside the transaction. |
++| Shared core extraction | `ITransferComposer` | `TransferService.CreateAsync`'s original logic split into `ValidateAsync` (read-only) / `StageAsync` (writes, must run inside an ambient transaction) so `BranchRequestService.ConfirmAsync` can validate every plan up front, then stage them all inside one transaction. |
++
++**Cross-cutting concerns:**
++- **Structured logging:** Serilog, writing to console plus two AES-encrypted file sinks (exceptions; warnings+ without exception). Requires `LogEncryption:Password` / `:Salt` via user-secrets/env — app fails to start (in `Program.cs`, before the host is even built) if missing.
++- **Global exception handling:** `GlobalExceptionMiddleware`, registered first in the pipeline (before Swagger/auth), maps `DbUpdateConcurrencyException`→409 and everything else→500, always via the `ApiResponse<object>` envelope, and stamps `X-Trace-Id` on every response (correlates with `HttpContext.TraceIdentifier`, which Serilog also logs).
++- **Model validation:** `ApiBehaviorOptions.InvalidModelStateResponseFactory` replaced with `ValidationResponseFactory.Build`, so `[ApiController]`'s automatic 400 becomes a 422 in the same envelope shape as business validation failures.
++- **Localization:** `LocalizeErrorResultFilter` (an `IAsyncResultFilter`, registered as `options.Filters.Add<LocalizeErrorResultFilter>()`) rewrites `ApiError.Message` by looking up `Error.Code` in `IStringLocalizer`-backed `Messages.resx`/`Messages.ar.resx`, using the incoming `Accept-Language` header (`app.UseRequestLocalization()`).
++- **Audit logging:** Two mechanisms, not one — (1) `AuditSaveChangesInterceptor` (EF `SaveChangesInterceptor`) automatically writes one `AuditLog` row per `Added`/`Modified`/`Deleted` change to any `AuditableEntity`-derived type, discovering the owning tenant by convention off a `TenantId` property; (2) `IAuditLogger.StageAction(...)`, called explicitly by services for non-CRUD or non-`AuditableEntity` actions (Login, branch-request Confirm/Refuse/Cancel, transfer creation/settlement, disposal) since those aggregates (`CardTransfer`, `BranchRequest`, `CardDisposal`, etc.) are deliberately **not** `AuditableEntity`.
++
++---
++
++## 4. Domain / Business Modules
++
++### Auth & Tenancy
++- **Responsibility:** Authentication (tenant + system admin), tenant CRUD, branch CRUD.
++- **Main entities:** `Tenant` (is itself the auth identity — no separate users table; one account per tenant), `SystemAdmin` (bootstrap admin, outside the tenant model), `RefreshToken`, `Branch`.
++- **Key rule:** Single account per tenant. JWT claims: `username`, `isSystemAdmin` (`"true"`/`"false"` string), `tenantId` (present only for tenant tokens). `[Authorize]` only — no permission/role attributes anywhere; the one exception is the `SystemAdminOnly` policy (`AuthorizationPolicies`), used to gate the tenant-management module to system admins.
++- **Constraint:** `SystemAdmin` never performs regular tenant operations (create transfer, confirm branch request, dispose cards) — every write-path service rejects an admin token outright with a module-specific `SystemAdminNotAllowed`/equivalent error; admin access elsewhere is read-only across tenants.
++
++### Catalog (Products, Branches)
++- **Responsibility:** Tenant's card-type catalog and branch list.
++- **Main entities:** `Product` (name unique per tenant among non-deleted rows; `ProductTransactionWay` — see Transfers below — and `UsingPrinterType`), `Branch` (name unique per tenant among non-deleted rows; `IsActive` flag).
++- **Invariant:** `Product.ProductTransactionWay` (Known vs Unknown) is **immutable once cards exist for that product** (decision P6) — settlement logic depends on this never drifting after cards are in flight.
++
++### Stock & Cards
++- **Responsibility:** Per-(tenant, branch, product) quantity tracking; individual physical card records.
++- **Main entities:** `Stock` (composite PK `(TenantId, BranchId, ProductId)`; `AvailableQuantity` + `HoldQuantity`, both `>= 0` via check constraints), `ProductItem` (one row per physical card; `PanFingerprint` is the sole identity/dedup key, `MaskedPan` is display-only).
++- **Key invariant (Known-way products):** `count(ProductItems WHERE BranchID=X AND Status=Available AND ProductId=P) == Stock[X,P].AvailableQuantity`.
++- **Key invariant (Unknown-way products):** that equality does **not** hold — `Stock` is the branch's entitlement; backing cards live in a tenant-wide unassigned pool (`ProductItem.BranchID IS NULL`, `Status = OnHold`), and which pool card backs which branch is resolved only at print time.
++- **`ProductItem.BranchID == null`** means exactly two things, always paired with `CardStatus.OnHold`: in-transit under an in-flight transfer, or an Unknown-way card received-but-not-yet-printed. A null-branch card is immutable to everything outside the Transactions module (batch re-sight, status update, soft delete all refuse to touch it).
++
++### Batch Upload
++- **Responsibility:** Ingest AES-256-GCM-encrypted `.dat` files of cards into `ProductItem` rows.
++- **Wire format (`ApplicationLayer.BatchUpload.BatchFileFormat`):** one card per line, `PAN|ProductName|BranchName`, UTF-8, **no BOM** (load-bearing — decryption doesn't strip a preamble), `\n` emitted (parser accepts `\r\n` too). PAN: 13–19 digits, Luhn-valid.
++- **Main entities:** `Batch` (one row per upload run; `FileMac` = SHA-256 of decrypted content, unique per tenant among non-deleted rows — the duplicate-file guard).
++- **Key rule:** The pipeline runs **synchronously inside one request/transaction** — no queued/async state, hence `UploadStatus` has no Pending/Processing value.
++- **Known intentional gap:** `BatchUploadService` does **not** mark a `Batch` row `Failed` on an unhandled exception mid-pipeline, to avoid permanently blocking re-upload after a transient failure (the `FileMac` uniqueness constraint would otherwise block retry of the same file).
++- **Secrets:** `BatchCipherOptions` (`MasterSecret` + `Salt`) — separate secret from `PanHashOptions` by design (key separation). Both fail-fast at startup via `ValidateOnStart()`.
++
++### Card File Generation
++- **Responsibility:** Produce an encrypted `.dat`-format file (same wire format as batch upload, produced by `CardFileWriter`) for printer integration.
++- **Config:** `CardFileOptions.MaxCardsPerRequest` (default 50,000) — caps unbounded in-memory plaintext/base64 construction per request.
++- **Errors:** `CardFileErrors` supports field-level rejection detail via `Error.WithDetails(...)` (added specifically so a rejected generation request can report *which* cards failed and why).
++
++### Transfers (Card Transfers)
++- **Responsibility:** Move cards between two branches of the same tenant; settle via a single `receive` call carrying a per-line disposition (no separate `refuse` endpoint).
++- **Main entities:** `CardTransfer` (append-only — no `AuditableEntity`, no soft delete, no query filter; own `CreatedAt`/`RowVersion`), `CardTransferProduct` (one row per product line, snapshots `ProductTransactionWay` at creation), `CardTransferItem` (one row per physical card, **Known-way lines only** — an Unknown-way line moves `Stock` entitlement alone and has no card to select, so it carries no item rows at all, before or after settlement).
++- **Maker-Checker identity (Unknown-way Maker-Checker workflow, decision confirmed with the repo owner):** `CardTransfer.CreatedByUsername` (required) and `.CheckedByUsername` (nullable, set at settlement) record the acting account on every transfer, Known-way or Unknown-way. It is explicitly fine for the same account to be both Maker and Checker — this system has one account per tenant, so there is no per-user identity to compare; what the workflow requires is that identity be *recorded*, not that two different identities be proven.
++- **Two ways a transfer is born:** `TransactionOrigin.UserCreated` (direct create, or via a confirmed `BranchRequest`) or `TransactionOrigin.AutoGeneratedReturn` (system-manufactured to carry a partial receipt's unreceived remainder back to the source; `ParentTransferId` set; chains are **not** capped at one level — `Parent.Parent` can be non-null).
++- **Settlement identity (DB-enforced check constraint):** `RealQuantityReceived + DisposedQuantity <= TransactedQuantity` per line; the returned remainder is `TransactedQuantity - RealQuantityReceived - DisposedQuantity`, deliberately **not stored** (derivable, so storing it invites disagreement).
++- **Known-way settlement (current state, ⚠️ open design point per Belal's plan):** every card on a Known-way line must be given an explicit disposition (`Received`/`Disposed`/`NotReceived`) in the `receive` call — `TransferService` currently **requires** `ItemDispositions` for every item on a Known-way line (`TransferErrors.DispositionsRequired` / `DispositionCountMismatch` if missing or mismatched).
++- **Unknown-way settlement (Unknown-way Maker-Checker workflow — supersedes the earlier "Unknown Inventory Refactor," which settled these lines immediately at creation/confirm):** an Unknown-way line now follows the same create → pending → settle lifecycle a Known-way line always had, just without any card to select. At creation (`TransferComposer.StageAsync`), the line moves the source's `Available → Hold` and leaves the target untouched — `RealQuantityReceived` stays `null` (pending), and the transfer always opens `InProgress` (there is no longer a case where staging closes a transfer outright, Known-way or Unknown-way). At settlement (`TransferService.SettleAsync`), the caller states a received quantity and, only when a remainder exists, a `CardTransferProduct.DifferenceAction` (`ReturnedToSource` or `KeptAtDestination`, per-line): `ReturnedToSource` mirrors the Known-way "returned" path exactly — the target's `Hold` rises by the remainder and an auto-generated return transfer carries it back, itself requiring its own `receive` call; `KeptAtDestination` instead credits the target's `Available` with the *full* transacted quantity and spawns nothing — the gap between what was confirmed and what was credited stays visible via `DifferenceAction` rather than being expressed as stock in transit. Disposal is not supported for an Unknown-way line (`TransferErrors.DisposalNotAllowedForUnknown`) — there is no physical card to write off, so `POST /{id}/dispose` rejects outright if any open line on the transfer is Unknown-way.
++- **Fulfilment credit gating:** Only a transfer whose `TargetBranchId` equals the branch-request's `RequestingBranchId` credits `BranchRequestItem.ReceivedQuantity` — a return transfer heads *away* from the requesting branch, so even though it inherits `BranchRequestId` (decision D-04), it never credits (checked explicitly in `BranchRequestFulfilment.ApplyReceiptAsync`). Post the Unknown-way Maker-Checker workflow, `BranchRequestFulfilment` is the credit path for **every** settled line, Known or Unknown — a branch-request confirm only stages transfers now, it never settles one, so the "credited inline at confirm" case no longer exists for any line shape.
++- **Constraint (DB):** `SourceBranchId <> TargetBranchId` (check constraint `CK_CardsTransferHistory_SourceNotTarget`), also pre-empted in the service layer before it would ever hit the DB.
++- **Extraction:** `ITransferComposer` (`ValidateAsync` + `StageAsync`) is the shared core behind both direct create (`TransactionsController`) and branch-request confirm (`BranchRequestsController` → `BranchRequestService.ConfirmAsync`). `StageAsync` also takes the acting account's username (Maker identity) as an explicit parameter — actor resolution stays with each caller, matching how `tenantId` is already handled. Not covered by the composer: the 500-card-per-transfer cap (direct-create only, `TransferService.ValidateCreateShape`), actor resolution itself, audit staging, detail reload/mapping — these stay with each caller.
++
++### Card Disposal
++- **Responsibility:** Permanently write off cards, with a mandatory reason and the responsible branch.
++- **Main entities:** `CardDisposal` (header; append-only, no soft delete — a mistaken disposal is corrected by a compensating inbound batch, never undone), `CardDisposalItem` (one row per card written off; rows exist for both Known- and Unknown-way disposals).
++- **Why its own aggregate rather than columns on `ProductItem`:** one operational event ("water-damaged box") covers many cards; storing the reason per card would repeat it N times with no way to query "what did branch X write off last quarter and why."
++- **`CardDisposal.CardTransferId`** is set when the disposal is settling an in-flight transfer, `null` when cards sitting at a branch are disposed outside any transfer.
++
++### Branch Requests (API §4.9)
++- **Responsibility:** A branch records a need for stock; another branch's transfer(s), created via `confirm`, fulfil it — fully or partially, possibly across multiple transfers.
++- **Main entities:** `BranchRequest` (append-only-with-status — **not** `AuditableEntity`, no soft delete (decision Q-09), no query filter, no restore endpoint — matches the `CardTransfer` precedent), `BranchRequestItem` (one line per requested product; two independent, never-decremented counters: `DispatchedQuantity`, `ReceivedQuantity`).
++- **Status is computed, not assigned ad hoc (decision D-03):** every transition except the two terminal closures (`Refused`, `Cancelled`) flows through `BranchRequest.RecomputeStatus()`, a pure function of the line counters, evaluated strongest-condition-first (`Fulfilled` > `PartiallyFulfilled` > `Confirmed` > `PartiallyConfirmed` > `InProgress`). An empty `Items` collection resolves to `InProgress`, never vacuously to `Fulfilled`.
++- **Two independent counters, not one (decision D-01):** `DispatchedQuantity` — cumulative across every transfer generated for the line, credited in `ConfirmAsync` regardless of Known/Unknown way. `ReceivedQuantity` — cumulative actually credited to the requesting branch, credited by `BranchRequestFulfilment.ApplyReceiptAsync` when the generated transfer settles (`TransferService.SettleAsync`). This is now uniform across Known- and Unknown-way lines: post the Unknown-way Maker-Checker workflow, a confirm only *stages* transfers, it never settles one — the earlier "Unknown-way credits inline at confirm, before any receive call" behavior no longer exists for either way.
++- **Over-fulfilment is allowed** (decision Q-03) — neither counter is ever decremented, and neither can be derived from the other.
++- **Unrequested products:** a confirming transfer plan may include product lines the original request never asked for; these credit nothing on the request (decision D-05) — they're surfaced only via the derived `UnrequestedProducts` collection on `GET /api/inventory/requests/{id}`, computed at read time from every transfer linked by `BranchRequestId`.
++- **Creation-time blocks:** duplicate open request for the same branch+product is rejected (`GetOpenProductIdsForBranchAsync`); requesting for an inactive branch is rejected outright (a request against an inactive branch could never be confirmed, since the branch would always fail as a transfer target); no per-request volume cap (decision Q-06, unlike `TransferService`'s 500-card cap on direct create).
++- **Confirm-time block:** `plan.SourceBranchId == branchRequest.RequestingBranchId` is rejected before even calling `ITransferComposer.ValidateAsync` (pre-empts the DB's source≠target check with a request-specific error).
++- **Closure (decision D-06):** `Refuse`/`Cancel` allowed only from `InProgress` or `PartiallyConfirmed` — once anything has been received, the request cannot be walked back (already-dispatched transfers still complete their own §4.10 lifecycle independently).
++- **Authorization:** system admins have read-only access across tenants; every write (create/confirm/refuse/cancel) rejects an admin token outright (`SystemAdminNotAllowed`) — same reasoning as `CardTransfer.CreatedByTenantId`: there's no admin-tenant id to attribute the action to. Any authenticated tenant user may settle a transfer without a branch-level check (no per-user identity below the tenant level exists to check against).
++- **Concurrency:** `RowVersion` on `BranchRequest`, added beyond the original ERD (decision Q-07) specifically so two concurrent confirm calls can't both read a non-terminal status and both generate transfers.
++
++---
++
++## 5. Database
++
++**Technology:** SQL Server, accessed via EF Core 8.0.27 (`Microsoft.EntityFrameworkCore.SqlServer`). One `DbContext`: `InfrastructureLayer.Data.AppDbContext`.
++
++**Migration strategy:** Migrations are committed as source code in `InfrastructureLayer/Migrations/`. `DbSeeder.MigrateAndSeedAsync` calls `context.Database.MigrateAsync()` on every app startup (idempotent) and seeds the bootstrap `SystemAdmin` from the `SeedAdmin:Username`/`SeedAdmin:Password` config section if no admin row exists yet (logs a warning and skips, rather than failing startup, if that section isn't configured). As of this pass, latest migration: `20260810120000_U1-UnknownTransferMakerChecker`.
++
++Model-changing commands (per README, confirmed still accurate):
++```bash
++dotnet ef migrations add <name> --project InfrastructureLayer --startup-project InventoryManagmentAndInstanceIssuancePresentationLayer
++dotnet ef database update --project InfrastructureLayer --startup-project InventoryManagmentAndInstanceIssuancePresentationLayer
++```
++
++**Soft delete:** `AuditableEntity` base (`CreatedAt`, `UpdatedAt`, `DeletedAt`, `IsDeleted`, `DeletedBy`) — used by `Tenant`, `SystemAdmin`, `Branch`, `Product`, `Batch`, `ProductItem`, `Stock`. A global query filter `!IsDeleted` is applied per-entity in `OnModelCreating` (not automatic for new `AuditableEntity` subtypes — must be added explicitly per entity, e.g. `entity.HasQueryFilter(b => !b.IsDeleted)`). `CardTransfer`, `CardTransferProduct`, `CardTransferItem`, `CardDisposal`, `CardDisposalItem`, `BranchRequest`, `BranchRequestItem` are all deliberately append-only and do **not** derive from `AuditableEntity` — no soft delete, no query filter, no restore endpoint for any of them.
++
++**Multi-tenancy:** No global EF query filter for tenant isolation (only soft-delete has one). Tenant scoping is manual — enforced by explicit tenant-id parameters on repository methods and by services resolving the caller's tenant via `ICurrentTenant` before querying. This means a new repository method must remember to filter by tenant itself; nothing in the DbContext does it automatically.
++
++**Concurrency (`RowVersion`):** `[Timestamp] byte[] RowVersion` on `Stock`, `CardTransfer`, `BranchRequest` — guards status/quantity flips against lost updates. `DbUpdateConcurrencyException` is caught explicitly in the relevant services (mapped to a 409 module error) and, as a fallback, in `GlobalExceptionMiddleware`.
++
++**Important tables and relationships (see `AppDbContext.OnModelCreating` region methods for full Fluent API):**
++
++| Table | Key | Notable indexes/constraints |
++|---|---|---|
++| `Tenants` | `Id` | Unique `Code`, unique `Username` (both across all rows including soft-deleted — identifiers stay reserved) |
++| `SystemAdmins` | `Id` | Unique `Username` filtered `IsDeleted=0` |
++| `RefreshTokens` | `Id` | Unique `TokenHash`; index on `userName` |
++| `Branches` | `Id` | Unique `(TenantId, Name)` filtered `IsDeleted=0` |
++| `Products` | `Id` | Unique `(TenantId, Name)` filtered `IsDeleted=0` |
++| `Stocks` | Composite `(TenantId, BranchId, ProductId)` | `AvailableQuantity >= 0`, `HoldQuantity >= 0` check constraints |
++| `Cards` (`ProductItem`) | `ID` | Unique `(TenantId, PanFingerprint)` filtered `IsDeleted=0` (identity/dedup); `PanFingerprint` is `binary(32)` fixed-length; covering index `(TenantId, ProductId, BranchID, PanFingerprint)`; index `(TenantId, BranchID, Status)` for the unassigned-pool/availability queries |
++| `Batches` | `Id` | Unique `(UploadedByTenantId, FileMac)` filtered `IsDeleted=0` (duplicate-file guard) |
++| `CardsTransferHistory` (`CardTransfer`) | `Id` | Check `SourceBranchId <> TargetBranchId`; indexes on `(TenantId, CreatedAt)`, `(TenantId, BranchRequestId)`, `(TenantId, TransactionStatus)`, `(TenantId, Origin)`, `ParentTransferId`, `SourceBranchId`, `TargetBranchId` |
++| `CardTransferProducts` | `Id` | Unique `(CardTransferId, ProductId)`; checks: `TransactedQuantity > 0`, `RealQuantityReceived >= 0` (nullable), `DisposedQuantity >= 0` (nullable), and the settlement-identity check `RealQuantityReceived + DisposedQuantity <= TransactedQuantity` |
++| `CardTransferItems` | `Id` | Unique `(CardTransferId, ProductItemId)`; `ProductItemId` FK is `NoAction` (also blocks a batch delete cascading through an in-flight card) |
++| `CardDisposals` | `Id` | Indexes on `(TenantId, DisposedAt)`, `(TenantId, BranchId)`, `CardTransferId`; `Reason` required, max 500 |
++| `CardDisposalItems` | `Id` | Unique `(CardDisposalId, ProductItemId)` |
++| `BranchRequests` | `Id` | Indexes on `(TenantId, RequestStatus)`, `(TenantId, RequestingBranchId)`, `(TenantId, RequestDateTime)` |
++| `BranchRequestItems` | `Id` | Unique `(RequestId, ProductId)`; checks: `AskedQuantity > 0`, `DispatchedQuantity >= 0`, `ReceivedQuantity >= 0` |
++| `AuditLogs` | `Id` (long) | Indexes on `(TenantId, Timestamp)`, `(EntityName, EntityId)`, `(ActorTenantId, Timestamp)`; no soft delete, immutable |
++
++**Two-navigation-to-same-target pitfall (repeated pattern, worth knowing before adding a new entity):** Several entities have two separate FKs to `Tenants` (e.g. `CardTransfer.Tenant` / `CreatedByTenant`; `BranchRequest.Tenant` / `ActionTakenByTenant`; `CardDisposal.Tenant` / `DisposedByTenant`). Each needs its **own** navigation property — a navigation-less `HasOne<Tenant>().WithMany()` call for both would make EF Core silently reconfigure the same relationship and leave the second FK unmapped. This is called out in multiple entity/DbContext doc comments; preserve the pattern for any future dual-tenant-FK entity.
++
++**Schema additions beyond the original ERD** (all explicitly flagged "Flagged for DBA review" in code comments — worth a real DBA pass before this platform reaches production scale): `RefreshToken` (whole table), `CardTransfer.ActionNotes` + `RowVersion`, `BranchRequest.RowVersion`, `BranchRequestItem.DispatchedQuantity` + `ReceivedQuantity`, `CardTransferProduct.DisposedQuantity`, `TransactionOrigin` enum, `CardStatus.Disposed`, `TransactionStatus.PartiallyReceived` + `.Disposed`, `TransactionItemReceiveStatus.Disposed`, `BranchRequestStatus.PartiallyConfirmed`/`.PartiallyFulfilled`/`.Fulfilled`.
++
++---
++
++## 6. APIs
++
++All controllers require `[Authorize]` (JWT bearer) except `AuthController`'s login endpoints. Every response uses the `ApiResponse<T>` envelope. List endpoints return `PaginatedResponse<T>` inside `Data`.
++
++| Controller | Route | Endpoints |
++|---|---|---|
++| `AuthController` | `api/auth` | `POST tenant`, `POST admin`, `POST refresh`, `POST logout`, `GET me` |
++| `TenantsController` | `api/tenants` | `GET`, `GET {id}`, `POST`, `PUT {id}`, `PUT {id}/password`, `DELETE {id}`, `POST {id}/restore` — system-admin only (`SystemAdminOnly` policy, see §7) |
++| `BranchController` | `api/branches` | `GET`, `GET {id}`, `POST`, `PUT {id}`, `DELETE {id}`, `POST {id}/restore`, `POST {id}/activate`, `POST {id}/deactivate` |
++| `ProductController` | `api/products` | `GET`, `GET {id}`, `POST`, `PUT {id}`, `DELETE {id}`, `POST {id}/restore`, `POST {id}/activate`, `POST {id}/deactivate` |
++| `StockController` | `api/stock` | `GET`, `GET branches/{branchId}` |
++| `ProductItemsController` | `api/product-items` | `GET`, `GET {id}`, `PUT {id}` |
++| `InventoryController` | `api/inventory` | `POST upload` (batch upload) |
++| `InventoryHistoryController` | `api/inventory/history` | `GET` |
++| `CardFilesController` | `api/card-files` | `POST` (generate) |
++| `TransactionsController` | `api/inventory/transactions` | `GET`, `GET {id}`, `POST` (create transfer), `POST {id}/receive`, `POST {id}/dispose` |
++| `CardDisposalsController` | `api/inventory` | `POST cards/dispose`, `GET disposals`, `GET disposals/{id}` |
++| `BranchRequestsController` | `api/inventory/requests` | `GET`, `GET {id}`, `POST`, `POST {id}/confirm`, `POST {id}/refuse`, `POST {id}/cancel` |
++
++**Request/response conventions:**
++- Success: `{ success: true, data: <T>, error: null }`.
++- Failure: `{ success: false, data: null, error: { code, message, category, ... } }` — `code` is stable and machine-readable (module-prefixed, e.g. `"BranchRequest.NotOpenForConfirmation"`); `message` is localized server-side per `Accept-Language`.
++- Validation failures from model binding (missing/malformed fields) are normalized to the same envelope, HTTP 422, via `ValidationResponseFactory` — not ASP.NET Core's default 400.
++- List endpoints accept a filter DTO via `[FromQuery]` and return `PaginatedResponse<T>` (`data`, `pageNumber`, `pageSize`, `totalCount`, `totalPages`).
++- DTO naming: the Branch Requests module deliberately prefixes its DTOs `StockRequest*` (`CreateStockRequest`, `StockRequestDetailResponse`, etc.) to avoid colliding with the `CreateBranchRequest`-style naming that would otherwise be expected — worth remembering when searching for these types.
++- Concurrency tokens are surfaced to clients as base64 strings (e.g. `StockRequestDetailResponse.RowVersion` via `Convert.ToBase64String(...)`), not raw byte arrays.
++- Correlation: every response carries `X-Trace-Id` (from `GlobalExceptionMiddleware`, tied to `HttpContext.TraceIdentifier`), useful for correlating a client bug report with server logs.
++
++**Versioning:** None — no API version segment in any route. ⚠️ Unclear/requires confirmation whether versioning is planned.
++
++---
++
++## 7. Authentication & Authorization
++
++**Mechanism:** JWT bearer tokens (HMAC-SHA256, `Microsoft.AspNetCore.Authentication.JwtBearer`), issued by `JwtTokenGenerator` (`InfrastructureLayer.Security`).
++
++**JWT claims:**
++- `username` — the authenticated principal's username (tenant or system admin).
++- `isSystemAdmin` — `"true"`/`"false"` string; drives the `SystemAdminOnly` policy and `ICurrentTenant.IsSystemAdmin`.
++- `tenantId` — present only on tenant tokens (via the `CreateForTenant(string username, long tenantId)` overload); absent on system-admin tokens.
++- `jti` (`JwtRegisteredClaimNames.Jti`) — a fresh GUID per token.
++
++**Access/refresh lifetimes:** `JwtOptions.AccessTokenMinutes` (default 480 = 8h), `RefreshTokenDays` (default 7). Signing key supplied via `Jwt:SigningKey` — **must** come from user-secrets/environment; `Program.cs` throws at startup if it's empty (`EnsureJwtSigningKeyPresent`).
++
++**Refresh tokens:** Persisted (`RefreshToken` entity), only a **hash** of the raw token stored (`TokenHash`); rotation on `/api/auth/refresh` revokes the current token and links the successor via `ReplacedByTokenHash` (reuse-detection scaffold). `IsSystemAdmin` and `TenantId` are captured at issue time so rotation reissues the same kind of token without a fresh DB lookup for that decision.
++
++**Authorization model:** `[Authorize]` only — **no permission/role attribute system**. The single named policy is `SystemAdminOnly` (`AuthorizationPolicies.SystemAdminOnly`), requiring the `isSystemAdmin` claim to equal `"true"`/`"True"`; used to gate `TenantsController` to system admins. Everywhere else, authorization is enforced in the service layer by branching on `ICurrentTenant.IsSystemAdmin` / `.TenantId` — e.g. every write path in `BranchRequestService` and `TransferService` rejects a system-admin token outright with a module-specific error, because those aggregates' "acting tenant" FK has nowhere to point for an admin.
++
++**Tenant isolation:** Manual, not automatic (see §5) — `ICurrentTenant` (implemented by `InventoryManagmentAndInstanceIssuancePresentationLayer.Security.CurrentTenant`, reading JWT claims off the current `HttpContext`) is injected wherever a service or the `AppDbContext`/interceptor needs to know who's asking; there's no query filter doing this for you.
++
++**Known dead code (flagged during this pass, not yet cleaned up):** `JwtTokenGenerator` has a single-argument `CreateForTenant(string username)` overload and a `TenantId` property that unconditionally throws `NotImplementedException`. Neither is referenced anywhere in the codebase (`IJwtTokenGenerator` only declares the two-argument `CreateForTenant(string, long)`, which is what `AuthService` actually calls). Safe to delete; harmless as-is since nothing calls it, but a landmine if something ever does.
++
++**Important security assumptions:**
++- Full PANs are never persisted — only `MaskedPan` (display) and `PanFingerprint` (HMAC-SHA256, keyed per-tenant via PBKDF2, `binary(32)`, identity/dedup only). See §11.
++- Passwords (`Tenant.PasswordHash`, `SystemAdmin.PasswordHash`) are PBKDF2-hashed via `Pbkdf2PasswordHasher`.
++- Three independent secrets, deliberately never shared (key separation): `Jwt:SigningKey`, `BatchCipher:MasterSecret`/`:Salt`, `PanHash:MasterSecret`/`:Salt`. All three fail app startup if missing (`ValidateOnStart()` / explicit checks in `Program.cs`).
++
++---
++
++## 8. Background Jobs
++
++None exist in this codebase. Batch upload — the one workload that might elsewhere be a background job — runs synchronously inside the HTTP request/DB transaction (see §4, Batch Upload). No Hangfire or equivalent is referenced anywhere in the `.csproj` files.
++
++---
++
++## 9. Integrations
++
++None. No Firebase/FCM, Azure services, blob storage, payment provider, email/SMS, Redis, or APM/telemetry integration exists in this codebase as of this pass. The "integration surface" is entirely file-based: encrypted `.dat` files in (batch upload) and out (card-file generation), both AES-based and both implemented locally (`BatchFileCipher`, `CardFileWriter`) with no external service call.
++
++---
++
++## 10. Configuration
++
++Configuration sources: `appsettings.json` (defaults, no secrets), `appsettings.Development.json`, user-secrets (`UserSecretsId` set in the Presentation `.csproj`) for local dev, environment variables for other environments. Bound via the Options pattern (`IOptions<T>`), one class per concern in `ApplicationLayer/Options`.
++
++| Section | Class | Required keys | Notes |
++|---|---|---|---|
++| `ConnectionStrings:DefaultConnection` | — | SQL Server connection string | Committed default targets `.\SQLEXPRESS`; override per environment. |
++| `Jwt` | `JwtOptions` | `SigningKey` (secret) | `Issuer`, `Audience`, `AccessTokenMinutes` (480), `RefreshTokenDays` (7) have defaults/committed values. |
++| `CardFile` | `CardFileOptions` | none (all defaulted) | `MaxCardsPerRequest` = 50,000. |
++| `BatchCipher` | `BatchCipherOptions` | `MasterSecret`, `Salt` (both secrets) | Validated on start. |
++| `PanHash` | `PanHashOptions` | `MasterSecret`, `Salt` (both secrets, `Salt` must be valid base64) | Validated on start; deliberately separate secret from `BatchCipher`. |
++| `LogEncryption` | `LogEncryptionOptions` | `Password`, `Salt` (both secrets) | App throws before host build if missing; `Directory`/`ErrorFileName`/`ExceptionFileName` defaulted. |
++| `SeedAdmin` | (raw config, no strongly-typed class) | `Username`, `Password` | If absent, seeding is skipped with a warning log rather than failing startup — so a fresh environment without this configured has **no system admin** until it's set and the app restarts. |
++
++**Never write actual secrets, passwords, tokens, connection strings, API keys, or credentials into this file.** Use `<SECRET>` as a placeholder if an example is ever needed.
++
++---
++
++## 11. Important Invariants & Business Rules
++
++These must not be broken by future changes without a deliberate, reviewed decision:
++
++- Every tenant-owned row is scoped to exactly one tenant; tenant scoping is enforced **manually** in repository/service code, not by a global query filter — a new repo method must explicitly filter by tenant.
++- Full PAN is **never** persisted anywhere, logged, or returned by any API. Only `MaskedPan` (display) and `PanFingerprint` (identity/dedup) exist in the database.
++- `Product.ProductTransactionWay` is immutable once any `ProductItem` exists for that product.
++- A `CardTransfer`'s `SourceBranchId` must never equal its `TargetBranchId` (DB-enforced).
++- A `CardTransferProduct`'s `RealQuantityReceived + DisposedQuantity` must never exceed `TransactedQuantity` (DB-enforced).
++- An Unknown-way `CardTransferProduct` line's `DisposedQuantity` is always `0` — disposal is not supported for Unknown-way (app-enforced, `TransferErrors.DisposalNotAllowedForUnknown`; there is no DB constraint tying this to `ProductTransactionWay`, so a future change must not assume the DB catches a regression here).
++- `CardTransfer.CreatedByUsername` is always recorded (Maker identity); `.CheckedByUsername` is set exactly once, at settlement (Checker identity). It is by design acceptable for both to be the same account.
++- `Stock.AvailableQuantity` and `Stock.HoldQuantity` must never go negative (DB-enforced).
++- A `ProductItem` with `BranchID = null` is untouchable by anything outside the Transactions module (no re-sight, no status update, no soft delete).
++- `BranchRequestItem.DispatchedQuantity` and `.ReceivedQuantity` are cumulative and **never decremented** — over-fulfilment is allowed by design (decision Q-03).
++- A return transfer (`TransactionOrigin.AutoGeneratedReturn`) inherits its parent's `BranchRequestId` but must never credit `BranchRequestItem.ReceivedQuantity` — fulfilment credit is gated strictly on `TargetBranchId == RequestingBranchId`.
++- `BranchRequest.RequestStatus` is only ever assigned directly for the two terminal closures (`Refused`, `Cancelled`); every other transition must go through `RecomputeStatus()`.
++- `BranchRequest`/`CardTransfer`/`CardDisposal`/their line-item types are append-only: no soft delete, no restore endpoint, no `AuditableEntity`. Do not add soft-delete to these without revisiting every place that currently assumes they're permanent (audit trail integrity, `RecomputeStatus`, disposal irreversibility).
++- A system admin can never create or settle a transfer, or create/confirm/refuse/cancel a branch request — every such write path must keep rejecting an admin token outright, because these aggregates' "acting tenant" columns are non-nullable FKs with nowhere for an admin id to go.
++- Card disposal is deliberately irreversible; a mistaken disposal is corrected by a compensating inbound batch, never by "undoing" the disposal record.
++- Three cryptographic secrets (JWT signing key, batch-cipher master secret, PAN-hash master secret) must remain independent — never derive one from another, never let a rotation of one implicitly affect another.
++
++---
++
++## 12. Important Technical Decisions
++
++### Decision: Result pattern instead of exceptions for business outcomes
++**Status:** Active
++**Decision:** All service-layer business outcomes return `Result`/`Result<T>`; exceptions are reserved for truly unexpected faults, caught only by `GlobalExceptionMiddleware`.
++**Reason:** Deterministic, type-safe error handling; `ErrorCategory` gives a single source of truth for HTTP status mapping without inspecting message text.
++**Impact:** Any new service method must return `Result`/`Result<T>`, not throw, for expected failure modes. `DbUpdateConcurrencyException`/`DbUpdateException` from EF Core are the one place exceptions are still explicitly caught inside services (concurrency/persistence conflicts), because EF Core itself throws for those rather than returning a value.
++
++### Decision: Manual tenant scoping, not global EF query filters
++**Status:** Active
++**Decision:** Only soft-delete uses a global query filter; tenant isolation is enforced by explicit tenant-id parameters through repositories and services.
++**Reason:** ⚠️ Unclear/requires confirmation — not stated explicitly in code comments found during this pass. Plausible reasons include needing system-admin cross-tenant reads (which a blanket filter would complicate) and wanting explicit, auditable tenant checks at each call site rather than implicit ones.
++**Impact:** Every new repository method touching a tenant-owned table must take and apply a tenant scope parameter itself. There is no safety net if one is forgotten — this is the single highest-risk pattern in the codebase from a security standpoint and deserves care in review.
++
++### Decision: `ProductTransactionWay` split (Known vs Unknown) drives most of the Transfers/Branch-Requests complexity
++**Status:** Active
++**Decision:** A product's items are either individually tracked (`Known`) or only tracked by quantity (`Unknown`), snapshotted onto each transfer line at creation time.
++**Reason:** Some card types (per the business domain) are never individually serialized/tracked by the tenant; forcing item-level tracking on them would be both false precision and an operational burden.
++**Alternatives considered:** ⚠️ Unclear/requires confirmation.
++**Impact:** Almost every settlement code path (`TransferService.receive`, `BranchRequestFulfilment`, `ITransferComposer.StageAsync`) branches on this value. Any new feature touching transfers or branch requests must handle both paths — Unknown-way is not a degenerate case of Known-way, it has genuinely different data flow (no `CardTransferItem` rows ever, no disposal support). Since the Unknown-way Maker-Checker workflow, both ways *do* share the same create → pending → settle shape and the same settlement entry point (`POST /{id}/receive`); the remaining difference is that Unknown-way resolves its remainder via a per-line `DifferenceAction` instead of per-card dispositions, and never supports disposal.
++
++### Decision: Unknown-way Maker-Checker workflow (supersedes the "Unknown Inventory Refactor")
++**Status:** Active
++**Decision:** An Unknown-way transfer line no longer settles immediately at creation/confirm. It follows the same create (`Available → Hold` at the source only) → pending (`InProgress`) → settle (`receive`) lifecycle a Known-way line already had. At settlement, a remainder is resolved per line via `CardTransferProduct.DifferenceAction`: `ReturnedToSource` spawns an auto-generated return transfer exactly like the Known-way "returned" path; `KeptAtDestination` credits the target's `Available` with the full transacted quantity and spawns nothing, leaving the received-vs-credited gap visible via `DifferenceAction` rather than expressed as stock in transit. Disposal is not supported for Unknown-way — there is no physical card to write off.
++**Reason:** The prior "settle immediately" behavior gave Unknown-way transfers no maker/checker separation and no window to correct a quantity discrepancy before it became final stock movement — this workflow was requested specifically to close that gap.
++**Impact:** `CardTransfer.CreatedByUsername`/`.CheckedByUsername` (new, not in the original ERD) record the acting account's identity on every transfer, Known- or Unknown-way — it is explicitly acceptable for the same account to be both, since this system has one account per tenant and there is no per-user identity to compare; the requirement is that identity be recorded, not that two distinct identities be proven. `BranchRequestFulfilment.ApplyReceiptAsync` is now the credit path for every settled line regardless of way (§4, Branch Requests). `ReceiveTransferLine.DifferenceAction` and `TransferProductResponse.DifferenceAction` are new DTO fields; four new `TransferErrors` cover the Unknown-way settlement validation (`DifferenceActionRequired`, `DifferenceActionNotApplicable`, `InvalidDifferenceAction`, `DisposalNotAllowedForUnknown`).
++
++### Decision: `ITransferComposer` extraction (Validate/Stage split)
++**Status:** Active
++**Decision:** `TransferService.CreateAsync`'s original monolithic logic was split into `ValidateAsync` (read-only) and `StageAsync` (writes, must run inside an ambient transaction), exposed as `ITransferComposer`, so `BranchRequestService.ConfirmAsync` can validate every plan across multiple transfers before staging any of them.
++**Reason:** A branch-request confirm can generate N transfers from N source branches in one call; validating all N up front (fail before any write) requires the validate/write split that a single monolithic `CreateAsync` didn't have.
++**Alternatives considered:** ⚠️ Unclear/requires confirmation.
++**Impact:** Any future change to transfer creation rules (branch/product validation, Known/Unknown item-id shape rules, card selection) must go in `TransferComposer`, not duplicated in `TransferService` or `BranchRequestService` — both callers depend on it staying the single source of truth.
++
++### Decision: Two independent branch-request counters (`DispatchedQuantity`, `ReceivedQuantity`)
++**Status:** Active
++**Decision:** A `BranchRequestItem` tracks how much was sent and how much actually arrived as two separate, never-decremented counters rather than one.
++**Reason:** Over-fulfilment is allowed (Q-03), so neither value is derivable from the other; "how much was sent" and "how much arrived" answer genuinely different questions once returns/disposals are possible mid-flight.
++**Impact:** `RecomputeStatus()` reads both; any new fulfilment path must credit the correct one at the correct time (dispatched at confirm/stage time, received at settlement time — uniformly for Known- and Unknown-way since the Unknown-way Maker-Checker workflow).
++
++---
++
++## 13. Known Constraints
++
++- **Target framework mismatch:** the API Endpoint Specification document references .NET 10; the actual codebase targets `net8.0` throughout and has not been retargeted (confirmed in README and every `.csproj`). Do not assume .NET 10-only features are available.
++- **No test project exists in the repository** as of this pass (confirmed by filesystem search) — Phase 8 (batch-upload test suite) and the card-file-generation round-trip integration test (§9.8) remain open per prior planning notes; there is currently no automated regression safety net for any module.
++- **No async/queued processing** — batch upload's synchronous-in-request design means very large files will hold a DB transaction open for the whole pipeline; there is no chunking or background-job path today.
++- **SQL Server only** — no abstraction layer for a different provider; Fluent API uses SQL Server-specific constructs (`binary(32)`, `GETUTCDATE()`, filtered indexes with `[Col] = 0` syntax).
++- **Single system admin bootstrap, no admin management UI/API beyond seeding** — `SystemAdmin` rows exist as a table (rotatable/auditable per its own doc comment) but no controller currently manages them beyond the one seeded at startup; ⚠️ Unclear/requires confirmation whether additional system-admin management endpoints are planned.
++
++---
++
++## 14. Development Workflow
++
++**Build:**
++```bash
++dotnet restore
++dotnet build
++```
++
++**Run:**
++```bash
++dotnet run --project InventoryManagmentAndInstanceIssuancePresentationLayer
++```
++
++**Migrations:**
++```bash
++dotnet ef migrations add <name> --project InfrastructureLayer --startup-project InventoryManagmentAndInstanceIssuancePresentationLayer
++dotnet ef database update --project InfrastructureLayer --startup-project InventoryManagmentAndInstanceIssuancePresentationLayer
++```
++
++**Local development requirements:** .NET 8 SDK, SQL Server (LocalDB/Express/full), and the following via `dotnet user-secrets` (Presentation project's `UserSecretsId` is already set) before the app will start:
++- `Jwt:SigningKey`
++- `BatchCipher:MasterSecret`, `BatchCipher:Salt`
++- `PanHash:MasterSecret`, `PanHash:Salt` (Salt must be valid base64)
++- `LogEncryption:Password`, `LogEncryption:Salt`
++- `SeedAdmin:Username`, `SeedAdmin:Password` (optional — skipped with a warning if absent, but then no admin exists)
++
++**Session/delivery convention used on this project (not a tooling requirement, but the established working pattern with the AI pairing on this repo):** one phase per session, delivered as a `git format-patch`-style file, applied and pushed by the repo owner between sessions. See the root-level `*.patch` files for the full delivery history.
++
++**Test commands:** ⚠️ No test project exists — nothing to run yet (see §13).
++
++---
++
++## 15. Deployment / Infrastructure
++
++⚠️ Unclear / requires confirmation — no CI/CD configuration (GitHub Actions, Azure Pipelines, etc.), Dockerfile, or deployment manifest was found in the repository during this pass. No environment-specific `appsettings.*.json` beyond `Development` was found. This section should be filled in once a real deployment pipeline exists; do not invent one.
++
++---
++
++## 16. Testing Strategy
++
++No test project exists in the repository (confirmed by filesystem search during this pass — see §13). Verification of new code during development has instead relied on:
++- Roslyn semantic compilation against the real layer DLLs (no `dotnet` SDK available in some working sandboxes).
++- Python round-trip simulation for cipher/parser logic when a full .NET toolchain isn't available.
++- OpenAPI YAML validation (`openapi-spec-validator`) where relevant.
++
++**Areas most in need of real automated regression coverage**, given their complexity and the number of interacting invariants (§11):
++- `TransferService` settlement (`receive`/`dispose`), especially the Known/Unknown disposition validation and the auto-generated-return chain.
++- `BranchRequestService.ConfirmAsync` + `ITransferComposer` interaction (multi-transfer confirm, partial validation-then-stage).
++- `BranchRequestFulfilment.ApplyReceiptAsync` credit gating (D-04/D-05).
++- Batch upload end-to-end (decrypt → parse → validate → persist → failed-rows report), including the "no Failed status on transient exception" behavior.
++- PAN fingerprint/masking round-trip and per-tenant key derivation.
++
++---
++
++## 17. Known Risks / Technical Debt
++
++- **Manual tenant scoping (see §11, §12):** no compiler or runtime safety net catches a repository method that forgets to filter by tenant. Impact: potential cross-tenant data leakage from a single missed parameter. Current workaround: code review discipline + the established "explicit tenant scope parameter" convention. Possible future direction: a global query filter keyed off `ICurrentTenant`, with an explicit bypass mechanism for system-admin reads (mirroring how soft-delete's filter already works).
++- **Dead code in `JwtTokenGenerator`:** unused `CreateForTenant(string)` overload and a `TenantId` property that throws `NotImplementedException`. Impact: low (nothing calls it) but it's a landmine for a future caller who reaches for the wrong overload. Workaround: none needed today. Future direction: delete both members.
++- **No automated test suite:** see §13/§16. Impact: regressions in the (numerous, intricate) settlement/fulfilment invariants are only caught by manual review or production incidents. Future direction: stand up the Phase 8 batch-upload test suite and the §9.8 card-file round-trip test that were already planned but never delivered, then expand to Transfers/Branch-Requests.
++- **Schema additions beyond the original ERD, several "Flagged for DBA review" in code comments** (full list in §5): functionally shipped and working, but not yet formally reviewed against the ERD by a DBA as the comments themselves note. Impact: low functional risk, but a formal reconciliation pass against the ERD document would reduce drift risk for future schema work.
++- **Known-way transfer settlement requires explicit per-card dispositions from the caller** (see §4, Transfers): currently the only supported shape; per prior planning notes this was flagged as an open design question rather than a settled decision. Confirm with the repo owner before changing — this is core settlement logic touched by both direct transfers and branch-request fulfilment.
++- **`SeedAdmin` silently skips seeding when unconfigured**, logging only a warning. Impact: a fresh environment can come up with zero system admins and no obvious startup failure pointing at why admin login doesn't work. Future direction: consider making this configurable-but-loud (e.g. a startup log at `Error` level, or a documented health-check).
++
++---
++
++## 18. Change History
++
++Keep this section SHORT — only major architectural or behavioral changes.
++
++- **2026-08-10:** Initial creation of this document via full repository read (entities, DbContext, contracts, repositories, services, controllers, DI wiring, security, options/config, migrations, localization). Confirmed README's "not yet implemented" closing paragraph is stale — entities, DbContext, repositories, services, and controllers are all implemented; flagged for the repo owner to update or remove. Branch Requests module (API §4.9) confirmed fully implemented end-to-end (R1–R6 committed), superseding an earlier "service/controller pending" status.
++- **2026-08-10 (same day, follow-up pass):** Unknown-way Maker-Checker workflow implemented (migration `U1-UnknownTransferMakerChecker`). Unknown-way transfer lines no longer settle immediately at creation/confirm — they now follow the same create → pending → settle lifecycle Known-way lines already had, with remainder resolution via a new per-line `DifferenceAction` (`ReturnedToSource`/`KeptAtDestination`) instead of per-card dispositions, and no disposal support. `CardTransfer.CreatedByUsername`/`.CheckedByUsername` record Maker/Checker identity on every transfer — same account for both is explicitly acceptable, since this system has one account per tenant (§7) and there is no per-user identity to compare. This also changes Branch Requests (§4.9) behavior: an Unknown-way line confirmed via a branch request no longer credits `ReceivedQuantity` inline at confirm time — `BranchRequestFulfilment.ApplyReceiptAsync` is now the credit path for every settled line, Known or Unknown. Corrected two pre-existing stale claims found during this pass: `CardTransferItem`'s doc comment and this document's own §4 previously (incorrectly) stated Unknown-way lines get item rows — they never have, in code. **Verification note:** this pass had no .NET SDK or NuGet access in the working sandbox, so changes were verified by careful manual re-read rather than the usual Roslyn semantic compile — a real build pass is recommended before merging.
++
++---
++
++## Documentation Metadata
++
++- Last verified against code: 2026-08-10 (Unknown-way Maker-Checker workflow pass)
++- Last significant update: 2026-08-10 (Unknown-way Maker-Checker workflow)
++- Maintained by: AI + Project Developers
+-- 
+2.43.0
+

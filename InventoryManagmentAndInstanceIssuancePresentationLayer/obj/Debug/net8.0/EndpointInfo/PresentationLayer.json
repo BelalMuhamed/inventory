@@ -6199,6 +6199,9 @@
               "$ref": "#/components/schemas/CardDispositionEntry"
             },
             "nullable": true
+          },
+          "differenceAction": {
+            "$ref": "#/components/schemas/TransferDifferenceAction"
           }
         },
         "additionalProperties": false
@@ -6847,9 +6850,17 @@
             "type": "integer",
             "format": "int64"
           },
+          "createdByUsername": {
+            "type": "string",
+            "nullable": true
+          },
           "statusChangedAt": {
             "type": "string",
             "format": "date-time",
+            "nullable": true
+          },
+          "checkedByUsername": {
+            "type": "string",
             "nullable": true
           },
           "rowVersion": {
@@ -6887,6 +6898,14 @@
           }
         },
         "additionalProperties": false
+      },
+      "TransferDifferenceAction": {
+        "enum": [
+          0,
+          1
+        ],
+        "type": "integer",
+        "format": "int32"
       },
       "TransferItemResponse": {
         "type": "object",
@@ -7063,6 +7082,9 @@
           },
           "outcome": {
             "$ref": "#/components/schemas/ProductReceiveOutcome"
+          },
+          "differenceAction": {
+            "$ref": "#/components/schemas/TransferDifferenceAction"
           }
         },
         "additionalProperties": false

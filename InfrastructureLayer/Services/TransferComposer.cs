@@ -103,7 +103,7 @@ namespace InfrastructureLayer.Services
         }
 
         public async Task<Result<CardTransfer>> StageAsync(
-            long tenantId, ValidatedTransferPlan plan, long? branchRequestId,
+            long tenantId, ValidatedTransferPlan plan, long? branchRequestId, string createdByUsername,
             CancellationToken cancellationToken = default)
         {
             var transfer = new CardTransfer
@@ -112,6 +112,7 @@ namespace InfrastructureLayer.Services
                 BranchRequestId = branchRequestId,
                 CreatedAt = DateTime.UtcNow,
                 CreatedByTenantId = tenantId,
+                CreatedByUsername = createdByUsername,
                 SourceBranchId = plan.Source.Id,
                 TargetBranchId = plan.Target.Id,
                 TransactionStatus = TransactionStatus.InProgress,
@@ -120,8 +121,6 @@ namespace InfrastructureLayer.Services
                 ActionNotes = plan.ActionNotes,
             };
 
-            bool anyOpenLine = false;
-
             foreach (ValidatedTransferLine line in plan.Lines)
             {
                 Product product = line.Product;
@@ -129,12 +128,15 @@ namespace InfrastructureLayer.Services
 
                 if (product.ProductTransactionWay == ProductTransactionWay.Unknown)
                 {
-                    // Unknown Inventory Refactor (decisions Q1/Q2): a transfer moves Stock
-                    // *entitlement* only. No ProductItem is selected, touched, or reassigned -
-                    // physical cards stay BranchID = null and are only ever pinned to a branch at
-                    // print or disposal, keyed by PAN. There is nothing physically in transit, so
-                    // the line settles immediately (RealQuantityReceived = TransactedQuantity)
-                    // rather than entering the usual Hold -> receive lifecycle.
+                    // Unknown-way Maker-Checker workflow (supersedes the earlier Unknown
+                    // Inventory Refactor, which settled this line immediately): a transfer still
+                    // moves Stock *entitlement* only - no ProductItem is selected, touched, or
+                    // reassigned, because physical cards stay BranchID = null and are only ever
+                    // pinned to a branch at print or disposal, keyed by PAN. What changes is
+                    // timing: the line now enters the same Hold -> receive lifecycle a Known-way
+                    // line already has, just without any card to select. The target is left
+                    // untouched here; RealQuantityReceived stays null (pending) until a separate
+                    // `receive` call states what was actually confirmed.
                     Stock unknownSourceStock = await _unitOfWork.Stocks.GetOrCreateForUpdateAsync(
                         tenantId, plan.Source.Id, product.Id, cancellationToken);
 
@@ -143,12 +145,8 @@ namespace InfrastructureLayer.Services
                         return Result.Failure<CardTransfer>(StockErrors.InsufficientAvailable(plan.Source.Id, product.Id));
 
                     unknownSourceStock.AvailableQuantity = updatedAvailable;
+                    unknownSourceStock.HoldQuantity += request.TransactedQuantity;
                     unknownSourceStock.UpdatedAt = DateTime.UtcNow;
-
-                    Stock unknownTargetStock = await _unitOfWork.Stocks.GetOrCreateForUpdateAsync(
-                        tenantId, plan.Target.Id, product.Id, cancellationToken);
-                    unknownTargetStock.AvailableQuantity += request.TransactedQuantity;
-                    unknownTargetStock.UpdatedAt = DateTime.UtcNow;
 
                     transfer.Products.Add(new CardTransferProduct
                     {
@@ -156,14 +154,12 @@ namespace InfrastructureLayer.Services
                         ProductId = product.Id,
                         TransactedQuantity = request.TransactedQuantity,
                         ProductTransactionWay = product.ProductTransactionWay,   // snapshot
-                        RealQuantityReceived = request.TransactedQuantity,      // settled now - entitlement only
-                        DisposedQuantity = 0,
+                        // RealQuantityReceived / DisposedQuantity left null - pending, exactly
+                        // like a Known-way line, resolved later by TransferService.SettleAsync.
                     });
 
-                    continue;   // no ProductItem/CardTransferItem rows for this line
+                    continue;   // still no ProductItem/CardTransferItem rows for this line - there is nothing physical to select
                 }
-
-                anyOpenLine = true;
 
                 IReadOnlyDictionary<long, ProductItem> found = await _unitOfWork.ProductItems
                     .GetManyForUpdateAsync(tenantId, request.ProductItemIds!, cancellationToken);
@@ -225,16 +221,10 @@ namespace InfrastructureLayer.Services
                 sourceStock.UpdatedAt = DateTime.UtcNow;
             }
 
-            // A transfer made up entirely of Unknown-way (entitlement-only) lines has nothing
-            // left to receive — close it out immediately rather than leaving it InProgress
-            // forever with no Known-way remainder anyone will ever call receive/dispose on. A
-            // transfer with at least one Known-way line still opens InProgress as before.
-            if (!anyOpenLine)
-            {
-                transfer.TransactionStatus = TransactionStatus.Received;
-                transfer.StatusChangedAt = DateTime.UtcNow;
-            }
-
+            // Every line, Known or Unknown, is now staged pending (Maker-Checker workflow) - the
+            // transfer always opens InProgress, per its constructor default, and always needs its
+            // own `receive` call before it can close. There is no longer a case where staging
+            // closes a transfer outright.
             await _unitOfWork.CardTransfers.AddAsync(transfer, cancellationToken);
             return Result.Success(transfer);
         }

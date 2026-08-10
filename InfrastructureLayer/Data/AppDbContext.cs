@@ -425,6 +425,14 @@ namespace InfrastructureLayer.Data
                 entity.Property(t => t.Origin).HasConversion<byte>().IsRequired();
                 entity.Property(t => t.ActionNotes).HasMaxLength(500);
 
+                // Maker-Checker workflow (Q1): identity is always recorded, even though it is
+                // fine for the same account to be both Maker and Checker. CreatedByUsername has a
+                // default so existing historical rows (this table is append-only, ERD §6.5) don't
+                // need a data migration; CheckedByUsername stays nullable, matching
+                // StatusChangedAt's own null-until-settled shape.
+                entity.Property(t => t.CreatedByUsername).IsRequired().HasMaxLength(100).HasDefaultValue("unknown");
+                entity.Property(t => t.CheckedByUsername).HasMaxLength(100);
+
                 entity.HasOne(t => t.Tenant)
                       .WithMany()
                       .HasForeignKey(t => t.TenantId)
@@ -483,6 +491,11 @@ namespace InfrastructureLayer.Data
                 entity.HasKey(p => p.Id);
 
                 entity.Property(p => p.ProductTransactionWay).HasConversion<byte>().IsRequired();
+
+                // Unknown-way Maker-Checker workflow: nullable (meaningful only once a remainder
+                // exists on an Unknown-way line), no IsRequired() call - matches
+                // RealQuantityReceived/DisposedQuantity's own nullable-until-settled shape.
+                entity.Property(p => p.DifferenceAction).HasConversion<byte>();
 
                 entity.HasOne(p => p.CardTransfer)
                       .WithMany(t => t.Products)

@@ -14,10 +14,14 @@ namespace DomainLayer.Enums
     /// (<see cref="Refused"/>, <see cref="Cancelled"/>). Every other transition is produced by
     /// <see cref="Entities.BranchRequest.RecomputeStatus"/>, a pure function of the line counters
     /// (decision D-03) — so the values below describe reachable <em>states</em>, not steps in a
-    /// fixed sequence a caller is guaranteed to walk through one at a time. In particular, a
-    /// request whose lines are entirely Unknown-way product lines (Unknown Inventory Refactor)
-    /// can jump straight from <see cref="InProgress"/> to <see cref="Fulfilled"/> in a single
-    /// confirm call, because those lines settle at confirm time rather than at a later receipt.
+    /// fixed sequence a caller is guaranteed to walk through one at a time.
+    /// <b>Correction, superseding an earlier (incorrect) note here:</b> a confirm call can no
+    /// longer move a request straight to <see cref="Fulfilled"/> regardless of whether its lines
+    /// are Known-way or Unknown-way — the Unknown-way Maker-Checker workflow means a confirm only
+    /// stages transfers now, it never settles one, so
+    /// <see cref="Entities.BranchRequestItem.ReceivedQuantity"/>-driven crediting (and therefore
+    /// <see cref="Fulfilled"/>) always happens later, at a separate <c>receive</c> call on the
+    /// generated transfer.
     /// </para>
     /// </summary>
     public enum BranchRequestStatus : byte

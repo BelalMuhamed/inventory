@@ -372,6 +372,18 @@
   <data name="Transfer.ActionNotesTooLong" xml:space="preserve">
     <value>الملاحظة مينفعش تزيد عن {0} حرف.</value>
   </data>
+  <data name="Transfer.DifferenceActionRequired" xml:space="preserve">
+    <value>المنتج {0} ماوصلش بالكامل، لازم تحدد هيتعمل ايه في الفرق.</value>
+  </data>
+  <data name="Transfer.DifferenceActionNotApplicable" xml:space="preserve">
+    <value>المنتج {0} مفيهوش فرق متبقي، أو بيتتبع بالكارت، فمفيش داعي تحدد هيتعمل ايه في الفرق.</value>
+  </data>
+  <data name="Transfer.InvalidDifferenceAction" xml:space="preserve">
+    <value>القيمة اللي اتبعتت لحل الفرق بتاع المنتج {0} مش متعرفة.</value>
+  </data>
+  <data name="Transfer.DisposalNotAllowedForUnknown" xml:space="preserve">
+    <value>المنتج {0} مش متتبع بالكارت، فمينفعش يتعدم. سوّي الفرق باستخدام قرار حل الفرق بدل كده.</value>
+  </data>
   <data name="Disposal.ActorNotResolved" xml:space="preserve">
     <value>معرفناش مين اللي بيستخدم النظام دلوقتي.</value>
   </data>

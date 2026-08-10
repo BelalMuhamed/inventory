@@ -6,17 +6,16 @@ namespace DomainLayer.Entities
     /// <summary>
     /// One individually tracked card on a transfer (ERD §4.5, table <c>CardTransferItems</c>).
     /// <para>
-    /// <b>Correction from the original T1 note on this type:</b> rows exist for every product
-    /// line, Known or Unknown — not only Known. ERD §8's "individual items are not enumerated"
-    /// describes what the <em>caller</em> sees, not what the system needs internally: settling an
-    /// Unknown-way line still has to know exactly which physical cards left the source, so that
-    /// receive/dispose can act on them and the null-branch pool (decision Q4a) is fed by real
-    /// rows rather than by a number with nothing behind it. The system selects those cards itself
-    /// (FIFO — see <c>IProductItemRepo.GetAvailableForUpdateAsync</c>) and never asks the caller
-    /// for them, which is exactly what "not enumerated" means at the API surface: an Unknown-way
-    /// line accepts no <c>productItemIds</c> and the transfer's public
-    /// <c>TransferDetailResponse.Items</c> projection omits these rows for it (Addendum,
-    /// T2/T4 §DTO note) — but the database rows exist regardless.
+    /// <b>Correction, superseding an earlier (incorrect) note on this type:</b> rows exist only
+    /// for Known-way product lines. An Unknown-way line moves <c>Stock</c> entitlement alone — no
+    /// <c>ProductItem</c> is ever selected, touched, or reassigned for it, so there is nothing for
+    /// a row here to reference. This holds both before and after the Unknown-way Maker-Checker
+    /// workflow: an Unknown-way line's create-time Hold and its later receive-time settlement
+    /// (<see cref="Enums.TransferDifferenceAction"/>) are both expressed purely as quantities on
+    /// <see cref="CardTransferProduct"/>. ERD §8's "individual items are not enumerated" describes
+    /// exactly this: an Unknown-way line accepts no <c>productItemIds</c> from the caller and
+    /// carries no item rows internally either, matching <c>CardTransfer.Items</c>' own doc
+    /// comment.
     /// </para>
     /// <para>
     /// A card returned by a partial receipt gets a <em>fresh</em> row on the auto-generated return

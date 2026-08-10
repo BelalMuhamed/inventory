@@ -199,6 +199,7 @@ namespace InfrastructureLayer.Services
             }
 
             var stagedTransfers = new List<CardTransfer>(validatedPlans.Count);
+            string createdByUsername = _currentTenant.Username ?? "unknown";
 
             Result transactionResult;
             try
@@ -208,7 +209,7 @@ namespace InfrastructureLayer.Services
                     foreach (ValidatedTransferPlan plan in validatedPlans)
                     {
                         Result<CardTransfer> staged = await _transferComposer.StageAsync(
-                            tenantId, plan, branchRequestId: branchRequest.Id, cancellationToken);
+                            tenantId, plan, branchRequestId: branchRequest.Id, createdByUsername, cancellationToken);
                         if (staged.IsFailure) return Result.Failure(staged.Error);
 
                         CardTransfer transfer = staged.Value;
@@ -224,11 +225,14 @@ namespace InfrastructureLayer.Services
 
                             item.CreditDispatched(line.TransactedQuantity);
 
-                            // Unknown Inventory Refactor: a line settled by the composer already
-                            // (RealQuantityReceived non-null) has no later receive call coming —
-                            // credit ReceivedQuantity here, in the same call, or it never happens.
-                            // A Known-way line's RealQuantityReceived is still null at this point;
-                            // it is credited later by BranchRequestFulfilment.ApplyReceiptAsync.
+                            // Unknown-way Maker-Checker workflow: every line staged by the
+                            // composer is pending now (RealQuantityReceived null), Known or
+                            // Unknown alike — this check only ever fires for a line the composer
+                            // settled inline, which no longer happens for either way. Left in
+                            // place (rather than removed) as the single correct credit point for
+                            // any future line shape that *does* settle inline; today,
+                            // ReceivedQuantity for every line generated here is credited later by
+                            // BranchRequestFulfilment.ApplyReceiptAsync when its transfer settles.
                             if (line.RealQuantityReceived is int received)
                                 item.CreditReceived(received);
                         }

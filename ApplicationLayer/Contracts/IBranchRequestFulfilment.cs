@@ -10,12 +10,11 @@ namespace ApplicationLayer.Contracts
     /// (interface segregation) so <c>TransferService</c> never has to learn the rest of the §4.9
     /// service surface just to report a receipt back.
     /// <para>
-    /// <b>Scope, post the Unknown Inventory Refactor:</b> this interface covers exactly one
-    /// path — a Known-way line settling later via <c>ReceiveAsync</c>/<c>DisposeAsync</c>. An
-    /// Unknown-way line settles immediately at confirm time instead, and is credited inline by
-    /// <c>BranchRequestService.ConfirmAsync</c> in the same transaction that stages its transfer
-    /// — <c>TransferService.SettleAsync</c> never runs for a line that was never
-    /// <c>InProgress</c>, so there is nothing to call this interface from for it.
+    /// <b>Scope, post the Unknown-way Maker-Checker workflow:</b> every line a confirm generates,
+    /// Known or Unknown, now settles later via <c>ReceiveAsync</c>/<c>DisposeAsync</c> — a confirm
+    /// only stages transfers (<c>ITransferComposer.StageAsync</c>), it never settles one. This
+    /// interface is therefore the single credit path for both ways; the "settled inline at
+    /// confirm" case this comment used to describe no longer exists for any line shape.
     /// </para>
     /// </summary>
     public interface IBranchRequestFulfilment

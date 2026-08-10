@@ -80,6 +80,37 @@ namespace DomainLayer.Entities
         /// <summary>Navigation to the creating tenant.</summary>
         public Tenant CreatedByTenant { get; set; } = null!;
 
+        /// <summary>
+        /// Username of the account that created this transfer (the "Maker").
+        /// <para>
+        /// <b>Why alongside <see cref="CreatedByTenantId"/>:</b> this system has one account per
+        /// tenant (no separate users table), so <see cref="CreatedByTenantId"/> alone cannot
+        /// distinguish "who" within a tenant acted. This column exists so the Maker's identity is
+        /// always recorded even though, today, it will equal the tenant's single username - it is
+        /// fine for the same account to be both Maker and Checker (Unknown-way Maker-Checker
+        /// workflow, decision confirmed with the repo owner); what matters is that the identity is
+        /// captured, not that two different identities be proven.
+        /// </para>
+        /// <para>
+        /// <b>Schema note:</b> not in the original ERD; added for the Unknown-way Maker-Checker
+        /// workflow (approved). Flagged for DBA review.
+        /// </para>
+        /// </summary>
+        public string CreatedByUsername { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Username of the account that settled this transfer (the "Checker") - the caller of
+        /// <c>receive</c> or <c>dispose</c>, whichever ran <see cref="Enums.TransactionStatus"/>'s
+        /// terminal transition. <c>null</c> while <see cref="TransactionStatus"/> is still
+        /// <see cref="Enums.TransactionStatus.InProgress"/>. See <see cref="CreatedByUsername"/>
+        /// for why this is a username rather than a per-user id.
+        /// <para>
+        /// <b>Schema note:</b> not in the original ERD; added for the Unknown-way Maker-Checker
+        /// workflow (approved). Flagged for DBA review.
+        /// </para>
+        /// </summary>
+        public string? CheckedByUsername { get; set; }
+
         /// <summary>Branch the cards left (FK → Branches.Id).</summary>
         public long SourceBranchId { get; set; }
 

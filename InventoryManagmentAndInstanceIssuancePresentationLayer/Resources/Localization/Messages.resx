@@ -372,6 +372,18 @@
   <data name="Transfer.ActionNotesTooLong" xml:space="preserve">
     <value>The note cannot exceed {0} characters.</value>
   </data>
+  <data name="Transfer.DifferenceActionRequired" xml:space="preserve">
+    <value>Product {0} was not fully received, so a difference action must be specified.</value>
+  </data>
+  <data name="Transfer.DifferenceActionNotApplicable" xml:space="preserve">
+    <value>Product {0} has no unreceived remainder, or is tracked per card, so a difference action does not apply.</value>
+  </data>
+  <data name="Transfer.InvalidDifferenceAction" xml:space="preserve">
+    <value>The difference action supplied for product {0} is not recognized.</value>
+  </data>
+  <data name="Transfer.DisposalNotAllowedForUnknown" xml:space="preserve">
+    <value>Product {0} is not tracked per card, so it cannot be disposed of. Settle it with a difference action instead.</value>
+  </data>
   <data name="Disposal.ActorNotResolved" xml:space="preserve">
     <value>The acting principal could not be resolved.</value>
   </data>

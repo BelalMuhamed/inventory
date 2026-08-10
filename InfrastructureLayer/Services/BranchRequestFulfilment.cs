@@ -9,8 +9,8 @@ namespace InfrastructureLayer.Services
 {
     /// <summary>
     /// EF Core implementation of <see cref="IBranchRequestFulfilment"/> (API §4.9, decisions
-    /// D-01/D-04). Covers exactly one settlement path — see the interface's own doc comment for
-    /// why the Unknown-way path never reaches this class at all.
+    /// D-01/D-04). Covers every settlement path since the Unknown-way Maker-Checker workflow —
+    /// see the interface's own doc comment.
     /// </summary>
     public sealed class BranchRequestFulfilment : IBranchRequestFulfilment
     {

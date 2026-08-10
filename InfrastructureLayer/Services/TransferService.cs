@@ -46,6 +46,18 @@ namespace InfrastructureLayer.Services
     /// rising) has already happened as part of that same settlement. Running it through the normal
     /// create path afterwards would double-count it.
     /// </para>
+    /// <para>
+    /// <b>Unknown-way Maker-Checker workflow addendum:</b> an Unknown-way line follows the exact
+    /// same rule above when its remainder resolves as <see cref="TransferDifferenceAction.ReturnedToSource"/>
+    /// — <c>R</c> credits the target's <c>Available</c>, the remainder spawns a return transfer,
+    /// nothing physical is ever touched because there is none. The one genuine deviation is
+    /// <see cref="TransferDifferenceAction.KeptAtDestination"/>: the target's <c>Available</c>
+    /// receives the <em>full</em> transacted quantity rather than only <c>R</c>, and no return
+    /// transfer is spawned at all — the discrepancy between what was confirmed
+    /// (<c>RealQuantityReceived</c>) and what was credited stays visible on the line rather than
+    /// being expressed as stock in transit, because nothing is actually in transit for an
+    /// Unknown-way remainder resolved this way.
+    /// </para>
     /// </summary>
     public sealed class TransferService : ITransferService
     {
@@ -114,11 +126,14 @@ namespace InfrastructureLayer.Services
                 cancellationToken);
             if (planResult.IsFailure) return Result.Failure<TransferDetailResponse>(planResult.Error);
 
+            string createdByUsername = _currentTenant.Username ?? "unknown";
+
             Result<CardTransfer> transactionResult;
             try
             {
                 transactionResult = await _unitOfWork.ExecuteInTransactionAsync<CardTransfer>(
-                    () => _transferComposer.StageAsync(tenantId, planResult.Value, branchRequestId: null, cancellationToken),
+                    () => _transferComposer.StageAsync(
+                        tenantId, planResult.Value, branchRequestId: null, createdByUsername, cancellationToken),
                     cancellationToken);
             }
             catch (DbUpdateConcurrencyException)
@@ -164,7 +179,7 @@ namespace InfrastructureLayer.Services
             foreach (ReceiveTransferLine line in request.Items)
             {
                 if (!settlements.TryAdd(line.ProductId,
-                    new LineSettlement(line.RealQuantityReceived, line.DisposedQuantity, line.ItemDispositions)))
+                    new LineSettlement(line.RealQuantityReceived, line.DisposedQuantity, line.ItemDispositions, line.DifferenceAction)))
                 {
                     return Result.Failure<SettleTransferResult>(TransferErrors.DuplicateProduct(line.ProductId));
                 }
@@ -193,17 +208,24 @@ namespace InfrastructureLayer.Services
             if (transfer.TransactionStatus != TransactionStatus.InProgress)
                 return Result.Failure<SettleTransferResult>(TransferErrors.NotInProgress(id));
 
+            // An Unknown-way line moves entitlement only - there is no physical card to write
+            // off, so "dispose everything still open" cannot cover it (decision confirmed with
+            // the repo owner). Rejected up front rather than silently skipped, matching this
+            // endpoint's own "resolve everything open in one step" contract.
+            CardTransferProduct? openUnknownLine = transfer.Products.FirstOrDefault(
+                p => p.RealQuantityReceived is null && p.ProductTransactionWay == ProductTransactionWay.Unknown);
+            if (openUnknownLine is not null)
+                return Result.Failure<SettleTransferResult>(TransferErrors.DisposalNotAllowedForUnknown(openUnknownLine.ProductId));
+
             var settlements = new Dictionary<long, LineSettlement>();
             foreach (CardTransferProduct line in transfer.Products.Where(p => p.RealQuantityReceived is null))
             {
-                IReadOnlyList<CardDispositionEntry>? dispositions = line.ProductTransactionWay == ProductTransactionWay.Known
-                    ? transfer.Items
-                        .Where(i => i.ProductItem.ProductId == line.ProductId)
-                        .Select(i => new CardDispositionEntry(i.ProductItemId, TransactionItemReceiveStatus.Disposed))
-                        .ToList()
-                    : null;
+                IReadOnlyList<CardDispositionEntry> dispositions = transfer.Items
+                    .Where(i => i.ProductItem.ProductId == line.ProductId)
+                    .Select(i => new CardDispositionEntry(i.ProductItemId, TransactionItemReceiveStatus.Disposed))
+                    .ToList();
 
-                settlements[line.ProductId] = new LineSettlement(0, line.TransactedQuantity, dispositions);
+                settlements[line.ProductId] = new LineSettlement(0, line.TransactedQuantity, dispositions, DifferenceAction: null);
             }
 
             return await SettleAsync(
@@ -240,12 +262,18 @@ namespace InfrastructureLayer.Services
             if (transfer.TransactionStatus != TransactionStatus.InProgress)
                 return Result.Failure<SettleTransferResult>(TransferErrors.NotInProgress(transfer.Id));
 
+            // Maker-Checker workflow (Q1): the acting account's identity is always recorded, even
+            // though it is fine — by design, given this system has one account per tenant — for
+            // the Checker to be the same account as the Maker. Resolved once and reused both for
+            // this transfer's own CheckedByUsername and for any auto-generated return's
+            // CreatedByUsername (that return's "Maker" is whoever triggered this settlement).
+            string checkedByUsername = _currentTenant.Username ?? "unknown";
+
             // ---- Validate the settlement covers exactly the transfer's still-open lines. -------
-            // Unknown-way lines settle immediately at creation (Unknown Inventory Refactor,
-            // decisions Q1/Q2) - RealQuantityReceived is already non-null for them by the time
-            // this method runs, so they are excluded from the settlement contract entirely: the
-            // caller neither supplies nor sees a settlement entry for a line that never had
-            // anything physically in transit to receive.
+            // Both Known- and Unknown-way lines are open here (Unknown-way Maker-Checker
+            // workflow) - RealQuantityReceived is null for either until this method runs. A line
+            // only ever ends up excluded from openLines once it has actually been settled, by a
+            // prior call to this same method (e.g. an auto-generated return already resolved).
             IReadOnlyList<CardTransferProduct> openLines = transfer.Products
                 .Where(p => p.RealQuantityReceived is null)
                 .ToList();
@@ -294,7 +322,6 @@ namespace InfrastructureLayer.Services
                     return Result.Failure<SettleTransferResult>(TransferErrors.SettlementQuantityOutOfRange(line.ProductId));
 
                 int returned = line.TransactedQuantity - received - disposed;
-                if (returned > 0) anyReturned = true;
 
                 List<CardTransferItem> lineItems = transfer.Items
                     .Where(i => i.ProductItem.ProductId == line.ProductId)
@@ -302,6 +329,11 @@ namespace InfrastructureLayer.Services
 
                 if (line.ProductTransactionWay == ProductTransactionWay.Known)
                 {
+                    if (returned > 0) anyReturned = true;
+
+                    if (s.DifferenceAction is not null)
+                        return Result.Failure<SettleTransferResult>(TransferErrors.DifferenceActionNotApplicable(line.ProductId));
+
                     if (s.ItemDispositions is null || s.ItemDispositions.Count == 0)
                         return Result.Failure<SettleTransferResult>(TransferErrors.DispositionsRequired(line.ProductId));
                     if (s.ItemDispositions.Count != lineItems.Count)
@@ -332,28 +364,40 @@ namespace InfrastructureLayer.Services
                     if (dr != received || dd != disposed || dx != returned)
                         return Result.Failure<SettleTransferResult>(TransferErrors.DispositionCountMismatch(line.ProductId));
 
-                    plans.Add(new LinePlan(line, received, disposed, returned, lineItems, s.ItemDispositions));
+                    plans.Add(new LinePlan(line, received, disposed, returned, lineItems, s.ItemDispositions, DifferenceAction: null));
                 }
                 else
                 {
+                    // Unknown-way, open (Maker-Checker workflow) — no cards, so no per-item
+                    // dispositions and no disposal (decision confirmed with the repo owner): the
+                    // line is settled purely as quantities, and any remainder must be resolved
+                    // explicitly rather than inferred.
                     if (s.ItemDispositions is { Count: > 0 })
                         return Result.Failure<SettleTransferResult>(TransferErrors.ItemIdsNotAllowedForUnknown(line.ProductId));
+                    if (disposed > 0)
+                        return Result.Failure<SettleTransferResult>(TransferErrors.DisposalNotAllowedForUnknown(line.ProductId));
 
-                    // System-assigned order for the pool: received first, then disposed, then
-                    // returned. Individual card identity is not caller-visible for Unknown-way, so
-                    // any deterministic order is correct — this one is simplest to implement and
-                    // to reason about when reading the code later.
-                    var dispositions = new List<CardDispositionEntry>(lineItems.Count);
-                    for (int i = 0; i < lineItems.Count; i++)
+                    if (returned > 0)
                     {
-                        TransactionItemReceiveStatus outcome =
-                            i < received ? TransactionItemReceiveStatus.Received :
-                            i < received + disposed ? TransactionItemReceiveStatus.Disposed :
-                            TransactionItemReceiveStatus.NotReceived;
-                        dispositions.Add(new CardDispositionEntry(lineItems[i].ProductItemId, outcome));
+                        if (s.DifferenceAction is null)
+                            return Result.Failure<SettleTransferResult>(TransferErrors.DifferenceActionRequired(line.ProductId));
+                        if (s.DifferenceAction is not (TransferDifferenceAction.ReturnedToSource or TransferDifferenceAction.KeptAtDestination))
+                            return Result.Failure<SettleTransferResult>(TransferErrors.InvalidDifferenceAction(line.ProductId));
+
+                        // Only a "returned" resolution spawns an auto-generated return transfer
+                        // (mirroring Known-way, decision confirmed with the repo owner) — a "kept"
+                        // resolution settles entirely at the target, nothing goes back anywhere.
+                        if (s.DifferenceAction == TransferDifferenceAction.ReturnedToSource) anyReturned = true;
+                    }
+                    else if (s.DifferenceAction is not null)
+                    {
+                        return Result.Failure<SettleTransferResult>(TransferErrors.DifferenceActionNotApplicable(line.ProductId));
                     }
 
-                    plans.Add(new LinePlan(line, received, disposed, returned, lineItems, dispositions));
+                    plans.Add(new LinePlan(
+                        line, received, Disposed: 0, returned,
+                        Items: Array.Empty<CardTransferItem>(), Dispositions: Array.Empty<CardDispositionEntry>(),
+                        DifferenceAction: s.DifferenceAction));
                 }
             }
 
@@ -456,17 +500,32 @@ namespace InfrastructureLayer.Services
                         sourceStock.HoldQuantity = releasedHold;
                         sourceStock.UpdatedAt = DateTime.UtcNow;
 
-                        if (plan.Received > 0 || plan.Returned > 0)
+                        // ---- Target credit: Known and Unknown/ReturnedToSource both leave the
+                        // remainder in transit (Hold, pending its own return-leg receive);
+                        // Unknown/KeptAtDestination instead settles the whole quantity at the
+                        // target immediately, with nothing left over to send anywhere.
+                        int availableCredit = plan.Received;
+                        int holdCredit = plan.Returned;
+                        if (line.ProductTransactionWay == ProductTransactionWay.Unknown &&
+                            plan.DifferenceAction == TransferDifferenceAction.KeptAtDestination)
+                        {
+                            availableCredit += plan.Returned;
+                            holdCredit = 0;
+                        }
+
+                        if (availableCredit > 0 || holdCredit > 0)
                         {
                             Stock targetStock = await _unitOfWork.Stocks.GetOrCreateForUpdateAsync(
                                 tenantId, transfer.TargetBranchId, line.ProductId, cancellationToken);
-                            targetStock.AvailableQuantity += plan.Received;
-                            targetStock.HoldQuantity += plan.Returned;
+                            targetStock.AvailableQuantity += availableCredit;
+                            targetStock.HoldQuantity += holdCredit;
                             targetStock.UpdatedAt = DateTime.UtcNow;
                         }
 
                         // ---- Return leg: fresh line + fresh item rows on the return transfer. -
-                        if (plan.Returned > 0)
+                        // Gated on holdCredit, not the raw remainder — a KeptAtDestination
+                        // resolution has a remainder but sends nothing back anywhere.
+                        if (holdCredit > 0)
                         {
                             returnTransfer ??= new CardTransfer
                             {
@@ -474,6 +533,7 @@ namespace InfrastructureLayer.Services
                                 BranchRequestId = transfer.BranchRequestId,   // D-04: return inherits its parent's request
                                 CreatedAt = DateTime.UtcNow,
                                 CreatedByTenantId = tenantId,
+                                CreatedByUsername = checkedByUsername,   // the Checker who settled the parent is this return's Maker
                                 SourceBranchId = transfer.TargetBranchId,
                                 TargetBranchId = transfer.SourceBranchId,
                                 TransactionStatus = TransactionStatus.InProgress,
@@ -502,10 +562,10 @@ namespace InfrastructureLayer.Services
                     }
 
                     // API §4.9, decision D-04: credit the fulfilling request's counters when this
-                    // transfer settles a request line. Every plan built here was always a
-                    // Known-way line — SettleAsync only ever runs over openLines (Unknown-way
-                    // lines settle at create time instead, per §1.4) — so no branching on
-                    // ProductTransactionWay is needed at this call site.
+                    // transfer settles a request line. Plans built here can now be Known- or
+                    // Unknown-way (Unknown-way Maker-Checker workflow — it no longer settles at
+                    // create time, §1.4/§1.7) — no branching on ProductTransactionWay is needed at
+                    // this call site regardless, since it only ever reads `Received` per line.
                     if (transfer.BranchRequestId is long brId)
                     {
                         var receivedByProductId = plans.ToDictionary(p => p.Line.ProductId, p => p.Received);
@@ -520,6 +580,7 @@ namespace InfrastructureLayer.Services
                         totalReceived == 0 && totalDisposed == 0 ? TransactionStatus.ReturnedBack :
                         TransactionStatus.PartiallyReceived;
                     transfer.StatusChangedAt = DateTime.UtcNow;
+                    transfer.CheckedByUsername = checkedByUsername;
                     if (!string.IsNullOrWhiteSpace(actionNotes)) transfer.ActionNotes = actionNotes;
 
                     if (disposal is not null) await _unitOfWork.CardDisposals.AddAsync(disposal, cancellationToken);
@@ -665,7 +726,8 @@ namespace InfrastructureLayer.Services
                 t.SourceBranchId, t.SourceBranch.Name,
                 t.TargetBranchId, t.TargetBranch.Name,
                 t.TransactionStatus, t.Origin, t.ParentTransferId, t.BranchRequestId,
-                t.ActionNotes, t.CreatedAt, t.CreatedByTenantId, t.StatusChangedAt,
+                t.ActionNotes, t.CreatedAt, t.CreatedByTenantId, t.CreatedByUsername,
+                t.StatusChangedAt, t.CheckedByUsername,
                 Convert.ToBase64String(t.RowVersion),
                 t.Products.Select(MapProductLine).ToList(),
                 items);
@@ -677,7 +739,7 @@ namespace InfrastructureLayer.Services
             {
                 return new TransferProductResponse(
                     p.ProductId, p.Product?.Name ?? string.Empty, p.TransactedQuantity,
-                    null, null, 0, p.ProductTransactionWay, ProductReceiveOutcome.Pending);
+                    null, null, 0, p.ProductTransactionWay, ProductReceiveOutcome.Pending, p.DifferenceAction);
             }
 
             int received = p.RealQuantityReceived.Value;
@@ -692,12 +754,13 @@ namespace InfrastructureLayer.Services
 
             return new TransferProductResponse(
                 p.ProductId, p.Product?.Name ?? string.Empty, p.TransactedQuantity,
-                received, disposed, returned, p.ProductTransactionWay, outcome);
+                received, disposed, returned, p.ProductTransactionWay, outcome, p.DifferenceAction);
         }
 
         /// <summary>Caller-stated settlement for one product line, before validation.</summary>
         private readonly record struct LineSettlement(
-            int Received, int Disposed, IReadOnlyList<CardDispositionEntry>? ItemDispositions);
+            int Received, int Disposed, IReadOnlyList<CardDispositionEntry>? ItemDispositions,
+            TransferDifferenceAction? DifferenceAction);
 
         /// <summary>Validated, ready-to-apply settlement plan for one product line.</summary>
         private sealed record LinePlan(
@@ -706,6 +769,7 @@ namespace InfrastructureLayer.Services
             int Disposed,
             int Returned,
             IReadOnlyList<CardTransferItem> Items,
-            IReadOnlyList<CardDispositionEntry> Dispositions);
+            IReadOnlyList<CardDispositionEntry> Dispositions,
+            TransferDifferenceAction? DifferenceAction);
     }
 }
