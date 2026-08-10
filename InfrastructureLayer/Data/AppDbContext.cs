@@ -72,6 +72,24 @@ namespace InfrastructureLayer.Data
         /// <summary>Requested product lines on a branch request (ERD §4.2, API §4.9).</summary>
         public DbSet<BranchRequestItem> BranchRequestItems => Set<BranchRequestItem>();
 
+        /// <summary>Registered physical printers (ERD §6.1, Printing Module Q-01).</summary>
+        public DbSet<Printer> Printers => Set<Printer>();
+
+        /// <summary>Matica-only 1:1 machine configuration (ERD §6.2, Printing Module Q-01).</summary>
+        public DbSet<MaticaPrinterConfiguration> MaticaPrinterConfigurations => Set<MaticaPrinterConfiguration>();
+
+        /// <summary>Ribbon type reference table (Printing Module Q-05).</summary>
+        public DbSet<RibbonType> RibbonTypes => Set<RibbonType>();
+
+        /// <summary>Matica printing parameters, one row per product (ERD §7.2, Printing Module Q-02/Q-03/Q-04).</summary>
+        public DbSet<MaticaProductPrintConfiguration> MaticaProductPrintConfigurations => Set<MaticaProductPrintConfiguration>();
+
+        /// <summary>Evolis printing parameters, one row per product (ERD §7.1, Printing Module Q-02/Q-05).</summary>
+        public DbSet<EvolisProductPrintConfiguration> EvolisProductPrintConfigurations => Set<EvolisProductPrintConfiguration>();
+
+        /// <summary>Uploaded print-configuration image metadata (module requirements §5–§7, Printing Module Q-10).</summary>
+        public DbSet<PrintImage> PrintImages => Set<PrintImage>();
+
 
         /// <inheritdoc />
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -88,6 +106,8 @@ namespace InfrastructureLayer.Data
             ConfigureCardTransfers(modelBuilder);
             ConfigureCardDisposals(modelBuilder);
             ConfigureBranchRequests(modelBuilder);
+            ConfigurePrinterRegistry(modelBuilder);
+            ConfigureProductPrintConfigurations(modelBuilder);
 
         }
 
@@ -746,6 +766,228 @@ namespace InfrastructureLayer.Data
                         "CK_BranchRequestItems_ReceivedQuantity_NonNegative",
                         "[ReceivedQuantity] >= 0");
                 });
+            });
+        }
+
+        /// <summary>
+        /// Configures the printer registry (ERD §6, tables <c>Printers</c> /
+        /// <c>MaticaPrinterConfigurations</c>; Printing Module decision Q-01).
+        /// <para>
+        /// <see cref="Printer"/> holds the fields common to both printer families; only Matica
+        /// printers extend it with a 1:1 <see cref="MaticaPrinterConfiguration"/> row. Evolis
+        /// needs no extension table at all (module requirement §1), so no row in
+        /// <c>MaticaPrinterConfigurations</c> ever points at an Evolis printer.
+        /// </para>
+        /// <para>
+        /// The <c>Printer</c> → <c>MaticaPrinterConfiguration</c> edge uses
+        /// <see cref="DeleteBehavior.Cascade"/> rather than this codebase's usual cross-aggregate
+        /// <see cref="DeleteBehavior.NoAction"/> convention, because the two rows are the same
+        /// aggregate (the Matica row is a detail extension of its printer, not a reference to a
+        /// separate aggregate root) — the same reasoning already applied to
+        /// <c>BranchRequestItem.RequestId</c> and <c>CardDisposalItem.CardDisposalId</c>.
+        /// </para>
+        /// </summary>
+        private static void ConfigurePrinterRegistry(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<Printer>(entity =>
+            {
+                entity.ToTable("Printers");
+                entity.HasKey(p => p.Id);
+
+                entity.Property(p => p.UsingPrinterType).HasConversion<byte>().IsRequired();
+                entity.Property(p => p.Name).IsRequired().HasMaxLength(200);
+                entity.Property(p => p.Model).IsRequired().HasMaxLength(100);
+                entity.Property(p => p.UniqueNumber).IsRequired().HasMaxLength(50);
+
+                entity.HasOne<Tenant>()
+                      .WithMany()
+                      .HasForeignKey(p => p.TenantId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne<Branch>()
+                      .WithMany()
+                      .HasForeignKey(p => p.BranchId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                // Decision Q-09: tenant users list/filter printers by type and branch — both
+                // need to be cheap.
+                entity.HasIndex(p => new { p.TenantId, p.BranchId })
+                      .HasDatabaseName("IX_Printers_TenantId_BranchId");
+
+                entity.HasIndex(p => new { p.TenantId, p.UsingPrinterType })
+                      .HasDatabaseName("IX_Printers_TenantId_UsingPrinterType");
+
+                // A printer's serial (Evolis) / IP (Matica) is unique per tenant among active
+                // rows, so the same physical device cannot be registered twice by mistake.
+                entity.HasIndex(p => new { p.TenantId, p.UniqueNumber })
+                      .IsUnique()
+                      .HasFilter("[IsDeleted] = 0")
+                      .HasDatabaseName("UX_Printers_TenantId_UniqueNumber");
+
+                entity.HasQueryFilter(p => !p.IsDeleted);
+            });
+
+            modelBuilder.Entity<MaticaPrinterConfiguration>(entity =>
+            {
+                entity.HasKey(m => m.Id);
+
+                entity.Property(m => m.Port).IsRequired().HasMaxLength(50);
+
+                entity.HasOne<Printer>()
+                      .WithOne()
+                      .HasForeignKey<MaticaPrinterConfiguration>(m => m.PrinterId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasIndex(m => m.PrinterId)
+                      .IsUnique()
+                      .HasDatabaseName("UX_MaticaPrinterConfigurations_PrinterId");
+
+                entity.HasQueryFilter(m => !m.IsDeleted);
+
+                // No CHECK constraints on FeederId/HopperId/RejectedId (decision Q-03 follow-up):
+                // FontSize is the only numeric field in this module that gets a DB-level guard.
+                entity.ToTable("MaticaPrinterConfigurations");
+            });
+        }
+
+        /// <summary>
+        /// Configures the product print-configuration extension (ERD §7, tables
+        /// <c>RibbonTypes</c> / <c>MaticaProductPrintConfigurations</c> /
+        /// <c>EvolisProductPrintConfigurations</c>) and uploaded print images (module
+        /// requirements §5–§7).
+        /// <para>
+        /// <see cref="MaticaProductPrintConfiguration"/> and
+        /// <see cref="EvolisProductPrintConfiguration"/> each carry a filtered unique index on
+        /// <c>(TenantId, ProductId)</c> — decision Q-02 locks exactly one configuration row per
+        /// product, never one per face. Both use <see cref="DeleteBehavior.NoAction"/> on their
+        /// <c>ProductId</c> FK, matching every other cross-aggregate reference into
+        /// <c>Products</c> in this codebase (e.g. <c>BranchRequestItem.ProductId</c>): the
+        /// product/config lifecycle pairing (module requirement §2) is enforced in the service
+        /// layer, inside the same <c>IUnitOfWork.ExecuteInTransactionAsync</c> call that writes
+        /// the product itself — never by a database cascade. The one deliberate exception is the
+        /// printer-family switch (decision Q-08), where the old configuration row is explicitly
+        /// hard-deleted by the service, not soft-deleted.
+        /// </para>
+        /// </summary>
+        private static void ConfigureProductPrintConfigurations(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<RibbonType>(entity =>
+            {
+                entity.ToTable("RibbonTypes");
+                entity.HasKey(r => r.Id);
+
+                entity.Property(r => r.Name).IsRequired().HasMaxLength(50);
+
+                entity.HasIndex(r => r.Name)
+                      .IsUnique()
+                      .HasDatabaseName("UX_RibbonTypes_Name");
+            });
+
+            modelBuilder.Entity<MaticaProductPrintConfiguration>(entity =>
+            {
+                entity.HasKey(m => m.Id);
+
+                entity.Property(m => m.ImagePath).HasMaxLength(500);
+
+                entity.HasOne<Tenant>()
+                      .WithMany()
+                      .HasForeignKey(m => m.TenantId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne<Product>()
+                      .WithMany()
+                      .HasForeignKey(m => m.ProductId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                // Decision Q-02: exactly one row per product among non-deleted rows.
+                entity.HasIndex(m => new { m.TenantId, m.ProductId })
+                      .IsUnique()
+                      .HasFilter("[IsDeleted] = 0")
+                      .HasDatabaseName("UX_MaticaProductPrintConfigurations_TenantId_ProductId");
+
+                entity.HasQueryFilter(m => !m.IsDeleted);
+
+                // Decision Q-03 follow-up: FontSize is the only numeric field in this module
+                // that gets a DB-level guard. Cpi/OffsetX/OffsetY are left unconstrained.
+                entity.ToTable("MaticaProductPrintConfigurations", t =>
+                {
+                    t.HasCheckConstraint("CK_MaticaProductPrintConfigurations_FontSize_Positive", "[FontSize] > 0");
+                });
+            });
+
+            modelBuilder.Entity<EvolisProductPrintConfiguration>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+
+                entity.Property(e => e.PrintWay).HasConversion<byte>().IsRequired();
+                entity.Property(e => e.PrintedFace).HasConversion<byte>().IsRequired();
+                entity.Property(e => e.FontFamily).IsRequired().HasMaxLength(100);
+                entity.Property(e => e.PrintColor).IsRequired().HasMaxLength(9);
+                entity.Property(e => e.BackgroundColor).IsRequired().HasMaxLength(9);
+                entity.Property(e => e.FontStyle).IsRequired().HasMaxLength(50);
+                entity.Property(e => e.ImagePath).HasMaxLength(500);
+
+                entity.HasOne<Tenant>()
+                      .WithMany()
+                      .HasForeignKey(e => e.TenantId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne<Product>()
+                      .WithMany()
+                      .HasForeignKey(e => e.ProductId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne<RibbonType>()
+                      .WithMany()
+                      .HasForeignKey(e => e.RibbonTypeId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                // Decision Q-02: exactly one row per product among non-deleted rows.
+                entity.HasIndex(e => new { e.TenantId, e.ProductId })
+                      .IsUnique()
+                      .HasFilter("[IsDeleted] = 0")
+                      .HasDatabaseName("UX_EvolisProductPrintConfigurations_TenantId_ProductId");
+
+                entity.HasIndex(e => e.RibbonTypeId)
+                      .HasDatabaseName("IX_EvolisProductPrintConfigurations_RibbonTypeId");
+
+                entity.HasQueryFilter(e => !e.IsDeleted);
+
+                // Decision Q-03 follow-up: FontSize is the only numeric field in this module
+                // that gets a DB-level guard. HEX-format validation for PrintColor/
+                // BackgroundColor is left entirely to the Application-layer validator (P2),
+                // not enforced here.
+                entity.ToTable("EvolisProductPrintConfigurations", t =>
+                {
+                    t.HasCheckConstraint("CK_EvolisProductPrintConfigurations_FontSize_Positive", "[FontSize] > 0");
+                });
+            });
+
+            modelBuilder.Entity<PrintImage>(entity =>
+            {
+                entity.HasKey(i => i.Id);
+
+                entity.Property(i => i.OriginalFileName).IsRequired().HasMaxLength(260);
+                entity.Property(i => i.StoredFileName).IsRequired().HasMaxLength(260);
+                entity.Property(i => i.StoredPath).IsRequired().HasMaxLength(500);
+                entity.Property(i => i.ContentType).IsRequired().HasMaxLength(100);
+
+                entity.HasOne<Tenant>()
+                      .WithMany()
+                      .HasForeignKey(i => i.TenantId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                // Decision Q-10: duplicate detection is scoped to (TenantId, OriginalFileName).
+                // A second upload with the same name replaces this row (the service deletes then
+                // inserts inside one transaction), so at most one row can ever exist per pair —
+                // enforced here, not just assumed by the service.
+                entity.HasIndex(i => new { i.TenantId, i.OriginalFileName })
+                      .IsUnique()
+                      .HasDatabaseName("UX_PrintImages_TenantId_OriginalFileName");
+
+                // No CHECK constraint on SizeBytes (decision Q-03 follow-up): FontSize is the
+                // only numeric field in this module that gets a DB-level guard.
+                entity.ToTable("PrintImages");
             });
         }
     }
