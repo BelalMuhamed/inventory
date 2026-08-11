@@ -465,4 +465,79 @@
   <data name="Product.HasOpenRequest" xml:space="preserve">
     <value>Product {0} is part of an open stock request line and cannot be deleted.</value>
   </data>
+  <data name="Printer.ActorNotResolved" xml:space="preserve">
+    <value>The acting principal could not be resolved.</value>
+  </data>
+  <data name="Printer.OnlySystemAdmin" xml:space="preserve">
+    <value>Only a system administrator can create, update, delete, or restore printers.</value>
+  </data>
+  <data name="Printer.NotFound" xml:space="preserve">
+    <value>No printer was found with id {0}.</value>
+  </data>
+  <data name="Printer.TenantRequired" xml:space="preserve">
+    <value>A target tenant id is required when registering a printer as a system administrator.</value>
+  </data>
+  <data name="Printer.TargetTenantNotFound" xml:space="preserve">
+    <value>No tenant exists with id {0}.</value>
+  </data>
+  <data name="Printer.BranchNotFound" xml:space="preserve">
+    <value>No branch was found with id {0}.</value>
+  </data>
+  <data name="Printer.BranchDeleted" xml:space="preserve">
+    <value>Branch {0} is deleted and cannot have a printer registered to it.</value>
+  </data>
+  <data name="Printer.DuplicateUniqueNumber" xml:space="preserve">
+    <value>A printer with serial/IP '{0}' is already registered for this tenant.</value>
+  </data>
+  <data name="Printer.AlreadyDeleted" xml:space="preserve">
+    <value>Printer {0} is already deleted.</value>
+  </data>
+  <data name="Printer.NotDeleted" xml:space="preserve">
+    <value>Printer {0} is not deleted.</value>
+  </data>
+  <data name="Printer.MaticaConfigRequired" xml:space="preserve">
+    <value>A Matica printer requires its machine configuration (feeder, hopper, reject bin, port).</value>
+  </data>
+  <data name="Printer.MaticaConfigNotApplicable" xml:space="preserve">
+    <value>An Evolis printer does not accept a Matica machine configuration.</value>
+  </data>
+  <data name="ProductPrintConfig.NotFound" xml:space="preserve">
+    <value>Product {0} has no print configuration.</value>
+  </data>
+  <data name="ProductPrintConfig.MaticaPayloadRequired" xml:space="preserve">
+    <value>A Matica print configuration payload is required when the printer type is Matica.</value>
+  </data>
+  <data name="ProductPrintConfig.MaticaPayloadNotApplicable" xml:space="preserve">
+    <value>A Matica print configuration payload does not apply when the printer type is Evolis.</value>
+  </data>
+  <data name="ProductPrintConfig.EvolisPayloadRequired" xml:space="preserve">
+    <value>An Evolis print configuration payload is required when the printer type is Evolis.</value>
+  </data>
+  <data name="ProductPrintConfig.EvolisPayloadNotApplicable" xml:space="preserve">
+    <value>An Evolis print configuration payload does not apply when the printer type is Matica.</value>
+  </data>
+  <data name="ProductPrintConfig.RibbonTypeNotFound" xml:space="preserve">
+    <value>No ribbon type exists with id {0}.</value>
+  </data>
+  <data name="ProductPrintConfig.InvalidHexColor" xml:space="preserve">
+    <value>'{0}' is not a valid HEX color. Use the form #RRGGBB or #RRGGBBAA.</value>
+  </data>
+  <data name="PrintImage.FileMissing" xml:space="preserve">
+    <value>No image file was supplied.</value>
+  </data>
+  <data name="PrintImage.FileTooLarge" xml:space="preserve">
+    <value>The image exceeds the maximum allowed size of {0} bytes.</value>
+  </data>
+  <data name="PrintImage.InvalidExtension" xml:space="preserve">
+    <value>This image file type is not supported.</value>
+  </data>
+  <data name="PrintImage.UnsupportedContent" xml:space="preserve">
+    <value>The uploaded file's content does not match a supported image format.</value>
+  </data>
+  <data name="PrintImage.ActorNotResolved" xml:space="preserve">
+    <value>The acting principal could not be resolved.</value>
+  </data>
+  <data name="PrintImage.SaveFailed" xml:space="preserve">
+    <value>The image could not be saved. Please try again.</value>
+  </data>
 </root>

@@ -1,0 +1,1169 @@
+From b6e7ee72b00bde05046db64f8727050e55df54c1 Mon Sep 17 00:00:00 2001
+From: Claude <claude@anthropic.com>
+Date: Mon, 10 Aug 2026 17:07:11 +0000
+Subject: [PATCH] P2-printing-module-application-contracts
+
+Printing Module, Phase 2 (Application layer: contracts, DTOs, errors, localization,
+options only - no implementations yet):
+
+Contracts (ApplicationLayer/Contracts, not yet wired into IUnitOfWork - that lands
+alongside their implementations, mirroring the R2/R3 split from the Branch Requests
+module):
+- IPrinterRepo, IMaticaPrinterConfigRepo, IRibbonTypeRepo,
+  IMaticaProductPrintConfigRepo, IEvolisProductPrintConfigRepo, IPrintImageRepo
+- IPrintImageStorage: pure I/O abstraction, no DB (mirrors IBatchFileEncryptor)
+- IProductPrintConfigComposer: shared validation/staging core for product print
+  configuration, extracted the same way ITransferComposer was - one implementation
+  of the Matica/Evolis payload-matching, ribbon-type, and HEX-color rules, shared by
+  product creation (single-aggregate design) and the standalone PUT sub-resource
+
+Service contracts (ApplicationLayer/ServicesContracts, not yet wired into
+IServiceManager - lands with their implementations):
+- IPrinterConfigurationService: full CRUD, system-admin-only writes (Q-09)
+- IProductPrintConfigurationService: GET/PUT sub-resource (Q-07), built on the composer
+- IPrintImageService + UploadPrintImageRequest
+
+DTOs: ApplicationLayer/DTOs/Printing/PrintingDtos.cs - printer CRUD DTOs, ribbon type
+response, Matica/Evolis product print config request/response pairs, discriminated
+ProductPrintConfigResponse wrapper, PrintImageUploadResult (with optional Warning
+per Q-10's duplicate-name replace flow). Deliberately does not yet touch the existing
+CreateProductRequest/UpdateProductRequest in ProductDtos.cs - that extension lands
+with ProductService's orchestration of the composer.
+
+Errors: ApplicationLayer/Errors/PrintingErrors.cs - 25 error codes across Printer /
+ProductPrintConfig / PrintImage groups. Fixed a latent gap found in the existing
+Product/Branch/Tenant AlreadyDeleted/NotDeleted errors while writing the Printer
+equivalents: those omit .WithArg(), which silently drops the id from the Arabic
+translation (falls back to untranslated English). Printer.AlreadyDeleted/NotDeleted
+call .WithArg() correctly.
+
+Options: ApplicationLayer/Options/PrintImageOptions.cs - RootPath, PublicBaseUrl,
+MaxSizeBytes, AllowedExtensions.
+
+Localization: Messages.resx / Messages.ar.resx (Egyptian colloquial) - all 25 error
+codes, verified 1:1 key parity between EN/AR and between .WithArg() call sites and
+{0} placeholders (no orphaned or missing placeholders in either file).
+
+Flagged assumptions requiring confirmation before P3:
+- Printer.UsingPrinterType treated as immutable after registration (hardware fact,
+  not a business choice like Product.UsingPrinterType) - not explicitly locked
+- Print-config sub-resource UPDATE (PUT) assumed to follow ProductService's existing
+  non-admin-restricted authorization; Q-09 only locked the CREATE flow and the
+  printer-registry writes as system-admin-only
+---
+ .../IEvolisProductPrintConfigRepo.cs          |  23 ++
+ .../Contracts/IMaticaPrinterConfigRepo.cs     |  27 +++
+ .../IMaticaProductPrintConfigRepo.cs          |  23 ++
+ ApplicationLayer/Contracts/IPrintImageRepo.cs |  22 ++
+ .../Contracts/IPrintImageStorage.cs           |  52 +++++
+ ApplicationLayer/Contracts/IPrinterRepo.cs    |  36 ++++
+ .../Contracts/IProductPrintConfigComposer.cs  | 111 ++++++++++
+ ApplicationLayer/Contracts/IRibbonTypeRepo.cs |  17 ++
+ .../DTOs/Printing/PrintingDtos.cs             | 197 ++++++++++++++++++
+ ApplicationLayer/Errors/PrintingErrors.cs     | 157 ++++++++++++++
+ ApplicationLayer/Options/PrintImageOptions.cs |  38 ++++
+ .../ServicesContracts/IPrintImageService.cs   |  35 ++++
+ .../IPrinterConfigurationService.cs           |  50 +++++
+ .../IProductPrintConfigurationService.cs      |  41 ++++
+ .../Resources/Localization/Messages.ar.resx   |  75 +++++++
+ .../Resources/Localization/Messages.resx      |  75 +++++++
+ 16 files changed, 979 insertions(+)
+ create mode 100644 ApplicationLayer/Contracts/IEvolisProductPrintConfigRepo.cs
+ create mode 100644 ApplicationLayer/Contracts/IMaticaPrinterConfigRepo.cs
+ create mode 100644 ApplicationLayer/Contracts/IMaticaProductPrintConfigRepo.cs
+ create mode 100644 ApplicationLayer/Contracts/IPrintImageRepo.cs
+ create mode 100644 ApplicationLayer/Contracts/IPrintImageStorage.cs
+ create mode 100644 ApplicationLayer/Contracts/IPrinterRepo.cs
+ create mode 100644 ApplicationLayer/Contracts/IProductPrintConfigComposer.cs
+ create mode 100644 ApplicationLayer/Contracts/IRibbonTypeRepo.cs
+ create mode 100644 ApplicationLayer/DTOs/Printing/PrintingDtos.cs
+ create mode 100644 ApplicationLayer/Errors/PrintingErrors.cs
+ create mode 100644 ApplicationLayer/Options/PrintImageOptions.cs
+ create mode 100644 ApplicationLayer/ServicesContracts/IPrintImageService.cs
+ create mode 100644 ApplicationLayer/ServicesContracts/IPrinterConfigurationService.cs
+ create mode 100644 ApplicationLayer/ServicesContracts/IProductPrintConfigurationService.cs
+
+diff --git a/ApplicationLayer/Contracts/IEvolisProductPrintConfigRepo.cs b/ApplicationLayer/Contracts/IEvolisProductPrintConfigRepo.cs
+new file mode 100644
+index 0000000..a5caa7a
+--- /dev/null
++++ b/ApplicationLayer/Contracts/IEvolisProductPrintConfigRepo.cs
+@@ -0,0 +1,23 @@
++using System.Threading;
++using System.Threading.Tasks;
++using DomainLayer.Entities;
++
++namespace ApplicationLayer.Contracts
++{
++    /// <summary>
++    /// Data-access contract for <see cref="EvolisProductPrintConfiguration"/> (ERD §7.1, Printing
++    /// Module Q-02/Q-05) — one row per product. <see cref="IGenericRepo{T, TKey}.Remove"/> is the
++    /// hard delete decision Q-08 requires on a printer-family switch; no separate method is needed
++    /// for it.
++    /// </summary>
++    public interface IEvolisProductPrintConfigRepo : IGenericRepo<EvolisProductPrintConfiguration, long>
++    {
++        /// <summary>Reads one product's Evolis configuration (no tracking), or <c>null</c> if the product uses Matica or has none yet.</summary>
++        Task<EvolisProductPrintConfiguration?> GetByProductIdAsync(
++            long tenantId, long productId, CancellationToken cancellationToken = default);
++
++        /// <summary>Loads one tracked row by product id for in-transaction mutation (update, soft delete/restore, or the Q-08 switch's hard delete).</summary>
++        Task<EvolisProductPrintConfiguration?> GetByProductIdForUpdateAsync(
++            long tenantId, long productId, CancellationToken cancellationToken = default);
++    }
++}
+diff --git a/ApplicationLayer/Contracts/IMaticaPrinterConfigRepo.cs b/ApplicationLayer/Contracts/IMaticaPrinterConfigRepo.cs
+new file mode 100644
+index 0000000..d505d9f
+--- /dev/null
++++ b/ApplicationLayer/Contracts/IMaticaPrinterConfigRepo.cs
+@@ -0,0 +1,27 @@
++using System.Collections.Generic;
++using System.Threading;
++using System.Threading.Tasks;
++using DomainLayer.Entities;
++
++namespace ApplicationLayer.Contracts
++{
++    /// <summary>
++    /// Data-access contract for <see cref="MaticaPrinterConfiguration"/> (ERD §6.2, Printing
++    /// Module Q-01) — the 1:1 Matica-only extension of <see cref="Printer"/>.
++    /// </summary>
++    public interface IMaticaPrinterConfigRepo : IGenericRepo<MaticaPrinterConfiguration, long>
++    {
++        /// <summary>Finds the Matica configuration for one printer, or <c>null</c> when the printer is Evolis (or unregistered).</summary>
++        Task<MaticaPrinterConfiguration?> GetByPrinterIdAsync(long printerId, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Bulk-loads Matica configurations for a set of printers in one query, keyed by
++        /// <see cref="MaticaPrinterConfiguration.PrinterId"/> — backs
++        /// <see cref="IPrinterRepo.GetPagedAsync"/>'s response assembly without an N+1 query per
++        /// row. Mirrors <c>IStockRepo.GetManyForUpdateAsync</c>'s bulk-dictionary shape.
++        /// A printer id with no Matica row (an Evolis printer) is simply absent from the result.
++        /// </summary>
++        Task<IReadOnlyDictionary<long, MaticaPrinterConfiguration>> GetByPrinterIdsAsync(
++            IEnumerable<long> printerIds, CancellationToken cancellationToken = default);
++    }
++}
+diff --git a/ApplicationLayer/Contracts/IMaticaProductPrintConfigRepo.cs b/ApplicationLayer/Contracts/IMaticaProductPrintConfigRepo.cs
+new file mode 100644
+index 0000000..d1a4060
+--- /dev/null
++++ b/ApplicationLayer/Contracts/IMaticaProductPrintConfigRepo.cs
+@@ -0,0 +1,23 @@
++using System.Threading;
++using System.Threading.Tasks;
++using DomainLayer.Entities;
++
++namespace ApplicationLayer.Contracts
++{
++    /// <summary>
++    /// Data-access contract for <see cref="MaticaProductPrintConfiguration"/> (ERD §7.2, Printing
++    /// Module Q-02/Q-03/Q-04) — one row per product. <see cref="IGenericRepo{T, TKey}.Remove"/> is
++    /// the hard delete decision Q-08 requires on a printer-family switch; no separate method is
++    /// needed for it.
++    /// </summary>
++    public interface IMaticaProductPrintConfigRepo : IGenericRepo<MaticaProductPrintConfiguration, long>
++    {
++        /// <summary>Reads one product's Matica configuration (no tracking), or <c>null</c> if the product uses Evolis or has none yet.</summary>
++        Task<MaticaProductPrintConfiguration?> GetByProductIdAsync(
++            long tenantId, long productId, CancellationToken cancellationToken = default);
++
++        /// <summary>Loads one tracked row by product id for in-transaction mutation (update, soft delete/restore, or the Q-08 switch's hard delete).</summary>
++        Task<MaticaProductPrintConfiguration?> GetByProductIdForUpdateAsync(
++            long tenantId, long productId, CancellationToken cancellationToken = default);
++    }
++}
+diff --git a/ApplicationLayer/Contracts/IPrintImageRepo.cs b/ApplicationLayer/Contracts/IPrintImageRepo.cs
+new file mode 100644
+index 0000000..81f54e0
+--- /dev/null
++++ b/ApplicationLayer/Contracts/IPrintImageRepo.cs
+@@ -0,0 +1,22 @@
++using System.Threading;
++using System.Threading.Tasks;
++using DomainLayer.Entities;
++
++namespace ApplicationLayer.Contracts
++{
++    /// <summary>
++    /// Data-access contract for <see cref="PrintImage"/> (module requirements §5–§7, Printing
++    /// Module Q-10).
++    /// </summary>
++    public interface IPrintImageRepo : IGenericRepo<PrintImage, long>
++    {
++        /// <summary>
++        /// Finds the tracked row for a tenant's existing upload with this exact original file
++        /// name, or <c>null</c> when none exists. Backs the decision Q-10 duplicate-name replace
++        /// flow: found → the old row (and its physical file) is removed before the new one is
++        /// inserted, inside one transaction.
++        /// </summary>
++        Task<PrintImage?> GetByOriginalFileNameAsync(
++            long tenantId, string originalFileName, CancellationToken cancellationToken = default);
++    }
++}
+diff --git a/ApplicationLayer/Contracts/IPrintImageStorage.cs b/ApplicationLayer/Contracts/IPrintImageStorage.cs
+new file mode 100644
+index 0000000..beb2c36
+--- /dev/null
++++ b/ApplicationLayer/Contracts/IPrintImageStorage.cs
+@@ -0,0 +1,52 @@
++using System.Threading;
++using System.Threading.Tasks;
++using DomainLayer.Common;
++using Microsoft.AspNetCore.Http;
++
++namespace ApplicationLayer.Contracts
++{
++    /// <summary>
++    /// Outcome of a successful physical save (module requirements §5/§6, Printing Module Q-10).
++    /// </summary>
++    /// <param name="StoredFileName">GUID-based physical file name, including extension.</param>
++    /// <param name="StoredPath">
++    /// Path relative to the configured image root, e.g. <c>products/7/&lt;guid&gt;.png</c> — the
++    /// value returned to clients as <c>imagePath</c>.
++    /// </param>
++    /// <param name="ContentType">MIME type detected from the file's magic bytes, not the client-supplied header.</param>
++    /// <param name="SizeBytes">File size in bytes.</param>
++    public sealed record StoredImage(string StoredFileName, string StoredPath, string ContentType, long SizeBytes);
++
++    /// <summary>
++    /// Physical storage for uploaded print-configuration images (module requirements §5–§7,
++    /// Printing Module Q-10). Pure I/O — no database access, no duplicate-name logic; that
++    /// orchestration belongs to <c>IPrintImageService</c>, which pairs this with
++    /// <see cref="IPrintImageRepo"/> inside one transaction. Kept as its own abstraction so a
++    /// future storage backend (e.g. blob storage) is a single new implementation, matching this
++    /// codebase's existing pattern of infrastructure-facing interfaces living in
++    /// <c>ApplicationLayer.Contracts</c> (e.g. <c>IBatchFileEncryptor</c>).
++    /// </summary>
++    public interface IPrintImageStorage
++    {
++        /// <summary>
++        /// Validates and saves <paramref name="file"/> under a tenant-scoped directory (decision
++        /// Q-10: <c>{root}/{tenantId}/{guid}.{extension}</c>), with the physical file name always
++        /// a fresh GUID — never the client-supplied name. Validates maximum size, extension
++        /// allowlist, and the file's actual content via magic-byte signature sniffing; the
++        /// client-supplied <c>Content-Type</c> header is never trusted.
++        /// </summary>
++        /// <param name="tenantId">Owning tenant — determines the physical subdirectory.</param>
++        /// <param name="file">The uploaded file.</param>
++        /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
++        Task<Result<StoredImage>> SaveAsync(
++            long tenantId, IFormFile file, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Deletes the physical file at <paramref name="storedPath"/>, if present. Never throws
++        /// for a missing file — deleting something already gone is not a failure for this
++        /// method's caller (decision Q-10's replace flow calls this best-effort before saving the
++        /// new file).
++        /// </summary>
++        Task DeleteAsync(string storedPath, CancellationToken cancellationToken = default);
++    }
++}
+diff --git a/ApplicationLayer/Contracts/IPrinterRepo.cs b/ApplicationLayer/Contracts/IPrinterRepo.cs
+new file mode 100644
+index 0000000..85fa225
+--- /dev/null
++++ b/ApplicationLayer/Contracts/IPrinterRepo.cs
+@@ -0,0 +1,36 @@
++using System.Collections.Generic;
++using System.Threading;
++using System.Threading.Tasks;
++using ApplicationLayer.DTOs.Printing;
++using DomainLayer.Entities;
++
++namespace ApplicationLayer.Contracts
++{
++    /// <summary>
++    /// Data-access contract for <see cref="Printer"/> (ERD §6.1, Printing Module Q-01). All query
++    /// logic is expressed here as named methods; raw predicates never reach the service layer.
++    /// The 1:1 Matica extension is deliberately not loaded here — see
++    /// <see cref="IMaticaPrinterConfigRepo"/>, kept as its own repository per aggregate.
++    /// </summary>
++    public interface IPrinterRepo : IGenericRepo<Printer, long>
++    {
++        /// <summary>
++        /// Returns a page of printers. When <paramref name="tenantScopeId"/> is supplied (tenant
++        /// caller) results are restricted to that tenant; when <c>null</c> (system admin) the
++        /// optional <see cref="PrinterListFilter.TenantId"/> applies instead.
++        /// </summary>
++        Task<(IReadOnlyList<Printer> Items, int TotalCount)> GetPagedAsync(
++            long? tenantScopeId, PrinterListFilter filter, CancellationToken cancellationToken = default);
++
++        /// <summary>Finds a printer by id across all tenants, including soft-deleted rows.</summary>
++        Task<Printer?> GetByIdIncludingDeletedAsync(long id, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// True when a non-deleted printer with <paramref name="uniqueNumber"/> already exists
++        /// for the tenant (optionally excluding <paramref name="excludeId"/>). Matches the
++        /// filtered UNIQUE (TenantId, UniqueNumber) constraint.
++        /// </summary>
++        Task<bool> UniqueNumberExistsAsync(
++            long tenantId, string uniqueNumber, long? excludeId, CancellationToken cancellationToken = default);
++    }
++}
+diff --git a/ApplicationLayer/Contracts/IProductPrintConfigComposer.cs b/ApplicationLayer/Contracts/IProductPrintConfigComposer.cs
+new file mode 100644
+index 0000000..f9232f2
+--- /dev/null
++++ b/ApplicationLayer/Contracts/IProductPrintConfigComposer.cs
+@@ -0,0 +1,111 @@
++using System.Threading;
++using System.Threading.Tasks;
++using ApplicationLayer.DTOs.Printing;
++using DomainLayer.Common;
++using DomainLayer.Entities;
++using DomainLayer.Enums;
++
++namespace ApplicationLayer.Contracts
++{
++    /// <summary>
++    /// The output of <see cref="IProductPrintConfigComposer.ValidateAsync"/>: a fully validated,
++    /// not-yet-persisted configuration entity, ready to be attached to a product. Exactly one of
++    /// <see cref="Matica"/> / <see cref="Evolis"/> is populated, matching
++    /// <see cref="UsingPrinterType"/>.
++    /// </summary>
++    public sealed record ValidatedProductPrintConfig(
++        UsingPrinterType UsingPrinterType,
++        MaticaProductPrintConfiguration? Matica,
++        EvolisProductPrintConfiguration? Evolis);
++
++    /// <summary>
++    /// Shared product-print-configuration core (module requirement §4, Printing Module
++    /// Q-02/Q-03/Q-04/Q-05/Q-08), extracted so that both product creation (module requirement §4:
++    /// "the product and its printing configuration should behave as a single aggregate") and the
++    /// standalone sub-resource update (<c>PUT /api/products/{id}/print-config</c>, decision Q-07)
++    /// build configurations from one implementation of the field-matching, ribbon-type, and
++    /// HEX-color rules — mirroring exactly how <c>ITransferComposer</c> was extracted from
++    /// <c>TransferService.CreateAsync</c> so a direct transfer and a branch-request confirm never
++    /// drift apart on the same rules.
++    /// <para>
++    /// Split at the transaction boundary the same way: <see cref="ValidateAsync"/> is read-only
++    /// (loads and checks the ribbon type, validates the payload shape and HEX-color format) so a
++    /// bad payload fails before anything is written; <see cref="StageForProductAsync"/>,
++    /// <see cref="ReplaceForProductAsync"/>, <see cref="SoftDeleteForProductAsync"/>, and
++    /// <see cref="RestoreForProductAsync"/> only stage changes — the caller's own
++    /// <c>IUnitOfWork.ExecuteInTransactionAsync</c> commits them alongside whatever else the
++    /// caller (typically <c>ProductService</c>) is doing in the same transaction.
++    /// </para>
++    /// </summary>
++    public interface IProductPrintConfigComposer
++    {
++        /// <summary>
++        /// Read-only validation: confirms exactly one of <paramref name="matica"/> /
++        /// <paramref name="evolis"/> is supplied and matches <paramref name="usingPrinterType"/>,
++        /// resolves and checks <see cref="EvolisPrintConfigRequest.RibbonTypeId"/> when
++        /// applicable, and validates the HEX-color format of
++        /// <see cref="EvolisPrintConfigRequest.PrintColor"/> /
++        /// <see cref="EvolisPrintConfigRequest.BackgroundColor"/>. Builds but does not persist the
++        /// resulting entity. Performs no writes and opens no transaction.
++        /// </summary>
++        /// <param name="tenantId">Owning tenant, already resolved by the caller.</param>
++        /// <param name="usingPrinterType">The printer family this configuration is for.</param>
++        /// <param name="matica">Matica payload — required and only valid when Matica.</param>
++        /// <param name="evolis">Evolis payload — required and only valid when Evolis.</param>
++        /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
++        Task<Result<ValidatedProductPrintConfig>> ValidateAsync(
++            long tenantId,
++            UsingPrinterType usingPrinterType,
++            MaticaPrintConfigRequest? matica,
++            EvolisPrintConfigRequest? evolis,
++            CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Stages a brand-new configuration row for a product that has none yet — the create
++        /// path of the single-aggregate lifecycle (module requirement §4). Must be called inside
++        /// an ambient <c>IUnitOfWork.ExecuteInTransactionAsync</c>, in the same transaction that
++        /// inserts the owning product. Never saves, never commits.
++        /// </summary>
++        /// <param name="tenantId">Owning tenant, already resolved by the caller.</param>
++        /// <param name="productId">The just-created product's id.</param>
++        /// <param name="validated">The output of <see cref="ValidateAsync"/>.</param>
++        /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
++        Task StageForProductAsync(
++            long tenantId, long productId, ValidatedProductPrintConfig validated,
++            CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Replaces a product's existing configuration with <paramref name="validated"/>. When
++        /// <paramref name="validated"/>'s <see cref="ValidatedProductPrintConfig.UsingPrinterType"/>
++        /// matches the product's current family, the existing row is updated in place. When it
++        /// differs (decision Q-08, a printer-family switch), the old row is hard deleted — never
++        /// soft deleted — and the new row is inserted, both staged for the same commit. Must be
++        /// called inside an ambient <c>IUnitOfWork.ExecuteInTransactionAsync</c>. Never saves,
++        /// never commits.
++        /// </summary>
++        /// <param name="tenantId">Owning tenant, already resolved by the caller.</param>
++        /// <param name="productId">The product whose configuration is being replaced.</param>
++        /// <param name="validated">The output of <see cref="ValidateAsync"/>.</param>
++        /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
++        Task<Result> ReplaceForProductAsync(
++            long tenantId, long productId, ValidatedProductPrintConfig validated,
++            CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Soft-deletes a product's configuration alongside its owning product (module
++        /// requirement §4: "deleting a product should remove its associated print
++        /// configuration"). Silently no-ops if the product has no configuration row. Must be
++        /// called inside an ambient <c>IUnitOfWork.ExecuteInTransactionAsync</c>.
++        /// </summary>
++        Task SoftDeleteForProductAsync(
++            long tenantId, long productId, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Restores a product's soft-deleted configuration alongside restoring its owning
++        /// product. Silently no-ops if the product has no configuration row. Must be called
++        /// inside an ambient <c>IUnitOfWork.ExecuteInTransactionAsync</c>.
++        /// </summary>
++        Task RestoreForProductAsync(
++            long tenantId, long productId, CancellationToken cancellationToken = default);
++    }
++}
+diff --git a/ApplicationLayer/Contracts/IRibbonTypeRepo.cs b/ApplicationLayer/Contracts/IRibbonTypeRepo.cs
+new file mode 100644
+index 0000000..6360b83
+--- /dev/null
++++ b/ApplicationLayer/Contracts/IRibbonTypeRepo.cs
+@@ -0,0 +1,17 @@
++using System.Threading;
++using System.Threading.Tasks;
++using DomainLayer.Entities;
++
++namespace ApplicationLayer.Contracts
++{
++    /// <summary>
++    /// Data-access contract for <see cref="RibbonType"/> — a global reference table (Printing
++    /// Module Q-05), not tenant-scoped. <see cref="IGenericRepo{T, TKey}.GetAllAsync"/> already
++    /// covers listing every ribbon type; the one addition here backs FK validation.
++    /// </summary>
++    public interface IRibbonTypeRepo : IGenericRepo<RibbonType, long>
++    {
++        /// <summary>True when a ribbon type with this id exists — backs the FK check on an Evolis print-configuration write.</summary>
++        Task<bool> ExistsAsync(long id, CancellationToken cancellationToken = default);
++    }
++}
+diff --git a/ApplicationLayer/DTOs/Printing/PrintingDtos.cs b/ApplicationLayer/DTOs/Printing/PrintingDtos.cs
+new file mode 100644
+index 0000000..0aed5df
+--- /dev/null
++++ b/ApplicationLayer/DTOs/Printing/PrintingDtos.cs
+@@ -0,0 +1,197 @@
++using System;
++using DomainLayer.Enums;
++
++namespace ApplicationLayer.DTOs.Printing
++{
++    // =====================================================================================
++    //  Printers (ERD §6, Printing Module Q-01/Q-09)
++    // =====================================================================================
++
++    /// <summary>Matica-only machine configuration, nested under a printer payload (ERD §6.2).</summary>
++    public sealed record MaticaPrinterConfigRequest(int FeederId, int HopperId, int RejectedId, string Port);
++
++    /// <summary>Matica-only machine configuration as returned to clients (ERD §6.2).</summary>
++    public sealed record MaticaPrinterConfigResponse(int FeederId, int HopperId, int RejectedId, string Port);
++
++    /// <summary>
++    /// Create payload for <c>POST /api/printers</c> (Printing Module Q-01/Q-09: system-admin
++    /// only). <paramref name="MaticaConfig"/> is required when <paramref name="UsingPrinterType"/>
++    /// is <see cref="UsingPrinterType.Matica"/> and must be absent when it is
++    /// <see cref="UsingPrinterType.Evolis"/> — Evolis needs no server-side machine configuration
++    /// (module requirement §1).
++    /// </summary>
++    /// <param name="TenantId">
++    /// Used only by a system-admin caller to target a tenant; for a tenant caller it is ignored
++    /// (the token's tenant is used), mirroring <c>CreateProductRequest.TenantId</c>. In practice
++    /// every write to this resource is system-admin-only (decision Q-09), so this is normally
++    /// how the target tenant is supplied.
++    /// </param>
++    public sealed record CreatePrinterRequest(
++        long BranchId,
++        UsingPrinterType UsingPrinterType,
++        string Name,
++        string Model,
++        string UniqueNumber,
++        MaticaPrinterConfigRequest? MaticaConfig,
++        long? TenantId = null);
++
++    /// <summary>
++    /// Update payload for <c>PUT /api/printers/{id}</c> (decision Q-09: system-admin only).
++    /// <see cref="UsingPrinterType"/> is deliberately not present — a physical printer's family
++    /// is a hardware fact and does not change after registration, unlike a product's printer
++    /// family (Q-08), which is a business choice about which machine prints it.
++    /// </summary>
++    public sealed record UpdatePrinterRequest(
++        long BranchId,
++        string Name,
++        string Model,
++        string UniqueNumber,
++        MaticaPrinterConfigRequest? MaticaConfig);
++
++    /// <summary>Printer projection returned to clients, including its Matica extension when applicable.</summary>
++    public sealed record PrinterResponse(
++        long Id,
++        long TenantId,
++        long BranchId,
++        string BranchName,
++        UsingPrinterType UsingPrinterType,
++        string Name,
++        string Model,
++        string UniqueNumber,
++        MaticaPrinterConfigResponse? MaticaConfig,
++        bool IsDeleted,
++        DateTime CreatedAt,
++        DateTime? UpdatedAt,
++        DateTime? DeletedAt);
++
++    /// <summary>
++    /// Filter/paging inputs for <c>GET /api/printers</c> (decision Q-09: tenant users get
++    /// read-only access filtered by type and branch).
++    /// </summary>
++    /// <param name="UsingPrinterType">Optional printer-family filter; null matches both.</param>
++    /// <param name="BranchId">Optional branch filter.</param>
++    /// <param name="IsDeleted">Optional soft-delete filter; null matches both.</param>
++    /// <param name="TenantId">System-admin-only tenant filter; ignored for tenant callers.</param>
++    /// <param name="Page">1-based page index. Defaults to 1.</param>
++    /// <param name="PageSize">Items per page (max 100 per spec). Defaults to 20.</param>
++    /// <param name="SortBy">Optional sort field; mapped to a whitelisted column in the repository.</param>
++    /// <param name="SortDir">Sort direction, "asc" or "desc". Defaults to "asc".</param>
++    public sealed record PrinterListFilter(
++        UsingPrinterType? UsingPrinterType = null,
++        long? BranchId = null,
++        bool? IsDeleted = null,
++        long? TenantId = null,
++        int Page = 1,
++        int PageSize = 20,
++        string? SortBy = null,
++        string? SortDir = "asc");
++
++    // =====================================================================================
++    //  Ribbon types (Printing Module Q-05)
++    // =====================================================================================
++
++    /// <summary>A ribbon type an Evolis configuration can reference.</summary>
++    public sealed record RibbonTypeResponse(long Id, string Name);
++
++    // =====================================================================================
++    //  Product print configuration (ERD §7, Printing Module Q-02/Q-03/Q-04/Q-05/Q-07/Q-08/Q-09)
++    // =====================================================================================
++
++    /// <summary>Matica printing parameters payload (decision Q-03: no separate Font/FontFamily field).</summary>
++    public sealed record MaticaPrintConfigRequest(
++        int Cpi,
++        int FontSize,
++        int OffsetX,
++        int OffsetY,
++        string? ImagePath);
++
++    /// <summary>Matica printing parameters as returned to clients.</summary>
++    public sealed record MaticaPrintConfigResponse(
++        int Cpi,
++        int FontSize,
++        int OffsetX,
++        int OffsetY,
++        string? ImagePath);
++
++    /// <summary>Evolis printing parameters payload. <see cref="RibbonTypeId"/> per decision Q-05.</summary>
++    public sealed record EvolisPrintConfigRequest(
++        long RibbonTypeId,
++        PrintWay PrintWay,
++        int X,
++        int Y,
++        PrintedFace PrintedFace,
++        string FontFamily,
++        int FontSize,
++        string PrintColor,
++        string BackgroundColor,
++        string FontStyle,
++        string? ImagePath);
++
++    /// <summary>Evolis printing parameters as returned to clients, with the ribbon type resolved by name.</summary>
++    public sealed record EvolisPrintConfigResponse(
++        long RibbonTypeId,
++        string RibbonTypeName,
++        PrintWay PrintWay,
++        int X,
++        int Y,
++        PrintedFace PrintedFace,
++        string FontFamily,
++        int FontSize,
++        string PrintColor,
++        string BackgroundColor,
++        string FontStyle,
++        string? ImagePath);
++
++    /// <summary>
++    /// The print-configuration half of a product-creation payload (module requirement §4: "the
++    /// product and its printing configuration should behave as a single aggregate"). Exactly one
++    /// of <paramref name="Matica"/> / <paramref name="Evolis"/> must be supplied, matching
++    /// <paramref name="UsingPrinterType"/> — validated by <c>IProductPrintConfigComposer</c>
++    /// (mirrors <c>ValidatedTransferLine</c>/<c>ITransferComposer</c>'s split for the same reason:
++    /// one implementation of the matching rule, shared by product creation and the standalone
++    /// sub-resource update below).
++    /// <para>
++    /// Not yet wired into <c>CreateProductRequest</c> — that extension lands in the phase that
++    /// implements <c>ProductService</c>'s orchestration of this composer.
++    /// </para>
++    /// </summary>
++    public sealed record CreateProductPrintConfigRequest(
++        UsingPrinterType UsingPrinterType,
++        MaticaPrintConfigRequest? Matica,
++        EvolisPrintConfigRequest? Evolis);
++
++    /// <summary>
++    /// Payload for <c>PUT /api/products/{id}/print-config</c> (decision Q-07: sub-resource, no
++    /// standalone POST/DELETE). Also the payload shape for a printer-family switch (decision
++    /// Q-08): supplying a different <see cref="UsingPrinterType"/> than the product currently has,
++    /// together with that family's payload, switches it — the old configuration row is hard
++    /// deleted, not soft deleted, in the same transaction as the new row's insert.
++    /// </summary>
++    public sealed record UpdateProductPrintConfigRequest(
++        UsingPrinterType UsingPrinterType,
++        MaticaPrintConfigRequest? Matica,
++        EvolisPrintConfigRequest? Evolis);
++
++    /// <summary>
++    /// Response for <c>GET</c>/<c>PUT /api/products/{id}/print-config</c>. Exactly one of
++    /// <see cref="Matica"/> / <see cref="Evolis"/> is populated, matching
++    /// <see cref="UsingPrinterType"/> — the client does not need to guess which one to read.
++    /// </summary>
++    public sealed record ProductPrintConfigResponse(
++        long ProductId,
++        UsingPrinterType UsingPrinterType,
++        MaticaPrintConfigResponse? Matica,
++        EvolisPrintConfigResponse? Evolis);
++
++    // =====================================================================================
++    //  Print images (module requirements §5/§6/§7, Printing Module Q-10)
++    // =====================================================================================
++
++    /// <summary>
++    /// Result of <c>POST /api/print-images</c> (decision Q-10). <paramref name="Warning"/> is set
++    /// only when the upload replaced an existing image of the same name for this tenant — the
++    /// client must never treat <paramref name="Warning"/> being present as a failure; the upload
++    /// still succeeded and <paramref name="ImagePath"/> is always the newly saved file.
++    /// </summary>
++    public sealed record PrintImageUploadResult(string ImagePath, string? Warning);
++}
+diff --git a/ApplicationLayer/Errors/PrintingErrors.cs b/ApplicationLayer/Errors/PrintingErrors.cs
+new file mode 100644
+index 0000000..5b490ee
+--- /dev/null
++++ b/ApplicationLayer/Errors/PrintingErrors.cs
+@@ -0,0 +1,157 @@
++using DomainLayer.Common;
++
++namespace ApplicationLayer.Errors
++{
++    /// <summary>
++    /// Stable, localizable <see cref="Error"/> catalogue for the Printing module: the printer
++    /// registry (ERD §6), product print configurations (ERD §7), and print-image uploads (module
++    /// requirements §5–§7).
++    /// </summary>
++    public static class PrintingErrors
++    {
++        // =================================================================================
++        //  Printers (ERD §6, decisions Q-01/Q-09)
++        // =================================================================================
++
++        /// <summary>The caller's principal could not be resolved to a tenant (→ 401).</summary>
++        public static Error PrinterActorNotResolved() =>
++            Error.Unauthorized("Printer.ActorNotResolved", "The acting principal could not be resolved.");
++
++        /// <summary>A tenant caller attempted to create, update, delete, or restore a printer (→ 403, decision Q-09).</summary>
++        public static Error PrinterOnlySystemAdmin() =>
++            Error.Forbidden("Printer.OnlySystemAdmin",
++                "Only a system administrator can create, update, delete, or restore printers.");
++
++        /// <summary>No printer with that id in the caller's scope (→ 404, no existence leak).</summary>
++        public static Error PrinterNotFound(long id) =>
++            Error.NotFound("Printer.NotFound", $"No printer was found with id {id}.").WithArg(id.ToString());
++
++        /// <summary>A system-admin create call did not supply a target tenant (→ 422).</summary>
++        public static Error PrinterTenantRequired() =>
++            Error.Validation("Printer.TenantRequired",
++                "A target tenant id is required when registering a printer as a system administrator.");
++
++        /// <summary>The supplied target tenant does not exist (→ 422).</summary>
++        public static Error PrinterTargetTenantNotFound(long tenantId) =>
++            Error.Validation("Printer.TargetTenantNotFound", $"No tenant exists with id {tenantId}.")
++                .WithArg(tenantId.ToString());
++
++        /// <summary>The branch does not exist, or belongs to another tenant (→ 404).</summary>
++        public static Error PrinterBranchNotFound(long branchId) =>
++            Error.NotFound("Printer.BranchNotFound", $"No branch was found with id {branchId}.")
++                .WithArg(branchId.ToString());
++
++        /// <summary>A deleted branch cannot have a printer registered to it (→ 422).</summary>
++        public static Error PrinterBranchDeleted(long branchId) =>
++            Error.Validation("Printer.BranchDeleted",
++                $"Branch {branchId} is deleted and cannot have a printer registered to it.")
++                .WithArg(branchId.ToString());
++
++        /// <summary>Another non-deleted printer for this tenant already has this serial/IP (→ 409).</summary>
++        public static Error PrinterDuplicateUniqueNumber(string uniqueNumber) =>
++            Error.Conflict("Printer.DuplicateUniqueNumber",
++                $"A printer with serial/IP '{uniqueNumber}' is already registered for this tenant.")
++                .WithArg(uniqueNumber);
++
++        /// <summary>The printer is already soft-deleted (→ 409).</summary>
++        public static Error PrinterAlreadyDeleted(long id) =>
++            Error.Conflict("Printer.AlreadyDeleted", $"Printer {id} is already deleted.").WithArg(id.ToString());
++
++        /// <summary>The printer is not deleted, so it cannot be restored (→ 409).</summary>
++        public static Error PrinterNotDeleted(long id) =>
++            Error.Conflict("Printer.NotDeleted", $"Printer {id} is not deleted.").WithArg(id.ToString());
++
++        /// <summary>A Matica printer was registered or updated without its machine configuration (→ 422, module requirement §1).</summary>
++        public static Error MaticaPrinterConfigRequired() =>
++            Error.Validation("Printer.MaticaConfigRequired",
++                "A Matica printer requires its machine configuration (feeder, hopper, reject bin, port).");
++
++        /// <summary>An Evolis printer was registered or updated with a Matica machine configuration (→ 422, module requirement §1).</summary>
++        public static Error MaticaPrinterConfigNotApplicable() =>
++            Error.Validation("Printer.MaticaConfigNotApplicable",
++                "An Evolis printer does not accept a Matica machine configuration.");
++
++        // =================================================================================
++        //  Product print configuration (ERD §7, decisions Q-02/Q-03/Q-04/Q-05/Q-07/Q-08)
++        // =================================================================================
++
++        /// <summary>The product has no print configuration row yet (→ 404). Not expected under the single-aggregate design; defensive.</summary>
++        public static Error ProductPrintConfigNotFound(long productId) =>
++            Error.NotFound("ProductPrintConfig.NotFound",
++                $"Product {productId} has no print configuration.")
++                .WithArg(productId.ToString());
++
++        /// <summary>The payload's printer type is Matica, but no Matica payload was supplied (→ 422).</summary>
++        public static Error ProductPrintConfigMaticaPayloadRequired() =>
++            Error.Validation("ProductPrintConfig.MaticaPayloadRequired",
++                "A Matica print configuration payload is required when the printer type is Matica.");
++
++        /// <summary>A Matica payload was supplied for an Evolis printer type (→ 422).</summary>
++        public static Error ProductPrintConfigMaticaPayloadNotApplicable() =>
++            Error.Validation("ProductPrintConfig.MaticaPayloadNotApplicable",
++                "A Matica print configuration payload does not apply when the printer type is Evolis.");
++
++        /// <summary>The payload's printer type is Evolis, but no Evolis payload was supplied (→ 422).</summary>
++        public static Error ProductPrintConfigEvolisPayloadRequired() =>
++            Error.Validation("ProductPrintConfig.EvolisPayloadRequired",
++                "An Evolis print configuration payload is required when the printer type is Evolis.");
++
++        /// <summary>An Evolis payload was supplied for a Matica printer type (→ 422).</summary>
++        public static Error ProductPrintConfigEvolisPayloadNotApplicable() =>
++            Error.Validation("ProductPrintConfig.EvolisPayloadNotApplicable",
++                "An Evolis print configuration payload does not apply when the printer type is Matica.");
++
++        /// <summary>The supplied ribbon type does not exist (→ 422, decision Q-05).</summary>
++        public static Error ProductPrintConfigRibbonTypeNotFound(long ribbonTypeId) =>
++            Error.Validation("ProductPrintConfig.RibbonTypeNotFound",
++                $"No ribbon type exists with id {ribbonTypeId}.")
++                .WithArg(ribbonTypeId.ToString());
++
++        /// <summary>
++        /// <c>PrintColor</c> or <c>BackgroundColor</c> is not a valid HEX value (→ 422, module
++        /// requirement §3: 6 or 8 hex digits after '#').
++        /// </summary>
++        public static Error ProductPrintConfigInvalidHexColor(string value) =>
++            Error.Validation("ProductPrintConfig.InvalidHexColor",
++                $"'{value}' is not a valid HEX color. Use the form #RRGGBB or #RRGGBBAA.")
++                .WithArg(value);
++
++        // =================================================================================
++        //  Print images (module requirements §5–§7, decision Q-10)
++        // =================================================================================
++
++        /// <summary>No file was supplied, or the supplied file has zero bytes (→ 422).</summary>
++        public static Error PrintImageFileMissing() =>
++            Error.Validation("PrintImage.FileMissing", "No image file was supplied.");
++
++        /// <summary>The uploaded file exceeds the configured maximum size (→ 422).</summary>
++        public static Error PrintImageFileTooLarge(long maxSizeBytes) =>
++            Error.Validation("PrintImage.FileTooLarge",
++                $"The image exceeds the maximum allowed size of {maxSizeBytes} bytes.")
++                .WithArg(maxSizeBytes.ToString());
++
++        /// <summary>The uploaded file's extension is not on the allowed list (→ 422).</summary>
++        public static Error PrintImageInvalidExtension() =>
++            Error.Validation("PrintImage.InvalidExtension", "This image file type is not supported.");
++
++        /// <summary>
++        /// The file's actual content, detected from its magic bytes, does not match a supported
++        /// image format (→ 422, decision Q-10) — the client-supplied extension and Content-Type
++        /// are not trusted on their own.
++        /// </summary>
++        public static Error PrintImageUnsupportedContent() =>
++            Error.Validation("PrintImage.UnsupportedContent",
++                "The uploaded file's content does not match a supported image format.");
++
++        /// <summary>
++        /// The caller has no resolvable tenant context (e.g. a system-admin token, which this
++        /// endpoint does not support — there is no tenant to own the uploaded file) (→ 401).
++        /// </summary>
++        public static Error PrintImageActorNotResolved() =>
++            Error.Unauthorized("PrintImage.ActorNotResolved", "The acting principal could not be resolved.");
++
++        /// <summary>The image could not be saved to disk (→ 500). Not caller-driven; logged with full context.</summary>
++        public static Error PrintImageSaveFailed() =>
++            Error.Internal("PrintImage.SaveFailed", "The image could not be saved. Please try again.");
++    }
++}
+diff --git a/ApplicationLayer/Options/PrintImageOptions.cs b/ApplicationLayer/Options/PrintImageOptions.cs
+new file mode 100644
+index 0000000..3159df2
+--- /dev/null
++++ b/ApplicationLayer/Options/PrintImageOptions.cs
+@@ -0,0 +1,38 @@
++namespace ApplicationLayer.Options
++{
++    /// <summary>
++    /// Settings for print-configuration image uploads, bound from the <c>"PrintImages"</c>
++    /// section (Printing Module, decision Q-10).
++    /// </summary>
++    public sealed class PrintImageOptions
++    {
++        /// <summary>Configuration section name.</summary>
++        public const string SectionName = "PrintImages";
++
++        /// <summary>
++        /// Physical root directory images are written under, relative to the content root (e.g.
++        /// <c>wwwroot/uploads/products</c>). Each tenant gets its own subdirectory beneath this
++        /// root — <c>{RootPath}/{tenantId}/{guid}.{extension}</c> — so a duplicate file name from
++        /// one tenant can never collide with, or overwrite, another tenant's file (decision Q-10).
++        /// </summary>
++        public string RootPath { get; set; } = "wwwroot/uploads/products";
++
++        /// <summary>
++        /// Public URL prefix matching <see cref="RootPath"/> (e.g. <c>/uploads/products</c>),
++        /// used to build the <c>imagePath</c> returned to clients. Kept separate from
++        /// <see cref="RootPath"/> so the physical location and the served URL can diverge without
++        /// a code change.
++        /// </summary>
++        public string PublicBaseUrl { get; set; } = "/uploads/products";
++
++        /// <summary>Maximum accepted upload size in bytes. Defaults to 5 MB.</summary>
++        public long MaxSizeBytes { get; set; } = 5 * 1024 * 1024;
++
++        /// <summary>
++        /// Allowed file extensions (lowercase, with leading dot). Extension is one input to the
++        /// upload check; the file's actual content is independently verified via magic-byte
++        /// signature sniffing (decision Q-10) — an allowed extension alone never admits a file.
++        /// </summary>
++        public string[] AllowedExtensions { get; set; } = { ".png", ".jpg", ".jpeg" };
++    }
++}
+diff --git a/ApplicationLayer/ServicesContracts/IPrintImageService.cs b/ApplicationLayer/ServicesContracts/IPrintImageService.cs
+new file mode 100644
+index 0000000..1cedfc6
+--- /dev/null
++++ b/ApplicationLayer/ServicesContracts/IPrintImageService.cs
+@@ -0,0 +1,35 @@
++using System.Threading;
++using System.Threading.Tasks;
++using ApplicationLayer.DTOs.Printing;
++using DomainLayer.Common;
++using Microsoft.AspNetCore.Http;
++
++namespace ApplicationLayer.ServicesContracts
++{
++    /// <summary>
++    /// Payload for <c>POST /api/print-images</c> (module requirement §5, multipart/form-data).
++    /// </summary>
++    /// <param name="File">The image to upload.</param>
++    public sealed record UploadPrintImageRequest(IFormFile File);
++
++    /// <summary>
++    /// Print-configuration image upload use case (module requirements §5–§7, Printing Module
++    /// Q-10). Orchestrates <c>IPrintImageStorage</c> (physical save) and <c>IPrintImageRepo</c>
++    /// (metadata + duplicate-name detection) inside one transaction — mirrors how
++    /// <c>BatchUploadService</c> pairs its cipher and repository. A system-admin caller is
++    /// rejected (<c>PrintingErrors.PrintImageActorNotResolved</c>): there is no tenant to own the
++    /// uploaded file, the same reasoning <c>BatchUploadService.UploadAsync</c> already applies.
++    /// </summary>
++    public interface IPrintImageService
++    {
++        /// <summary>
++        /// Validates and saves the uploaded image. When a non-deleted image with the same
++        /// original file name already exists for the caller's tenant (decision Q-10), the
++        /// existing file and row are deleted first — inside the same transaction — and the result
++        /// carries a non-null <c>Warning</c>; this is not a failure, and <c>ImagePath</c> always
++        /// names the newly saved file.
++        /// </summary>
++        Task<Result<PrintImageUploadResult>> UploadAsync(
++            UploadPrintImageRequest request, CancellationToken cancellationToken = default);
++    }
++}
+diff --git a/ApplicationLayer/ServicesContracts/IPrinterConfigurationService.cs b/ApplicationLayer/ServicesContracts/IPrinterConfigurationService.cs
+new file mode 100644
+index 0000000..804638e
+--- /dev/null
++++ b/ApplicationLayer/ServicesContracts/IPrinterConfigurationService.cs
+@@ -0,0 +1,50 @@
++using System.Threading;
++using System.Threading.Tasks;
++using ApplicationLayer.Common;
++using ApplicationLayer.DTOs.Printing;
++using DomainLayer.Common;
++
++namespace ApplicationLayer.ServicesContracts
++{
++    /// <summary>
++    /// Printer registry management use cases (ERD §6, Printing Module Q-01/Q-09). Every write —
++    /// <see cref="CreateAsync"/>, <see cref="UpdateAsync"/>, <see cref="SoftDeleteAsync"/>,
++    /// <see cref="RestoreAsync"/> — is system-admin-only (decision Q-09) and fails with
++    /// <c>PrintingErrors.PrinterOnlySystemAdmin</c> for a tenant caller. Reads
++    /// (<see cref="GetAllAsync"/>, <see cref="GetByIdAsync"/>) are open to both: a tenant caller
++    /// is scoped to its own tenant and may filter by printer type and branch; a system admin sees
++    /// across tenants and may filter by <see cref="PrinterListFilter.TenantId"/>. Hard delete is
++    /// intentionally omitted, consistent with every other soft-delete-only module.
++    /// </summary>
++    public interface IPrinterConfigurationService
++    {
++        /// <summary>Returns a page of printers the caller may see.</summary>
++        Task<Result<PaginatedResponse<PrinterResponse>>> GetAllAsync(
++            PrinterListFilter filter, CancellationToken cancellationToken = default);
++
++        /// <summary>Returns a single printer by id, scoped to the caller.</summary>
++        Task<Result<PrinterResponse>> GetByIdAsync(long id, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Registers a new printer. System-admin only (decision Q-09).
++        /// <see cref="CreatePrinterRequest.MaticaConfig"/> is required when the printer is Matica
++        /// and rejected when it is Evolis.
++        /// </summary>
++        Task<Result<PrinterResponse>> CreateAsync(
++            CreatePrinterRequest request, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Updates a printer's branch, name, model, unique number, and (for a Matica printer) its
++        /// machine configuration. System-admin only (decision Q-09). The printer's family
++        /// (<see cref="DomainLayer.Enums.UsingPrinterType"/>) cannot be changed after registration.
++        /// </summary>
++        Task<Result<PrinterResponse>> UpdateAsync(
++            long id, UpdatePrinterRequest request, CancellationToken cancellationToken = default);
++
++        /// <summary>Soft-deletes a printer, recording the acting system admin as the deleter. System-admin only.</summary>
++        Task<Result> SoftDeleteAsync(long id, CancellationToken cancellationToken = default);
++
++        /// <summary>Restores a soft-deleted printer. System-admin only.</summary>
++        Task<Result> RestoreAsync(long id, CancellationToken cancellationToken = default);
++    }
++}
+diff --git a/ApplicationLayer/ServicesContracts/IProductPrintConfigurationService.cs b/ApplicationLayer/ServicesContracts/IProductPrintConfigurationService.cs
+new file mode 100644
+index 0000000..c46124a
+--- /dev/null
++++ b/ApplicationLayer/ServicesContracts/IProductPrintConfigurationService.cs
+@@ -0,0 +1,41 @@
++using System.Threading;
++using System.Threading.Tasks;
++using ApplicationLayer.DTOs.Printing;
++using DomainLayer.Common;
++
++namespace ApplicationLayer.ServicesContracts
++{
++    /// <summary>
++    /// The product print-configuration sub-resource use case (decision Q-07:
++    /// <c>GET</c>/<c>PUT /api/products/{id}/print-config</c>, no standalone POST/DELETE — the
++    /// configuration's create/delete lifecycle stays with <c>ProductService</c>, per the
++    /// single-aggregate design). Built on <c>IProductPrintConfigComposer</c> for the actual
++    /// validation and staging rules, the same way <c>ITransferService</c> is built on
++    /// <c>ITransferComposer</c>.
++    /// </summary>
++    public interface IProductPrintConfigurationService
++    {
++        /// <summary>Returns the print configuration for a product, scoped to the caller.</summary>
++        Task<Result<ProductPrintConfigResponse>> GetForProductAsync(
++            long productId, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Replaces a product's print configuration. Supplying a different
++        /// <see cref="UpdateProductPrintConfigRequest.UsingPrinterType"/> than the product
++        /// currently has switches its printer family (decision Q-08): the old configuration row
++        /// is hard deleted and the new one inserted, in one transaction.
++        /// <para>
++        /// <b>Assumption flagged for confirmation:</b> decision Q-09 restricts the
++        /// product-plus-configuration <em>create</em> flow to system admins, and separately
++        /// restricts printer-registry writes to system admins, but says nothing about this
++        /// standalone update endpoint. This service assumes the update follows
++        /// <c>ProductService</c>'s existing (non-admin-restricted, tenant-scoped) authorization —
++        /// the same tenant caller who may update a product may update its print configuration.
++        /// If print-config updates should also be system-admin-only, this needs to change before
++        /// implementation.
++        /// </para>
++        /// </summary>
++        Task<Result<ProductPrintConfigResponse>> UpdateForProductAsync(
++            long productId, UpdateProductPrintConfigRequest request, CancellationToken cancellationToken = default);
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+index 99cea5d..e408d2a 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+@@ -465,4 +465,79 @@
+   <data name="Product.HasOpenRequest" xml:space="preserve">
+     <value>المنتج رقم {0} ضمن بنود طلب توريد مفتوح، ومينفعش يتمسح.</value>
+   </data>
++  <data name="Printer.ActorNotResolved" xml:space="preserve">
++    <value>معرفناش مين اللي بيستخدم النظام دلوقتي.</value>
++  </data>
++  <data name="Printer.OnlySystemAdmin" xml:space="preserve">
++    <value>الأدمن بس اللي يقدر يضيف أو يعدّل أو يمسح أو يرجّع الطابعات.</value>
++  </data>
++  <data name="Printer.NotFound" xml:space="preserve">
++    <value>مفيش طابعة بالرقم {0}.</value>
++  </data>
++  <data name="Printer.TenantRequired" xml:space="preserve">
++    <value>لازم تحدد رقم العميل لما تسجّل طابعة كأدمن.</value>
++  </data>
++  <data name="Printer.TargetTenantNotFound" xml:space="preserve">
++    <value>مفيش عميل بالرقم {0}.</value>
++  </data>
++  <data name="Printer.BranchNotFound" xml:space="preserve">
++    <value>مفيش فرع بالرقم {0}.</value>
++  </data>
++  <data name="Printer.BranchDeleted" xml:space="preserve">
++    <value>الفرع رقم {0} متمسوح، ومينفعش تسجّل عليه طابعة.</value>
++  </data>
++  <data name="Printer.DuplicateUniqueNumber" xml:space="preserve">
++    <value>فيه طابعة تانية مسجلة بالسيريال/الآي بي '{0}' للعميل ده.</value>
++  </data>
++  <data name="Printer.AlreadyDeleted" xml:space="preserve">
++    <value>الطابعة رقم {0} اتمسحت خالص.</value>
++  </data>
++  <data name="Printer.NotDeleted" xml:space="preserve">
++    <value>الطابعة رقم {0} مش متمسوحة أصلًا.</value>
++  </data>
++  <data name="Printer.MaticaConfigRequired" xml:space="preserve">
++    <value>طابعة الماتيكا محتاجة إعدادات الجهاز (الفيدر والهوبر وسلة الرفض والبورت).</value>
++  </data>
++  <data name="Printer.MaticaConfigNotApplicable" xml:space="preserve">
++    <value>طابعة الإيفوليس مش محتاجة إعدادات ماتيكا.</value>
++  </data>
++  <data name="ProductPrintConfig.NotFound" xml:space="preserve">
++    <value>المنتج رقم {0} ماله إعدادات طباعة.</value>
++  </data>
++  <data name="ProductPrintConfig.MaticaPayloadRequired" xml:space="preserve">
++    <value>لازم تبعت إعدادات طباعة ماتيكا لما نوع الطابعة يكون ماتيكا.</value>
++  </data>
++  <data name="ProductPrintConfig.MaticaPayloadNotApplicable" xml:space="preserve">
++    <value>إعدادات طباعة ماتيكا مش مناسبة لما نوع الطابعة يكون إيفوليس.</value>
++  </data>
++  <data name="ProductPrintConfig.EvolisPayloadRequired" xml:space="preserve">
++    <value>لازم تبعت إعدادات طباعة إيفوليس لما نوع الطابعة يكون إيفوليس.</value>
++  </data>
++  <data name="ProductPrintConfig.EvolisPayloadNotApplicable" xml:space="preserve">
++    <value>إعدادات طباعة إيفوليس مش مناسبة لما نوع الطابعة يكون ماتيكا.</value>
++  </data>
++  <data name="ProductPrintConfig.RibbonTypeNotFound" xml:space="preserve">
++    <value>مفيش نوع ريبون بالرقم {0}.</value>
++  </data>
++  <data name="ProductPrintConfig.InvalidHexColor" xml:space="preserve">
++    <value>'{0}' مش لون HEX صحيح. استخدم الصيغة #RRGGBB أو #RRGGBBAA.</value>
++  </data>
++  <data name="PrintImage.FileMissing" xml:space="preserve">
++    <value>مفيش صورة اتبعتت.</value>
++  </data>
++  <data name="PrintImage.FileTooLarge" xml:space="preserve">
++    <value>الصورة أكبر من الحد المسموح وهو {0} بايت.</value>
++  </data>
++  <data name="PrintImage.InvalidExtension" xml:space="preserve">
++    <value>نوع ملف الصورة ده مش مدعوم.</value>
++  </data>
++  <data name="PrintImage.UnsupportedContent" xml:space="preserve">
++    <value>محتوى الملف اللي اتبعت مش متطابق مع صيغة صورة مدعومة.</value>
++  </data>
++  <data name="PrintImage.ActorNotResolved" xml:space="preserve">
++    <value>معرفناش مين اللي بيستخدم النظام دلوقتي.</value>
++  </data>
++  <data name="PrintImage.SaveFailed" xml:space="preserve">
++    <value>معرفناش نحفظ الصورة. جرب تاني.</value>
++  </data>
+ </root>
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+index c752bdd..8f01dcb 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+@@ -465,4 +465,79 @@
+   <data name="Product.HasOpenRequest" xml:space="preserve">
+     <value>Product {0} is part of an open stock request line and cannot be deleted.</value>
+   </data>
++  <data name="Printer.ActorNotResolved" xml:space="preserve">
++    <value>The acting principal could not be resolved.</value>
++  </data>
++  <data name="Printer.OnlySystemAdmin" xml:space="preserve">
++    <value>Only a system administrator can create, update, delete, or restore printers.</value>
++  </data>
++  <data name="Printer.NotFound" xml:space="preserve">
++    <value>No printer was found with id {0}.</value>
++  </data>
++  <data name="Printer.TenantRequired" xml:space="preserve">
++    <value>A target tenant id is required when registering a printer as a system administrator.</value>
++  </data>
++  <data name="Printer.TargetTenantNotFound" xml:space="preserve">
++    <value>No tenant exists with id {0}.</value>
++  </data>
++  <data name="Printer.BranchNotFound" xml:space="preserve">
++    <value>No branch was found with id {0}.</value>
++  </data>
++  <data name="Printer.BranchDeleted" xml:space="preserve">
++    <value>Branch {0} is deleted and cannot have a printer registered to it.</value>
++  </data>
++  <data name="Printer.DuplicateUniqueNumber" xml:space="preserve">
++    <value>A printer with serial/IP '{0}' is already registered for this tenant.</value>
++  </data>
++  <data name="Printer.AlreadyDeleted" xml:space="preserve">
++    <value>Printer {0} is already deleted.</value>
++  </data>
++  <data name="Printer.NotDeleted" xml:space="preserve">
++    <value>Printer {0} is not deleted.</value>
++  </data>
++  <data name="Printer.MaticaConfigRequired" xml:space="preserve">
++    <value>A Matica printer requires its machine configuration (feeder, hopper, reject bin, port).</value>
++  </data>
++  <data name="Printer.MaticaConfigNotApplicable" xml:space="preserve">
++    <value>An Evolis printer does not accept a Matica machine configuration.</value>
++  </data>
++  <data name="ProductPrintConfig.NotFound" xml:space="preserve">
++    <value>Product {0} has no print configuration.</value>
++  </data>
++  <data name="ProductPrintConfig.MaticaPayloadRequired" xml:space="preserve">
++    <value>A Matica print configuration payload is required when the printer type is Matica.</value>
++  </data>
++  <data name="ProductPrintConfig.MaticaPayloadNotApplicable" xml:space="preserve">
++    <value>A Matica print configuration payload does not apply when the printer type is Evolis.</value>
++  </data>
++  <data name="ProductPrintConfig.EvolisPayloadRequired" xml:space="preserve">
++    <value>An Evolis print configuration payload is required when the printer type is Evolis.</value>
++  </data>
++  <data name="ProductPrintConfig.EvolisPayloadNotApplicable" xml:space="preserve">
++    <value>An Evolis print configuration payload does not apply when the printer type is Matica.</value>
++  </data>
++  <data name="ProductPrintConfig.RibbonTypeNotFound" xml:space="preserve">
++    <value>No ribbon type exists with id {0}.</value>
++  </data>
++  <data name="ProductPrintConfig.InvalidHexColor" xml:space="preserve">
++    <value>'{0}' is not a valid HEX color. Use the form #RRGGBB or #RRGGBBAA.</value>
++  </data>
++  <data name="PrintImage.FileMissing" xml:space="preserve">
++    <value>No image file was supplied.</value>
++  </data>
++  <data name="PrintImage.FileTooLarge" xml:space="preserve">
++    <value>The image exceeds the maximum allowed size of {0} bytes.</value>
++  </data>
++  <data name="PrintImage.InvalidExtension" xml:space="preserve">
++    <value>This image file type is not supported.</value>
++  </data>
++  <data name="PrintImage.UnsupportedContent" xml:space="preserve">
++    <value>The uploaded file's content does not match a supported image format.</value>
++  </data>
++  <data name="PrintImage.ActorNotResolved" xml:space="preserve">
++    <value>The acting principal could not be resolved.</value>
++  </data>
++  <data name="PrintImage.SaveFailed" xml:space="preserve">
++    <value>The image could not be saved. Please try again.</value>
++  </data>
+ </root>
+-- 
+2.43.0
+

@@ -465,4 +465,79 @@
   <data name="Product.HasOpenRequest" xml:space="preserve">
     <value>المنتج رقم {0} ضمن بنود طلب توريد مفتوح، ومينفعش يتمسح.</value>
   </data>
+  <data name="Printer.ActorNotResolved" xml:space="preserve">
+    <value>معرفناش مين اللي بيستخدم النظام دلوقتي.</value>
+  </data>
+  <data name="Printer.OnlySystemAdmin" xml:space="preserve">
+    <value>الأدمن بس اللي يقدر يضيف أو يعدّل أو يمسح أو يرجّع الطابعات.</value>
+  </data>
+  <data name="Printer.NotFound" xml:space="preserve">
+    <value>مفيش طابعة بالرقم {0}.</value>
+  </data>
+  <data name="Printer.TenantRequired" xml:space="preserve">
+    <value>لازم تحدد رقم العميل لما تسجّل طابعة كأدمن.</value>
+  </data>
+  <data name="Printer.TargetTenantNotFound" xml:space="preserve">
+    <value>مفيش عميل بالرقم {0}.</value>
+  </data>
+  <data name="Printer.BranchNotFound" xml:space="preserve">
+    <value>مفيش فرع بالرقم {0}.</value>
+  </data>
+  <data name="Printer.BranchDeleted" xml:space="preserve">
+    <value>الفرع رقم {0} متمسوح، ومينفعش تسجّل عليه طابعة.</value>
+  </data>
+  <data name="Printer.DuplicateUniqueNumber" xml:space="preserve">
+    <value>فيه طابعة تانية مسجلة بالسيريال/الآي بي '{0}' للعميل ده.</value>
+  </data>
+  <data name="Printer.AlreadyDeleted" xml:space="preserve">
+    <value>الطابعة رقم {0} اتمسحت خالص.</value>
+  </data>
+  <data name="Printer.NotDeleted" xml:space="preserve">
+    <value>الطابعة رقم {0} مش متمسوحة أصلًا.</value>
+  </data>
+  <data name="Printer.MaticaConfigRequired" xml:space="preserve">
+    <value>طابعة الماتيكا محتاجة إعدادات الجهاز (الفيدر والهوبر وسلة الرفض والبورت).</value>
+  </data>
+  <data name="Printer.MaticaConfigNotApplicable" xml:space="preserve">
+    <value>طابعة الإيفوليس مش محتاجة إعدادات ماتيكا.</value>
+  </data>
+  <data name="ProductPrintConfig.NotFound" xml:space="preserve">
+    <value>المنتج رقم {0} ماله إعدادات طباعة.</value>
+  </data>
+  <data name="ProductPrintConfig.MaticaPayloadRequired" xml:space="preserve">
+    <value>لازم تبعت إعدادات طباعة ماتيكا لما نوع الطابعة يكون ماتيكا.</value>
+  </data>
+  <data name="ProductPrintConfig.MaticaPayloadNotApplicable" xml:space="preserve">
+    <value>إعدادات طباعة ماتيكا مش مناسبة لما نوع الطابعة يكون إيفوليس.</value>
+  </data>
+  <data name="ProductPrintConfig.EvolisPayloadRequired" xml:space="preserve">
+    <value>لازم تبعت إعدادات طباعة إيفوليس لما نوع الطابعة يكون إيفوليس.</value>
+  </data>
+  <data name="ProductPrintConfig.EvolisPayloadNotApplicable" xml:space="preserve">
+    <value>إعدادات طباعة إيفوليس مش مناسبة لما نوع الطابعة يكون ماتيكا.</value>
+  </data>
+  <data name="ProductPrintConfig.RibbonTypeNotFound" xml:space="preserve">
+    <value>مفيش نوع ريبون بالرقم {0}.</value>
+  </data>
+  <data name="ProductPrintConfig.InvalidHexColor" xml:space="preserve">
+    <value>'{0}' مش لون HEX صحيح. استخدم الصيغة #RRGGBB أو #RRGGBBAA.</value>
+  </data>
+  <data name="PrintImage.FileMissing" xml:space="preserve">
+    <value>مفيش صورة اتبعتت.</value>
+  </data>
+  <data name="PrintImage.FileTooLarge" xml:space="preserve">
+    <value>الصورة أكبر من الحد المسموح وهو {0} بايت.</value>
+  </data>
+  <data name="PrintImage.InvalidExtension" xml:space="preserve">
+    <value>نوع ملف الصورة ده مش مدعوم.</value>
+  </data>
+  <data name="PrintImage.UnsupportedContent" xml:space="preserve">
+    <value>محتوى الملف اللي اتبعت مش متطابق مع صيغة صورة مدعومة.</value>
+  </data>
+  <data name="PrintImage.ActorNotResolved" xml:space="preserve">
+    <value>معرفناش مين اللي بيستخدم النظام دلوقتي.</value>
+  </data>
+  <data name="PrintImage.SaveFailed" xml:space="preserve">
+    <value>معرفناش نحفظ الصورة. جرب تاني.</value>
+  </data>
 </root>

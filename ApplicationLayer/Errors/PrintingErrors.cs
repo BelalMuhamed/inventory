@@ -1,0 +1,157 @@
+using DomainLayer.Common;
+
+namespace ApplicationLayer.Errors
+{
+    /// <summary>
+    /// Stable, localizable <see cref="Error"/> catalogue for the Printing module: the printer
+    /// registry (ERD §6), product print configurations (ERD §7), and print-image uploads (module
+    /// requirements §5–§7).
+    /// </summary>
+    public static class PrintingErrors
+    {
+        // =================================================================================
+        //  Printers (ERD §6, decisions Q-01/Q-09)
+        // =================================================================================
+
+        /// <summary>The caller's principal could not be resolved to a tenant (→ 401).</summary>
+        public static Error PrinterActorNotResolved() =>
+            Error.Unauthorized("Printer.ActorNotResolved", "The acting principal could not be resolved.");
+
+        /// <summary>A tenant caller attempted to create, update, delete, or restore a printer (→ 403, decision Q-09).</summary>
+        public static Error PrinterOnlySystemAdmin() =>
+            Error.Forbidden("Printer.OnlySystemAdmin",
+                "Only a system administrator can create, update, delete, or restore printers.");
+
+        /// <summary>No printer with that id in the caller's scope (→ 404, no existence leak).</summary>
+        public static Error PrinterNotFound(long id) =>
+            Error.NotFound("Printer.NotFound", $"No printer was found with id {id}.").WithArg(id.ToString());
+
+        /// <summary>A system-admin create call did not supply a target tenant (→ 422).</summary>
+        public static Error PrinterTenantRequired() =>
+            Error.Validation("Printer.TenantRequired",
+                "A target tenant id is required when registering a printer as a system administrator.");
+
+        /// <summary>The supplied target tenant does not exist (→ 422).</summary>
+        public static Error PrinterTargetTenantNotFound(long tenantId) =>
+            Error.Validation("Printer.TargetTenantNotFound", $"No tenant exists with id {tenantId}.")
+                .WithArg(tenantId.ToString());
+
+        /// <summary>The branch does not exist, or belongs to another tenant (→ 404).</summary>
+        public static Error PrinterBranchNotFound(long branchId) =>
+            Error.NotFound("Printer.BranchNotFound", $"No branch was found with id {branchId}.")
+                .WithArg(branchId.ToString());
+
+        /// <summary>A deleted branch cannot have a printer registered to it (→ 422).</summary>
+        public static Error PrinterBranchDeleted(long branchId) =>
+            Error.Validation("Printer.BranchDeleted",
+                $"Branch {branchId} is deleted and cannot have a printer registered to it.")
+                .WithArg(branchId.ToString());
+
+        /// <summary>Another non-deleted printer for this tenant already has this serial/IP (→ 409).</summary>
+        public static Error PrinterDuplicateUniqueNumber(string uniqueNumber) =>
+            Error.Conflict("Printer.DuplicateUniqueNumber",
+                $"A printer with serial/IP '{uniqueNumber}' is already registered for this tenant.")
+                .WithArg(uniqueNumber);
+
+        /// <summary>The printer is already soft-deleted (→ 409).</summary>
+        public static Error PrinterAlreadyDeleted(long id) =>
+            Error.Conflict("Printer.AlreadyDeleted", $"Printer {id} is already deleted.").WithArg(id.ToString());
+
+        /// <summary>The printer is not deleted, so it cannot be restored (→ 409).</summary>
+        public static Error PrinterNotDeleted(long id) =>
+            Error.Conflict("Printer.NotDeleted", $"Printer {id} is not deleted.").WithArg(id.ToString());
+
+        /// <summary>A Matica printer was registered or updated without its machine configuration (→ 422, module requirement §1).</summary>
+        public static Error MaticaPrinterConfigRequired() =>
+            Error.Validation("Printer.MaticaConfigRequired",
+                "A Matica printer requires its machine configuration (feeder, hopper, reject bin, port).");
+
+        /// <summary>An Evolis printer was registered or updated with a Matica machine configuration (→ 422, module requirement §1).</summary>
+        public static Error MaticaPrinterConfigNotApplicable() =>
+            Error.Validation("Printer.MaticaConfigNotApplicable",
+                "An Evolis printer does not accept a Matica machine configuration.");
+
+        // =================================================================================
+        //  Product print configuration (ERD §7, decisions Q-02/Q-03/Q-04/Q-05/Q-07/Q-08)
+        // =================================================================================
+
+        /// <summary>The product has no print configuration row yet (→ 404). Not expected under the single-aggregate design; defensive.</summary>
+        public static Error ProductPrintConfigNotFound(long productId) =>
+            Error.NotFound("ProductPrintConfig.NotFound",
+                $"Product {productId} has no print configuration.")
+                .WithArg(productId.ToString());
+
+        /// <summary>The payload's printer type is Matica, but no Matica payload was supplied (→ 422).</summary>
+        public static Error ProductPrintConfigMaticaPayloadRequired() =>
+            Error.Validation("ProductPrintConfig.MaticaPayloadRequired",
+                "A Matica print configuration payload is required when the printer type is Matica.");
+
+        /// <summary>A Matica payload was supplied for an Evolis printer type (→ 422).</summary>
+        public static Error ProductPrintConfigMaticaPayloadNotApplicable() =>
+            Error.Validation("ProductPrintConfig.MaticaPayloadNotApplicable",
+                "A Matica print configuration payload does not apply when the printer type is Evolis.");
+
+        /// <summary>The payload's printer type is Evolis, but no Evolis payload was supplied (→ 422).</summary>
+        public static Error ProductPrintConfigEvolisPayloadRequired() =>
+            Error.Validation("ProductPrintConfig.EvolisPayloadRequired",
+                "An Evolis print configuration payload is required when the printer type is Evolis.");
+
+        /// <summary>An Evolis payload was supplied for a Matica printer type (→ 422).</summary>
+        public static Error ProductPrintConfigEvolisPayloadNotApplicable() =>
+            Error.Validation("ProductPrintConfig.EvolisPayloadNotApplicable",
+                "An Evolis print configuration payload does not apply when the printer type is Matica.");
+
+        /// <summary>The supplied ribbon type does not exist (→ 422, decision Q-05).</summary>
+        public static Error ProductPrintConfigRibbonTypeNotFound(long ribbonTypeId) =>
+            Error.Validation("ProductPrintConfig.RibbonTypeNotFound",
+                $"No ribbon type exists with id {ribbonTypeId}.")
+                .WithArg(ribbonTypeId.ToString());
+
+        /// <summary>
+        /// <c>PrintColor</c> or <c>BackgroundColor</c> is not a valid HEX value (→ 422, module
+        /// requirement §3: 6 or 8 hex digits after '#').
+        /// </summary>
+        public static Error ProductPrintConfigInvalidHexColor(string value) =>
+            Error.Validation("ProductPrintConfig.InvalidHexColor",
+                $"'{value}' is not a valid HEX color. Use the form #RRGGBB or #RRGGBBAA.")
+                .WithArg(value);
+
+        // =================================================================================
+        //  Print images (module requirements §5–§7, decision Q-10)
+        // =================================================================================
+
+        /// <summary>No file was supplied, or the supplied file has zero bytes (→ 422).</summary>
+        public static Error PrintImageFileMissing() =>
+            Error.Validation("PrintImage.FileMissing", "No image file was supplied.");
+
+        /// <summary>The uploaded file exceeds the configured maximum size (→ 422).</summary>
+        public static Error PrintImageFileTooLarge(long maxSizeBytes) =>
+            Error.Validation("PrintImage.FileTooLarge",
+                $"The image exceeds the maximum allowed size of {maxSizeBytes} bytes.")
+                .WithArg(maxSizeBytes.ToString());
+
+        /// <summary>The uploaded file's extension is not on the allowed list (→ 422).</summary>
+        public static Error PrintImageInvalidExtension() =>
+            Error.Validation("PrintImage.InvalidExtension", "This image file type is not supported.");
+
+        /// <summary>
+        /// The file's actual content, detected from its magic bytes, does not match a supported
+        /// image format (→ 422, decision Q-10) — the client-supplied extension and Content-Type
+        /// are not trusted on their own.
+        /// </summary>
+        public static Error PrintImageUnsupportedContent() =>
+            Error.Validation("PrintImage.UnsupportedContent",
+                "The uploaded file's content does not match a supported image format.");
+
+        /// <summary>
+        /// The caller has no resolvable tenant context (e.g. a system-admin token, which this
+        /// endpoint does not support — there is no tenant to own the uploaded file) (→ 401).
+        /// </summary>
+        public static Error PrintImageActorNotResolved() =>
+            Error.Unauthorized("PrintImage.ActorNotResolved", "The acting principal could not be resolved.");
+
+        /// <summary>The image could not be saved to disk (→ 500). Not caller-driven; logged with full context.</summary>
+        public static Error PrintImageSaveFailed() =>
+            Error.Internal("PrintImage.SaveFailed", "The image could not be saved. Please try again.");
+    }
+}
