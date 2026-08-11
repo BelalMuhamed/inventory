@@ -13,9 +13,7 @@ namespace InfrastructureLayer.Security
     /// AES-256-GCM implementation of the batch-file cipher (Batch Upload Phased Plan, Phase 2;
     /// encryption added in Card File Generation, Phase 9.3). Derives a distinct key per tenant
     /// from the configured master secret via PBKDF2 — the derived key is computed on demand and
-    /// never stored. Ciphertext layout matches
-    /// <see cref="InfrastructureLayer.Logging.LogEncryptor"/>'s convention: [12-byte nonce]
-    /// [16-byte GCM tag][ciphertext].
+    /// never stored. Ciphertext layout: [12-byte nonce][16-byte GCM tag][ciphertext].
     /// <para>
     /// One class implements both <see cref="IBatchFileEncryptor"/> and
     /// <see cref="IBatchFileDecryptor"/> specifically so that <see cref="DeriveTenantKey"/> has

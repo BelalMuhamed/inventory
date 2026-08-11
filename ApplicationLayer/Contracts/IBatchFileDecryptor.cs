@@ -24,7 +24,7 @@ namespace ApplicationLayer.Contracts
         /// <param name="tenantId">Tenant the file was issued to; selects the derived key.</param>
         /// <param name="ciphertext">
         /// Raw encrypted file bytes, laid out as [12-byte nonce][16-byte GCM tag][ciphertext] —
-        /// the same convention as <c>InfrastructureLayer.Logging.LogEncryptor</c>.
+        /// the same [nonce][tag][ciphertext] convention <c>BatchFileCipher</c> uses elsewhere in this codebase.
         /// </param>
         /// <returns>
         /// The decrypted plaintext on success, or <c>BatchErrors.DecryptionFailed()</c> on a bad

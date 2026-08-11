@@ -68,7 +68,7 @@ namespace InfrastructureLayer.Storage
         /// <summary>
         /// Resolves <see cref="PrintImageOptions.RootPath"/> to an absolute path, relative to
         /// <paramref name="environment"/>'s content root when not already absolute — the same
-        /// base Program.cs already resolves <c>LogEncryptionOptions.Directory</c> against.
+        /// base Program.cs already resolves <c>LogFileOptions.Directory</c> against.
         /// </summary>
         public static string ResolvePhysicalRoot(IHostEnvironment environment, PrintImageOptions options) =>
             Path.IsPathRooted(options.RootPath)

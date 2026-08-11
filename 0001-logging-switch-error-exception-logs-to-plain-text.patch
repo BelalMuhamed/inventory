@@ -1,0 +1,357 @@
+From 0084d8efac63e61213cdc82dbbc13fb18c76805d Mon Sep 17 00:00:00 2001
+From: Claude <claude@anthropic.com>
+Date: Tue, 11 Aug 2026 11:10:11 +0000
+Subject: [PATCH] logging-switch-error-exception-logs-to-plain-text
+
+Switches the error/exception log files from encrypted to plain text, per explicit confirmation
+(the encryption was a deliberate security choice - AES via PBKDF2-derived key, fail-fast at
+startup if the secret was missing, same treatment as the JWT signing key - so I flagged the
+tradeoff and asked before removing it rather than assuming).
+
+- ApplicationLayer/Options/LogEncryptionOptions.cs replaced by LogFileOptions.cs: Password/Salt
+  dropped (nothing to encrypt with any more), file names default to .log instead of .log.enc.
+  No appsettings.json section existed for the old options class (Password/Salt were user-secrets
+  /environment only, never committed) - LogFile is a new, optional section for the surviving
+  Directory/file-name settings, matching this codebase's pattern of every Options class having a
+  visible appsettings entry even at its defaults (CardFile, PrintImages).
+- InfrastructureLayer/Logging/EncryptedFileSink.cs and LogEncryptor.cs deleted - the last thing
+  in this codebase that used either. Program.cs now writes both log files via Serilog's own
+  WriteTo.File(formatter, path), same CompactJsonFormatter as before, same Filter.ByIncludingOnly
+  split (exceptions file / warning-and-above-without-exception file) - only the encryption step
+  is gone, not the structure.
+- Program.cs: removed the startup fail-fast check for the encryption password/salt (nothing left
+  that needs one) and the now-dead 'using InfrastructureLayer.Logging;'.
+- Fixed two doc-comment cross-references in IBatchFileDecryptor.cs and BatchFileCipher.cs that
+  pointed at LogEncryptor's ciphertext-layout convention as a naming precedent - both rewritten
+  to describe the [nonce][tag][ciphertext] layout directly rather than citing a class that no
+  longer exists. Fixed two more in PrintImageOptions.cs and LocalDiskPrintImageStorage.cs that
+  cited LogEncryptionOptions.Directory as the precedent for resolving a path relative to
+  ContentRootPath - renamed to LogFileOptions.Directory.
+
+Verified: swept the whole codebase for any remaining reference to LogEncryptionOptions,
+EncryptedFileSink, LogEncryptor, or the InfrastructureLayer.Logging namespace after the
+deletions - none outside LogFileOptions.cs's own doc comment, which mentions the old name only
+as historical context. Brace/paren balance and JSON validity checked on every touched file.
+---
+ .../Contracts/IBatchFileDecryptor.cs          |  2 +-
+ .../Options/LogEncryptionOptions.cs           | 28 ----------
+ ApplicationLayer/Options/LogFileOptions.cs    | 27 ++++++++++
+ ApplicationLayer/Options/PrintImageOptions.cs |  2 +-
+ .../Logging/EncryptedFileSink.cs              | 45 ----------------
+ InfrastructureLayer/Logging/LogEncryptor.cs   | 52 -------------------
+ .../Security/BatchFileCipher.cs               |  4 +-
+ .../Storage/LocalDiskPrintImageStorage.cs     |  2 +-
+ .../Program.cs                                | 23 +++-----
+ .../appsettings.json                          |  5 ++
+ 10 files changed, 44 insertions(+), 146 deletions(-)
+ delete mode 100644 ApplicationLayer/Options/LogEncryptionOptions.cs
+ create mode 100644 ApplicationLayer/Options/LogFileOptions.cs
+ delete mode 100644 InfrastructureLayer/Logging/EncryptedFileSink.cs
+ delete mode 100644 InfrastructureLayer/Logging/LogEncryptor.cs
+
+diff --git a/ApplicationLayer/Contracts/IBatchFileDecryptor.cs b/ApplicationLayer/Contracts/IBatchFileDecryptor.cs
+index a862cde..2d40a81 100644
+--- a/ApplicationLayer/Contracts/IBatchFileDecryptor.cs
++++ b/ApplicationLayer/Contracts/IBatchFileDecryptor.cs
+@@ -24,7 +24,7 @@ namespace ApplicationLayer.Contracts
+         /// <param name="tenantId">Tenant the file was issued to; selects the derived key.</param>
+         /// <param name="ciphertext">
+         /// Raw encrypted file bytes, laid out as [12-byte nonce][16-byte GCM tag][ciphertext] —
+-        /// the same convention as <c>InfrastructureLayer.Logging.LogEncryptor</c>.
++        /// the same [nonce][tag][ciphertext] convention <c>BatchFileCipher</c> uses elsewhere in this codebase.
+         /// </param>
+         /// <returns>
+         /// The decrypted plaintext on success, or <c>BatchErrors.DecryptionFailed()</c> on a bad
+diff --git a/ApplicationLayer/Options/LogEncryptionOptions.cs b/ApplicationLayer/Options/LogEncryptionOptions.cs
+deleted file mode 100644
+index 86f8025..0000000
+--- a/ApplicationLayer/Options/LogEncryptionOptions.cs
++++ /dev/null
+@@ -1,28 +0,0 @@
+-﻿// ApplicationLayer/Options/LogEncryptionOptions.cs
+-namespace ApplicationLayer.Options
+-{
+-    /// <summary>
+-    /// Settings for encrypted file logging, bound from the <c>"LogEncryption"</c> section. The
+-    /// password is supplied via user-secrets/environment (never committed), exactly like the JWT key.
+-    /// </summary>
+-    public sealed class LogEncryptionOptions
+-    {
+-        /// <summary>Configuration section name.</summary>
+-        public const string SectionName = "LogEncryption";
+-
+-        /// <summary>Password the AES key is derived from (PBKDF2). Supplied via secrets.</summary>
+-        public string Password { get; set; } = string.Empty;
+-
+-        /// <summary>Base64 salt for key derivation. Supplied via secrets; stable so logs stay decryptable.</summary>
+-        public string Salt { get; set; } = string.Empty;
+-
+-        /// <summary>Directory for the encrypted log files. Defaults to <c>logs</c> under the content root.</summary>
+-        public string Directory { get; set; } = "logs";
+-
+-        /// <summary>Encrypted error-log file name (Warning+ without an exception).</summary>
+-        public string ErrorFileName { get; set; } = "errors.log.enc";
+-
+-        /// <summary>Encrypted exception-log file name (entries carrying an exception).</summary>
+-        public string ExceptionFileName { get; set; } = "exceptions.log.enc";
+-    }
+-}
+\ No newline at end of file
+diff --git a/ApplicationLayer/Options/LogFileOptions.cs b/ApplicationLayer/Options/LogFileOptions.cs
+new file mode 100644
+index 0000000..aa29ffc
+--- /dev/null
++++ b/ApplicationLayer/Options/LogFileOptions.cs
+@@ -0,0 +1,27 @@
++namespace ApplicationLayer.Options
++{
++    /// <summary>
++    /// Settings for the plain-text error/exception log files, bound from the <c>"LogFile"</c>
++    /// section.
++    /// <para>
++    /// <b>Revision:</b> replaces <c>LogEncryptionOptions</c> — these files are no longer
++    /// encrypted (explicit decision: readability was worth more here than at-rest protection for
++    /// this content), so there is no password/salt to supply any more, and no fail-fast startup
++    /// check for one.
++    /// </para>
++    /// </summary>
++    public sealed class LogFileOptions
++    {
++        /// <summary>Configuration section name.</summary>
++        public const string SectionName = "LogFile";
++
++        /// <summary>Directory for the log files. Defaults to <c>logs</c> under the content root.</summary>
++        public string Directory { get; set; } = "logs";
++
++        /// <summary>Error-log file name (Warning+ without an exception).</summary>
++        public string ErrorFileName { get; set; } = "errors.log";
++
++        /// <summary>Exception-log file name (entries carrying an exception).</summary>
++        public string ExceptionFileName { get; set; } = "exceptions.log";
++    }
++}
+diff --git a/ApplicationLayer/Options/PrintImageOptions.cs b/ApplicationLayer/Options/PrintImageOptions.cs
+index f040f12..37619f8 100644
+--- a/ApplicationLayer/Options/PrintImageOptions.cs
++++ b/ApplicationLayer/Options/PrintImageOptions.cs
+@@ -12,7 +12,7 @@ namespace ApplicationLayer.Options
+         /// <summary>
+         /// Physical root directory images are written under, resolved relative to the
+         /// application's content root (<see cref="Microsoft.Extensions.Hosting.IHostEnvironment.ContentRootPath"/>,
+-        /// the same base Program.cs already resolves <c>LogEncryptionOptions.Directory</c>
++        /// the same base Program.cs already resolves <c>LogFileOptions.Directory</c>
+         /// against) when not already absolute — see
+         /// <c>LocalDiskPrintImageStorage.ResolvePhysicalRoot</c>. Each tenant gets its own
+         /// subdirectory beneath this root, named after their (sanitized) username — e.g.
+diff --git a/InfrastructureLayer/Logging/EncryptedFileSink.cs b/InfrastructureLayer/Logging/EncryptedFileSink.cs
+deleted file mode 100644
+index 3fc9c6e..0000000
+--- a/InfrastructureLayer/Logging/EncryptedFileSink.cs
++++ /dev/null
+@@ -1,45 +0,0 @@
+-﻿// InfrastructureLayer/Logging/EncryptedFileSink.cs
+-using System;
+-using System.IO;
+-using System.Text;
+-using Serilog.Core;
+-using Serilog.Events;
+-using Serilog.Formatting;
+-
+-namespace InfrastructureLayer.Logging
+-{
+-    /// <summary>
+-    /// Serilog sink that renders each event with the supplied formatter, encrypts the line via
+-    /// <see cref="LogEncryptor"/>, and appends it to a file. Writes are serialized with a lock so
+-    /// concurrent log calls don't interleave bytes.
+-    /// </summary>
+-    public sealed class EncryptedFileSink : ILogEventSink
+-    {
+-        private readonly string _filePath;
+-        private readonly LogEncryptor _encryptor;
+-        private readonly ITextFormatter _formatter;
+-        private readonly object _gate = new();
+-
+-        /// <summary>Creates the sink for a target file path.</summary>
+-        public EncryptedFileSink(string filePath, LogEncryptor encryptor, ITextFormatter formatter)
+-        {
+-            _filePath = filePath;
+-            _encryptor = encryptor;
+-            _formatter = formatter;
+-            Directory.CreateDirectory(Path.GetDirectoryName(_filePath)!);
+-        }
+-
+-        /// <inheritdoc />
+-        public void Emit(LogEvent logEvent)
+-        {
+-            using var buffer = new StringWriter();
+-            _formatter.Format(logEvent, buffer);
+-            string encrypted = _encryptor.EncryptLine(buffer.ToString().TrimEnd('\r', '\n'));
+-
+-            lock (_gate)
+-            {
+-                File.AppendAllText(_filePath, encrypted + Environment.NewLine, Encoding.UTF8);
+-            }
+-        }
+-    }
+-}
+\ No newline at end of file
+diff --git a/InfrastructureLayer/Logging/LogEncryptor.cs b/InfrastructureLayer/Logging/LogEncryptor.cs
+deleted file mode 100644
+index 64f990f..0000000
+--- a/InfrastructureLayer/Logging/LogEncryptor.cs
++++ /dev/null
+@@ -1,52 +0,0 @@
+-﻿// InfrastructureLayer/Logging/LogEncryptor.cs
+-using System;
+-using System.Security.Cryptography;
+-using System.Text;
+-
+-namespace InfrastructureLayer.Logging
+-{
+-    /// <summary>
+-    /// Encrypts a log line with AES-GCM using a key derived from the configured password (PBKDF2).
+-    /// Output per line is Base64 of [12-byte nonce][16-byte tag][ciphertext], so each line is
+-    /// independently decryptable and the file is unreadable without the password.
+-    /// </summary>
+-    public sealed class LogEncryptor
+-    {
+-        private const int NonceSize = 12;
+-        private const int TagSize = 16;
+-        private const int KeySize = 32;       // AES-256
+-        private const int Pbkdf2Iterations = 100_000;
+-
+-        private readonly byte[] _key;
+-
+-        /// <summary>Derives the AES key from the password and salt.</summary>
+-        /// <param name="password">Secret password (from configuration/secrets).</param>
+-        /// <param name="salt">Stable salt (from configuration/secrets).</param>
+-        public LogEncryptor(string password, byte[] salt)
+-        {
+-            using var kdf = new Rfc2898DeriveBytes(password, salt, Pbkdf2Iterations, HashAlgorithmName.SHA256);
+-            _key = kdf.GetBytes(KeySize);
+-        }
+-
+-        /// <summary>Encrypts one log line and returns a Base64 token safe to append to a text file.</summary>
+-        /// <param name="plaintext">The rendered log line.</param>
+-        public string EncryptLine(string plaintext)
+-        {
+-            byte[] data = Encoding.UTF8.GetBytes(plaintext);
+-            byte[] nonce = RandomNumberGenerator.GetBytes(NonceSize);
+-            byte[] cipher = new byte[data.Length];
+-            byte[] tag = new byte[TagSize];
+-
+-            using (var aes = new AesGcm(_key, TagSize))
+-            {
+-                aes.Encrypt(nonce, data, cipher, tag);
+-            }
+-
+-            byte[] output = new byte[NonceSize + TagSize + cipher.Length];
+-            Buffer.BlockCopy(nonce, 0, output, 0, NonceSize);
+-            Buffer.BlockCopy(tag, 0, output, NonceSize, TagSize);
+-            Buffer.BlockCopy(cipher, 0, output, NonceSize + TagSize, cipher.Length);
+-            return Convert.ToBase64String(output);
+-        }
+-    }
+-}
+\ No newline at end of file
+diff --git a/InfrastructureLayer/Security/BatchFileCipher.cs b/InfrastructureLayer/Security/BatchFileCipher.cs
+index 9ba5416..b90dfcd 100644
+--- a/InfrastructureLayer/Security/BatchFileCipher.cs
++++ b/InfrastructureLayer/Security/BatchFileCipher.cs
+@@ -13,9 +13,7 @@ namespace InfrastructureLayer.Security
+     /// AES-256-GCM implementation of the batch-file cipher (Batch Upload Phased Plan, Phase 2;
+     /// encryption added in Card File Generation, Phase 9.3). Derives a distinct key per tenant
+     /// from the configured master secret via PBKDF2 — the derived key is computed on demand and
+-    /// never stored. Ciphertext layout matches
+-    /// <see cref="InfrastructureLayer.Logging.LogEncryptor"/>'s convention: [12-byte nonce]
+-    /// [16-byte GCM tag][ciphertext].
++    /// never stored. Ciphertext layout: [12-byte nonce][16-byte GCM tag][ciphertext].
+     /// <para>
+     /// One class implements both <see cref="IBatchFileEncryptor"/> and
+     /// <see cref="IBatchFileDecryptor"/> specifically so that <see cref="DeriveTenantKey"/> has
+diff --git a/InfrastructureLayer/Storage/LocalDiskPrintImageStorage.cs b/InfrastructureLayer/Storage/LocalDiskPrintImageStorage.cs
+index c17a1bb..ffaf3d6 100644
+--- a/InfrastructureLayer/Storage/LocalDiskPrintImageStorage.cs
++++ b/InfrastructureLayer/Storage/LocalDiskPrintImageStorage.cs
+@@ -68,7 +68,7 @@ namespace InfrastructureLayer.Storage
+         /// <summary>
+         /// Resolves <see cref="PrintImageOptions.RootPath"/> to an absolute path, relative to
+         /// <paramref name="environment"/>'s content root when not already absolute — the same
+-        /// base Program.cs already resolves <c>LogEncryptionOptions.Directory</c> against.
++        /// base Program.cs already resolves <c>LogFileOptions.Directory</c> against.
+         /// </summary>
+         public static string ResolvePhysicalRoot(IHostEnvironment environment, PrintImageOptions options) =>
+             Path.IsPathRooted(options.RootPath)
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Program.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Program.cs
+index 4c613a4..7994df2 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Program.cs
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Program.cs
+@@ -1,7 +1,6 @@
+ using ApplicationLayer.Options;
+ using InfrastructureLayer;
+ using InfrastructureLayer.Data;
+-using InfrastructureLayer.Logging;
+ using InventoryManagmentAndInstanceIssuancePresentationLayer.Common;
+ using InventoryManagmentAndInstanceIssuancePresentationLayer.Filters;
+ using InventoryManagmentAndInstanceIssuancePresentationLayer.Middleware;
+@@ -21,18 +20,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
+         public static async Task Main(string[] args)
+         {
+             var builder = WebApplication.CreateBuilder(args);
+-            // Build the encryptor from secrets (fail fast if the password is missing, like the JWT key).
+-            LogEncryptionOptions logOpts =
+-                builder.Configuration.GetSection(LogEncryptionOptions.SectionName).Get<LogEncryptionOptions>()
+-                ?? new LogEncryptionOptions();
+-            if (string.IsNullOrWhiteSpace(logOpts.Password) || string.IsNullOrWhiteSpace(logOpts.Salt))
+-            {
+-                throw new InvalidOperationException(
+-                    $"Encrypted logging requires '{LogEncryptionOptions.SectionName}:Password' and ':Salt' " +
+-                    "via user-secrets (development) or environment variables (production).");
+-            }
+ 
+-            var encryptor = new LogEncryptor(logOpts.Password, Convert.FromBase64String(logOpts.Salt));
++            LogFileOptions logOpts =
++                builder.Configuration.GetSection(LogFileOptions.SectionName).Get<LogFileOptions>()
++                ?? new LogFileOptions();
++
+             string logDir = Path.Combine(builder.Environment.ContentRootPath, logOpts.Directory);
+             var formatter = new CompactJsonFormatter();
+ 
+@@ -40,14 +32,15 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
+                 .MinimumLevel.Information()
+                 .Enrich.FromLogContext()
+                 .WriteTo.Console()
+-                // Exception file: anything carrying an exception.
++                // Exception file: anything carrying an exception. Plain text (revision: no
++                // longer encrypted - see LogFileOptions).
+                 .WriteTo.Logger(lc => lc
+                     .Filter.ByIncludingOnly(e => e.Exception is not null)
+-                    .WriteTo.Sink(new EncryptedFileSink(Path.Combine(logDir, logOpts.ExceptionFileName), encryptor, formatter)))
++                    .WriteTo.File(formatter, Path.Combine(logDir, logOpts.ExceptionFileName)))
+                 // Error file: Warning+ with no exception.
+                 .WriteTo.Logger(lc => lc
+                     .Filter.ByIncludingOnly(e => e.Exception is null && e.Level >= LogEventLevel.Warning)
+-                    .WriteTo.Sink(new EncryptedFileSink(Path.Combine(logDir, logOpts.ErrorFileName), encryptor, formatter)))
++                    .WriteTo.File(formatter, Path.Combine(logDir, logOpts.ErrorFileName)))
+                 .CreateLogger();
+ 
+             builder.Host.UseSerilog();
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/appsettings.json b/InventoryManagmentAndInstanceIssuancePresentationLayer/appsettings.json
+index 5494d27..ae26124 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/appsettings.json
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/appsettings.json
+@@ -17,6 +17,11 @@
+     "MaxSizeBytes": 5242880,
+     "AllowedExtensions": [ ".png", ".jpg", ".jpeg" ]
+   },
++  "LogFile": {
++    "Directory": "logs",
++    "ErrorFileName": "errors.log",
++    "ExceptionFileName": "exceptions.log"
++  },
+   "Logging": {
+     "LogLevel": {
+       "Default": "Information",
+-- 
+2.43.0
+

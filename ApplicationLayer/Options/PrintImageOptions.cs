@@ -12,7 +12,7 @@ namespace ApplicationLayer.Options
         /// <summary>
         /// Physical root directory images are written under, resolved relative to the
         /// application's content root (<see cref="Microsoft.Extensions.Hosting.IHostEnvironment.ContentRootPath"/>,
-        /// the same base Program.cs already resolves <c>LogEncryptionOptions.Directory</c>
+        /// the same base Program.cs already resolves <c>LogFileOptions.Directory</c>
         /// against) when not already absolute — see
         /// <c>LocalDiskPrintImageStorage.ResolvePhysicalRoot</c>. Each tenant gets its own
         /// subdirectory beneath this root, named after their (sanitized) username — e.g.

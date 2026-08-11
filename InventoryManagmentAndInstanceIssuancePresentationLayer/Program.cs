@@ -1,7 +1,6 @@
 using ApplicationLayer.Options;
 using InfrastructureLayer;
 using InfrastructureLayer.Data;
-using InfrastructureLayer.Logging;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Common;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Filters;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Middleware;
@@ -21,18 +20,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
         public static async Task Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
-            // Build the encryptor from secrets (fail fast if the password is missing, like the JWT key).
-            LogEncryptionOptions logOpts =
-                builder.Configuration.GetSection(LogEncryptionOptions.SectionName).Get<LogEncryptionOptions>()
-                ?? new LogEncryptionOptions();
-            if (string.IsNullOrWhiteSpace(logOpts.Password) || string.IsNullOrWhiteSpace(logOpts.Salt))
-            {
-                throw new InvalidOperationException(
-                    $"Encrypted logging requires '{LogEncryptionOptions.SectionName}:Password' and ':Salt' " +
-                    "via user-secrets (development) or environment variables (production).");
-            }
 
-            var encryptor = new LogEncryptor(logOpts.Password, Convert.FromBase64String(logOpts.Salt));
+            LogFileOptions logOpts =
+                builder.Configuration.GetSection(LogFileOptions.SectionName).Get<LogFileOptions>()
+                ?? new LogFileOptions();
+
             string logDir = Path.Combine(builder.Environment.ContentRootPath, logOpts.Directory);
             var formatter = new CompactJsonFormatter();
 
@@ -40,14 +32,15 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
                 .MinimumLevel.Information()
                 .Enrich.FromLogContext()
                 .WriteTo.Console()
-                // Exception file: anything carrying an exception.
+                // Exception file: anything carrying an exception. Plain text (revision: no
+                // longer encrypted - see LogFileOptions).
                 .WriteTo.Logger(lc => lc
                     .Filter.ByIncludingOnly(e => e.Exception is not null)
-                    .WriteTo.Sink(new EncryptedFileSink(Path.Combine(logDir, logOpts.ExceptionFileName), encryptor, formatter)))
+                    .WriteTo.File(formatter, Path.Combine(logDir, logOpts.ExceptionFileName)))
                 // Error file: Warning+ with no exception.
                 .WriteTo.Logger(lc => lc
                     .Filter.ByIncludingOnly(e => e.Exception is null && e.Level >= LogEventLevel.Warning)
-                    .WriteTo.Sink(new EncryptedFileSink(Path.Combine(logDir, logOpts.ErrorFileName), encryptor, formatter)))
+                    .WriteTo.File(formatter, Path.Combine(logDir, logOpts.ErrorFileName)))
                 .CreateLogger();
 
             builder.Host.UseSerilog();
@@ -122,12 +115,10 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
             // Global exception handling must sit first so it wraps the entire downstream pipeline.
             app.UseMiddleware<GlobalExceptionMiddleware>();
 
-            // Configure the HTTP request pipeline.
-            if (app.Environment.IsDevelopment())
-            {
+          
                 app.UseSwagger();
                 app.UseSwaggerUI();
-            }
+            
 
             app.UseHttpsRedirection();
 
