@@ -504,6 +504,9 @@
   <data name="ProductPrintConfig.NotFound" xml:space="preserve">
     <value>Product {0} has no print configuration.</value>
   </data>
+  <data name="ProductPrintConfig.OnlySystemAdmin" xml:space="preserve">
+    <value>Only a system administrator can update a product's print configuration.</value>
+  </data>
   <data name="ProductPrintConfig.MaticaPayloadRequired" xml:space="preserve">
     <value>A Matica print configuration payload is required when the printer type is Matica.</value>
   </data>

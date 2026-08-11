@@ -44,6 +44,24 @@ namespace ApplicationLayer.Contracts
         /// <summary>Repository for branch stock requests (ERD §4.1–§4.2, API §4.9).</summary>
         IBranchRequestRepo BranchRequests { get; }
 
+        /// <summary>Repository for registered printers (ERD §6.1, Printing Module Q-01).</summary>
+        IPrinterRepo Printers { get; }
+
+        /// <summary>Repository for the Matica-only 1:1 machine configuration (ERD §6.2, Printing Module Q-01).</summary>
+        IMaticaPrinterConfigRepo MaticaPrinterConfigs { get; }
+
+        /// <summary>Repository for the global ribbon-type reference table (Printing Module Q-05).</summary>
+        IRibbonTypeRepo RibbonTypes { get; }
+
+        /// <summary>Repository for Matica product print configurations, one row per product (ERD §7.2, Printing Module Q-02/Q-03/Q-04).</summary>
+        IMaticaProductPrintConfigRepo MaticaProductPrintConfigs { get; }
+
+        /// <summary>Repository for Evolis product print configurations, one row per product (ERD §7.1, Printing Module Q-02/Q-05).</summary>
+        IEvolisProductPrintConfigRepo EvolisProductPrintConfigs { get; }
+
+        /// <summary>Repository for uploaded print-configuration image metadata (module requirements §5–§7, Printing Module Q-10).</summary>
+        IPrintImageRepo PrintImages { get; }
+
         /// <summary>
         /// Runs <paramref name="work"/> inside an explicit DB transaction (ERD §3.1 invariant /
         /// Batch Upload Phased Plan §3.6 &amp; §4.8): <paramref name="work"/> stages changes via

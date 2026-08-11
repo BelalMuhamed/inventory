@@ -222,11 +222,15 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 1,
+          "SelectedChildIndex": 2,
           "Children": [
             {
               "$type": "Bookmark",
               "Name": "ST:128:0:{75188d03-9892-4ae2-abf1-207126247ce5}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{0ad07096-bba9-4900-a651-0598d26f6d24}"
             },
             {
               "$type": "Document",
@@ -251,8 +255,7 @@
               "RelativeToolTip": "DomainLayer\\Enums\\TransferDifferenceAction.cs",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-10T16:13:58.204Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-10T16:13:58.204Z"
             },
             {
               "$type": "Document",
@@ -300,8 +303,7 @@
               "RelativeToolTip": "InfrastructureLayer\\Services\\BranchService.cs",
               "ViewState": "AgIAAF4AAAAAAAAAAAAcwHQAAABBAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-07-22T08:51:17.912Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-07-22T08:51:17.912Z"
             },
             {
               "$type": "Document",
@@ -313,12 +315,7 @@
               "RelativeToolTip": "InfrastructureLayer\\Services\\TransferService.cs",
               "ViewState": "AgIAAHYBAAAAAAAAAAAcwI0BAAAwAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-06T07:22:30.013Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Bookmark",
-              "Name": "ST:0:0:{0ad07096-bba9-4900-a651-0598d26f6d24}"
+              "WhenOpened": "2026-08-06T07:22:30.013Z"
             },
             {
               "$type": "Document",
@@ -354,8 +351,7 @@
               "RelativeToolTip": "DomainLayer\\Enums\\TransactionStatus.cs",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-06T07:18:07.159Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-06T07:18:07.159Z"
             },
             {
               "$type": "Document",

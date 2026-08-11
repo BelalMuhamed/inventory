@@ -1,0 +1,102 @@
+From 24da9f9a5cb8d4bfd203195e146a0f1e25e2cad0 Mon Sep 17 00:00:00 2001
+From: Claude <claude@anthropic.com>
+Date: Tue, 11 Aug 2026 00:34:36 +0000
+Subject: [PATCH 1/2] P2-fix-print-config-update-admin-only
+
+Locks the print-config update authorization per confirmation: PUT /api/products/{id}/print-config
+is system-admin-only, same as the product-plus-configuration create flow and printer-registry
+writes (decision Q-09, confirmed - this was flagged as an open assumption in P2).
+
+- IProductPrintConfigurationService.UpdateForProductAsync doc comment corrected
+- New error code ProductPrintConfig.OnlySystemAdmin (-> 403), with EN + AR resx entries
+- GetForProductAsync is unaffected - remains tenant-scoped read access, not admin-restricted
+---
+ ApplicationLayer/Errors/PrintingErrors.cs     |  7 ++++++-
+ .../IProductPrintConfigurationService.cs      | 21 +++++++------------
+ .../Resources/Localization/Messages.ar.resx   |  3 +++
+ .../Resources/Localization/Messages.resx      |  3 +++
+ 4 files changed, 19 insertions(+), 15 deletions(-)
+
+diff --git a/ApplicationLayer/Errors/PrintingErrors.cs b/ApplicationLayer/Errors/PrintingErrors.cs
+index 5b490ee..f9bebcd 100644
+--- a/ApplicationLayer/Errors/PrintingErrors.cs
++++ b/ApplicationLayer/Errors/PrintingErrors.cs
+@@ -72,9 +72,14 @@ namespace ApplicationLayer.Errors
+                 "An Evolis printer does not accept a Matica machine configuration.");
+ 
+         // =================================================================================
+-        //  Product print configuration (ERD §7, decisions Q-02/Q-03/Q-04/Q-05/Q-07/Q-08)
++        //  Product print configuration (ERD §7, decisions Q-02/Q-03/Q-04/Q-05/Q-07/Q-08/Q-09)
+         // =================================================================================
+ 
++        /// <summary>A tenant caller attempted to update a product's print configuration (→ 403, decision Q-09, confirmed).</summary>
++        public static Error ProductPrintConfigOnlySystemAdmin() =>
++            Error.Forbidden("ProductPrintConfig.OnlySystemAdmin",
++                "Only a system administrator can update a product's print configuration.");
++
+         /// <summary>The product has no print configuration row yet (→ 404). Not expected under the single-aggregate design; defensive.</summary>
+         public static Error ProductPrintConfigNotFound(long productId) =>
+             Error.NotFound("ProductPrintConfig.NotFound",
+diff --git a/ApplicationLayer/ServicesContracts/IProductPrintConfigurationService.cs b/ApplicationLayer/ServicesContracts/IProductPrintConfigurationService.cs
+index c46124a..01a0c53 100644
+--- a/ApplicationLayer/ServicesContracts/IProductPrintConfigurationService.cs
++++ b/ApplicationLayer/ServicesContracts/IProductPrintConfigurationService.cs
+@@ -20,20 +20,13 @@ namespace ApplicationLayer.ServicesContracts
+             long productId, CancellationToken cancellationToken = default);
+ 
+         /// <summary>
+-        /// Replaces a product's print configuration. Supplying a different
+-        /// <see cref="UpdateProductPrintConfigRequest.UsingPrinterType"/> than the product
+-        /// currently has switches its printer family (decision Q-08): the old configuration row
+-        /// is hard deleted and the new one inserted, in one transaction.
+-        /// <para>
+-        /// <b>Assumption flagged for confirmation:</b> decision Q-09 restricts the
+-        /// product-plus-configuration <em>create</em> flow to system admins, and separately
+-        /// restricts printer-registry writes to system admins, but says nothing about this
+-        /// standalone update endpoint. This service assumes the update follows
+-        /// <c>ProductService</c>'s existing (non-admin-restricted, tenant-scoped) authorization —
+-        /// the same tenant caller who may update a product may update its print configuration.
+-        /// If print-config updates should also be system-admin-only, this needs to change before
+-        /// implementation.
+-        /// </para>
++        /// Replaces a product's print configuration. System-admin only — decision Q-09,
++        /// confirmed, extends to this endpoint as well as the product-plus-configuration create
++        /// flow and printer-registry writes. Fails with
++        /// <c>PrintingErrors.ProductPrintConfigOnlySystemAdmin</c> for a tenant caller. Supplying
++        /// a different <see cref="UpdateProductPrintConfigRequest.UsingPrinterType"/> than the
++        /// product currently has switches its printer family (decision Q-08): the old
++        /// configuration row is hard deleted and the new one inserted, in one transaction.
+         /// </summary>
+         Task<Result<ProductPrintConfigResponse>> UpdateForProductAsync(
+             long productId, UpdateProductPrintConfigRequest request, CancellationToken cancellationToken = default);
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+index e408d2a..a8d3f6c 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+@@ -504,6 +504,9 @@
+   <data name="ProductPrintConfig.NotFound" xml:space="preserve">
+     <value>المنتج رقم {0} ماله إعدادات طباعة.</value>
+   </data>
++  <data name="ProductPrintConfig.OnlySystemAdmin" xml:space="preserve">
++    <value>الأدمن بس اللي يقدر يعدّل إعدادات طباعة المنتج.</value>
++  </data>
+   <data name="ProductPrintConfig.MaticaPayloadRequired" xml:space="preserve">
+     <value>لازم تبعت إعدادات طباعة ماتيكا لما نوع الطابعة يكون ماتيكا.</value>
+   </data>
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+index 8f01dcb..c668eba 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+@@ -504,6 +504,9 @@
+   <data name="ProductPrintConfig.NotFound" xml:space="preserve">
+     <value>Product {0} has no print configuration.</value>
+   </data>
++  <data name="ProductPrintConfig.OnlySystemAdmin" xml:space="preserve">
++    <value>Only a system administrator can update a product's print configuration.</value>
++  </data>
+   <data name="ProductPrintConfig.MaticaPayloadRequired" xml:space="preserve">
+     <value>A Matica print configuration payload is required when the printer type is Matica.</value>
+   </data>
+-- 
+2.43.0
+

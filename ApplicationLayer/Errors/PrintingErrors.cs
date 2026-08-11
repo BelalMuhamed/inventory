@@ -72,8 +72,13 @@ namespace ApplicationLayer.Errors
                 "An Evolis printer does not accept a Matica machine configuration.");
 
         // =================================================================================
-        //  Product print configuration (ERD §7, decisions Q-02/Q-03/Q-04/Q-05/Q-07/Q-08)
+        //  Product print configuration (ERD §7, decisions Q-02/Q-03/Q-04/Q-05/Q-07/Q-08/Q-09)
         // =================================================================================
+
+        /// <summary>A tenant caller attempted to update a product's print configuration (→ 403, decision Q-09, confirmed).</summary>
+        public static Error ProductPrintConfigOnlySystemAdmin() =>
+            Error.Forbidden("ProductPrintConfig.OnlySystemAdmin",
+                "Only a system administrator can update a product's print configuration.");
 
         /// <summary>The product has no print configuration row yet (→ 404). Not expected under the single-aggregate design; defensive.</summary>
         public static Error ProductPrintConfigNotFound(long productId) =>

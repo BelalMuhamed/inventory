@@ -20,20 +20,13 @@ namespace ApplicationLayer.ServicesContracts
             long productId, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Replaces a product's print configuration. Supplying a different
-        /// <see cref="UpdateProductPrintConfigRequest.UsingPrinterType"/> than the product
-        /// currently has switches its printer family (decision Q-08): the old configuration row
-        /// is hard deleted and the new one inserted, in one transaction.
-        /// <para>
-        /// <b>Assumption flagged for confirmation:</b> decision Q-09 restricts the
-        /// product-plus-configuration <em>create</em> flow to system admins, and separately
-        /// restricts printer-registry writes to system admins, but says nothing about this
-        /// standalone update endpoint. This service assumes the update follows
-        /// <c>ProductService</c>'s existing (non-admin-restricted, tenant-scoped) authorization —
-        /// the same tenant caller who may update a product may update its print configuration.
-        /// If print-config updates should also be system-admin-only, this needs to change before
-        /// implementation.
-        /// </para>
+        /// Replaces a product's print configuration. System-admin only — decision Q-09,
+        /// confirmed, extends to this endpoint as well as the product-plus-configuration create
+        /// flow and printer-registry writes. Fails with
+        /// <c>PrintingErrors.ProductPrintConfigOnlySystemAdmin</c> for a tenant caller. Supplying
+        /// a different <see cref="UpdateProductPrintConfigRequest.UsingPrinterType"/> than the
+        /// product currently has switches its printer family (decision Q-08): the old
+        /// configuration row is hard deleted and the new one inserted, in one transaction.
         /// </summary>
         Task<Result<ProductPrintConfigResponse>> UpdateForProductAsync(
             long productId, UpdateProductPrintConfigRequest request, CancellationToken cancellationToken = default);

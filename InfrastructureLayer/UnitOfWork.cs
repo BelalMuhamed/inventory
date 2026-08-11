@@ -32,6 +32,12 @@ namespace InfrastructureLayer
             CardTransfers = new CardTransferRepo(context);
             CardDisposals = new CardDisposalRepo(context);
             BranchRequests = new BranchRequestRepo(context);
+            Printers = new PrinterRepo(context);
+            MaticaPrinterConfigs = new MaticaPrinterConfigRepo(context);
+            RibbonTypes = new RibbonTypeRepo(context);
+            MaticaProductPrintConfigs = new MaticaProductPrintConfigRepo(context);
+            EvolisProductPrintConfigs = new EvolisProductPrintConfigRepo(context);
+            PrintImages = new PrintImageRepo(context);
         }
 
         public ITenantRepo Tenants { get; }
@@ -45,6 +51,12 @@ namespace InfrastructureLayer
         public ICardTransferRepo CardTransfers { get; }
         public ICardDisposalRepo CardDisposals { get; }
         public IBranchRequestRepo BranchRequests { get; }
+        public IPrinterRepo Printers { get; }
+        public IMaticaPrinterConfigRepo MaticaPrinterConfigs { get; }
+        public IRibbonTypeRepo RibbonTypes { get; }
+        public IMaticaProductPrintConfigRepo MaticaProductPrintConfigs { get; }
+        public IEvolisProductPrintConfigRepo EvolisProductPrintConfigs { get; }
+        public IPrintImageRepo PrintImages { get; }
 
 
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)

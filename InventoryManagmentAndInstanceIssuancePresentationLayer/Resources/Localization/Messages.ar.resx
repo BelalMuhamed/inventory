@@ -504,6 +504,9 @@
   <data name="ProductPrintConfig.NotFound" xml:space="preserve">
     <value>المنتج رقم {0} ماله إعدادات طباعة.</value>
   </data>
+  <data name="ProductPrintConfig.OnlySystemAdmin" xml:space="preserve">
+    <value>الأدمن بس اللي يقدر يعدّل إعدادات طباعة المنتج.</value>
+  </data>
   <data name="ProductPrintConfig.MaticaPayloadRequired" xml:space="preserve">
     <value>لازم تبعت إعدادات طباعة ماتيكا لما نوع الطابعة يكون ماتيكا.</value>
   </data>
