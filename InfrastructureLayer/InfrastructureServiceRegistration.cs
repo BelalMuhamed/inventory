@@ -9,6 +9,7 @@ using InfrastructureLayer.Data.Interceptors;
 using InfrastructureLayer.Reporting;
 using InfrastructureLayer.Security;
 using InfrastructureLayer.Services;
+using InfrastructureLayer.Storage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -120,6 +121,13 @@ namespace InfrastructureLayer
             services.AddScoped<IBranchRequestFulfilment, BranchRequestFulfilment>();
             services.AddScoped<IBranchRequestService, BranchRequestService>();
             services.AddScoped<System.Func<IBranchRequestService>>(sp => sp.GetRequiredService<IBranchRequestService>);
+
+            // Printing Module, Phase 4: defaulted (see PrintImageOptions), so no configuration is
+            // required for the endpoint to be safe out of the box - same reasoning as CardFileOptions.
+            services.Configure<PrintImageOptions>(configuration.GetSection(PrintImageOptions.SectionName));
+            services.AddScoped<IPrintImageStorage, LocalDiskPrintImageStorage>();
+            services.AddScoped<IPrintImageService, PrintImageService>();
+            services.AddScoped<System.Func<IPrintImageService>>(sp => sp.GetRequiredService<IPrintImageService>);
 
             return services;
 

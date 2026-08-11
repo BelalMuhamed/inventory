@@ -1,0 +1,668 @@
+From 2ac10e11df93d4ac3fecce6e49f1d0cdd0c9bcef Mon Sep 17 00:00:00 2001
+From: Claude <claude@anthropic.com>
+Date: Tue, 11 Aug 2026 00:54:03 +0000
+Subject: [PATCH] P4-printing-module-image-upload
+
+Printing Module, Phase 4 (image upload vertical slice: storage + service + controller):
+
+- LocalDiskPrintImageStorage (InfrastructureLayer/Storage - new folder, first component in
+  this codebase that writes application content to the filesystem): extension allowlist ->
+  magic-byte signature match (PNG/JPEG hardcoded; an operator-added AllowedExtensions entry
+  with no matching signature fails closed, never silently trusts it) -> GUID physical name ->
+  tenant-scoped write under a path resolved relative to ContentRootPath (not wwwroot).
+  DeleteAsync is best-effort/never-throws per its IPrintImageStorage contract.
+- PrintImageService: orchestrates storage + IUnitOfWork.PrintImages. Physical save happens
+  OUTSIDE the DB transaction (mirrors BatchUploadService's decrypt/parse-outside-transaction
+  structure - a physical write can never be rolled back by a DB transaction regardless of
+  where it's called from). On a duplicate-name replace (Q-10), the old file's physical delete
+  is deferred until AFTER the DB commit that removes its row succeeds - deleting it inline and
+  then rolling back would leave the database pointing at a file that no longer exists, which
+  is worse than the accepted orphan-file tradeoff.
+- IServiceManager / ServiceManager: IPrintImageService wired through (12/12 property parity
+  verified by script).
+- InfrastructureServiceRegistration: PrintImageOptions, IPrintImageStorage, IPrintImageService
+  + its Func<> registered.
+- PrintImagesController: single POST /api/print-images endpoint, one-liner body, [FromForm]
+  multipart binding matching InventoryController.Upload's precedent exactly.
+- Program.cs: app.UseStaticFiles() scoped specifically to the resolved physical root (not a
+  blanket wwwroot mount) via LocalDiskPrintImageStorage.ResolvePhysicalRoot, so the write path
+  and serve path can never diverge. Flagged in-code: this serves images unauthenticated, by
+  construction of static-file middleware (runs outside the MVC/[Authorize] pipeline) - GUID
+  physical names, tenant-scoped paths, same posture as any link-shared asset, but not something
+  the spec addressed explicitly.
+- appsettings.json: PrintImages section added (validated as well-formed JSON).
+
+Corrections to earlier phases, bundled in because they're one-line doc/default fixes directly
+motivated by finishing this vertical slice:
+- PrintImageOptions.RootPath default changed from wwwroot-relative to ContentRootPath-relative
+  (P2 had assumed wwwroot before the static-file wiring was actually worked out)
+- IPrintImageStorage.StoredImage.StoredPath and PrintImage.StoredPath doc comments corrected:
+  tenant-relative (e.g. '7/<guid>.png'), not the full public imagePath - PrintImageService
+  builds that by combining PublicBaseUrl + StoredPath
+
+Bug caught during review before commit: extension allowlist check used Array.IndexOf against
+a lowercased extension, which only matches if PrintImageOptions.AllowedExtensions entries in
+configuration happen to already be lowercase. Fixed to a case-insensitive Array.Exists check.
+
+Flagged for explicit confirmation:
+- Static file serving is unauthenticated (see Program.cs comment above)
+- The duplicate-name Warning text is hardcoded English, not localized - it isn't an Error, so
+  it never passes through LocalizeErrorResultFilter (which only touches ApiError.Code); no
+  existing mechanism localizes a success-path notice like this one
+---
+ .../Contracts/IPrintImageStorage.cs           |   6 +-
+ ApplicationLayer/Options/PrintImageOptions.cs |  18 +-
+ .../ServicesContracts/IServiceManager.cs      |   2 +
+ DomainLayer/Entities/PrintImage.cs            |   9 +-
+ .../InfrastructureServiceRegistration.cs      |   8 +
+ .../Services/PrintImageService.cs             | 138 +++++++++++++
+ .../Services/ServiceManager.cs                |   6 +-
+ .../Storage/LocalDiskPrintImageStorage.cs     | 184 ++++++++++++++++++
+ .../Controllers/PrintImagesController.cs      |  47 +++++
+ .../Program.cs                                |  26 +++
+ .../appsettings.json                          |   6 +
+ 11 files changed, 438 insertions(+), 12 deletions(-)
+ create mode 100644 InfrastructureLayer/Services/PrintImageService.cs
+ create mode 100644 InfrastructureLayer/Storage/LocalDiskPrintImageStorage.cs
+ create mode 100644 InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/PrintImagesController.cs
+
+diff --git a/ApplicationLayer/Contracts/IPrintImageStorage.cs b/ApplicationLayer/Contracts/IPrintImageStorage.cs
+index beb2c36..77f6883 100644
+--- a/ApplicationLayer/Contracts/IPrintImageStorage.cs
++++ b/ApplicationLayer/Contracts/IPrintImageStorage.cs
+@@ -10,8 +10,10 @@ namespace ApplicationLayer.Contracts
+     /// </summary>
+     /// <param name="StoredFileName">GUID-based physical file name, including extension.</param>
+     /// <param name="StoredPath">
+-    /// Path relative to the configured image root, e.g. <c>products/7/&lt;guid&gt;.png</c> — the
+-    /// value returned to clients as <c>imagePath</c>.
++    /// Path relative to the configured image root, e.g. <c>7/&lt;guid&gt;.png</c> for tenant 7 —
++    /// <em>not</em> the full public URL. <c>IPrintImageService</c> combines
++    /// <c>PrintImageOptions.PublicBaseUrl</c> with this value to build the <c>imagePath</c>
++    /// returned to clients; this type only knows about the physical layout, not the URL scheme.
+     /// </param>
+     /// <param name="ContentType">MIME type detected from the file's magic bytes, not the client-supplied header.</param>
+     /// <param name="SizeBytes">File size in bytes.</param>
+diff --git a/ApplicationLayer/Options/PrintImageOptions.cs b/ApplicationLayer/Options/PrintImageOptions.cs
+index 3159df2..55ea28f 100644
+--- a/ApplicationLayer/Options/PrintImageOptions.cs
++++ b/ApplicationLayer/Options/PrintImageOptions.cs
+@@ -10,12 +10,20 @@ namespace ApplicationLayer.Options
+         public const string SectionName = "PrintImages";
+ 
+         /// <summary>
+-        /// Physical root directory images are written under, relative to the content root (e.g.
+-        /// <c>wwwroot/uploads/products</c>). Each tenant gets its own subdirectory beneath this
+-        /// root — <c>{RootPath}/{tenantId}/{guid}.{extension}</c> — so a duplicate file name from
+-        /// one tenant can never collide with, or overwrite, another tenant's file (decision Q-10).
++        /// Physical root directory images are written under, resolved relative to the
++        /// application's content root (<see cref="Microsoft.Extensions.Hosting.IHostEnvironment.ContentRootPath"/>,
++        /// the same base Program.cs already resolves <c>LogEncryptionOptions.Directory</c>
++        /// against) when not already absolute — see
++        /// <c>LocalDiskPrintImageStorage.ResolvePhysicalRoot</c>. Deliberately not
++        /// <c>wwwroot</c>-relative: Program.cs maps this exact resolved path to
++        /// <see cref="PublicBaseUrl"/> via its own <c>StaticFileOptions</c>, so uploaded content
++        /// never has to share a directory tree with other static web assets, and works
++        /// identically whether or not the app even has a <c>wwwroot</c>. Each tenant gets its own
++        /// subdirectory beneath this root — <c>{RootPath}/{tenantId}/{guid}.{extension}</c> — so a
++        /// duplicate file name from one tenant can never collide with, or overwrite, another
++        /// tenant's file (decision Q-10).
+         /// </summary>
+-        public string RootPath { get; set; } = "wwwroot/uploads/products";
++        public string RootPath { get; set; } = "uploads/products";
+ 
+         /// <summary>
+         /// Public URL prefix matching <see cref="RootPath"/> (e.g. <c>/uploads/products</c>),
+diff --git a/ApplicationLayer/ServicesContracts/IServiceManager.cs b/ApplicationLayer/ServicesContracts/IServiceManager.cs
+index f936c7b..5ee7c2e 100644
+--- a/ApplicationLayer/ServicesContracts/IServiceManager.cs
++++ b/ApplicationLayer/ServicesContracts/IServiceManager.cs
+@@ -27,5 +27,7 @@
+         IDisposalService Disposals { get; }
+         /// <summary>Branch stock request use cases: raise, confirm, refuse, cancel (API §4.9).</summary>
+         IBranchRequestService BranchRequests { get; }
++        /// <summary>Print-configuration image upload use case (module requirements §5–§7, Printing Module Q-10).</summary>
++        IPrintImageService PrintImages { get; }
+     }
+ }
+diff --git a/DomainLayer/Entities/PrintImage.cs b/DomainLayer/Entities/PrintImage.cs
+index 3c406c0..771ab26 100644
+--- a/DomainLayer/Entities/PrintImage.cs
++++ b/DomainLayer/Entities/PrintImage.cs
+@@ -38,10 +38,11 @@ namespace DomainLayer.Entities
+         public string StoredFileName { get; set; } = string.Empty;
+ 
+         /// <summary>
+-        /// Path relative to the configured image root, e.g. <c>products/7/&lt;guid&gt;.png</c>
+-        /// (decision Q-10: tenant-scoped directory). This is the value returned to clients as
+-        /// <c>imagePath</c> and the value stored back onto a product print configuration's
+-        /// <c>ImagePath</c> column.
++        /// Path relative to the configured image root, e.g. <c>7/&lt;guid&gt;.png</c> for tenant 7
++        /// (decision Q-10: tenant-scoped directory) — <em>not</em> the full public URL.
++        /// <c>PrintImageService</c> combines <c>PrintImageOptions.PublicBaseUrl</c> with this
++        /// value to build the <c>imagePath</c> returned to clients and stored back onto a
++        /// product print configuration's <c>ImagePath</c> column.
+         /// </summary>
+         public string StoredPath { get; set; } = string.Empty;
+ 
+diff --git a/InfrastructureLayer/InfrastructureServiceRegistration.cs b/InfrastructureLayer/InfrastructureServiceRegistration.cs
+index fbaca19..5a95c9e 100644
+--- a/InfrastructureLayer/InfrastructureServiceRegistration.cs
++++ b/InfrastructureLayer/InfrastructureServiceRegistration.cs
+@@ -9,6 +9,7 @@ using InfrastructureLayer.Data.Interceptors;
+ using InfrastructureLayer.Reporting;
+ using InfrastructureLayer.Security;
+ using InfrastructureLayer.Services;
++using InfrastructureLayer.Storage;
+ using Microsoft.EntityFrameworkCore;
+ using Microsoft.Extensions.Configuration;
+ using Microsoft.Extensions.DependencyInjection;
+@@ -121,6 +122,13 @@ namespace InfrastructureLayer
+             services.AddScoped<IBranchRequestService, BranchRequestService>();
+             services.AddScoped<System.Func<IBranchRequestService>>(sp => sp.GetRequiredService<IBranchRequestService>);
+ 
++            // Printing Module, Phase 4: defaulted (see PrintImageOptions), so no configuration is
++            // required for the endpoint to be safe out of the box - same reasoning as CardFileOptions.
++            services.Configure<PrintImageOptions>(configuration.GetSection(PrintImageOptions.SectionName));
++            services.AddScoped<IPrintImageStorage, LocalDiskPrintImageStorage>();
++            services.AddScoped<IPrintImageService, PrintImageService>();
++            services.AddScoped<System.Func<IPrintImageService>>(sp => sp.GetRequiredService<IPrintImageService>);
++
+             return services;
+ 
+            
+diff --git a/InfrastructureLayer/Services/PrintImageService.cs b/InfrastructureLayer/Services/PrintImageService.cs
+new file mode 100644
+index 0000000..a7ecf08
+--- /dev/null
++++ b/InfrastructureLayer/Services/PrintImageService.cs
+@@ -0,0 +1,138 @@
++using System;
++using System.IO;
++using System.Threading;
++using System.Threading.Tasks;
++using ApplicationLayer.Contracts;
++using ApplicationLayer.DTOs.Printing;
++using ApplicationLayer.Errors;
++using ApplicationLayer.Options;
++using ApplicationLayer.ServicesContracts;
++using DomainLayer.Common;
++using DomainLayer.Entities;
++using Microsoft.Extensions.Options;
++
++namespace InfrastructureLayer.Services
++{
++    /// <summary>
++    /// Print-image upload use case (module requirements §5–§7, Printing Module decision Q-10).
++    /// Pairs <see cref="IPrintImageStorage"/> (physical save/delete) with
++    /// <see cref="IUnitOfWork.PrintImages"/> (metadata + duplicate-name detection) — mirrors how
++    /// <c>BatchUploadService</c> pairs its cipher and repository.
++    /// </summary>
++    public sealed class PrintImageService : IPrintImageService
++    {
++        /// <summary>
++        /// Wording matches the requirements document's own example response verbatim. Not
++        /// resolved through <c>IStringLocalizer&lt;Messages&gt;</c> — unlike every
++        /// <c>PrintingErrors</c> message, this is not an <see cref="Error"/>, so it never passes
++        /// through <c>LocalizeErrorResultFilter</c> (which only touches <c>ApiError.Code</c>).
++        /// It is therefore always English today. Flagged: if Arabic wording is wanted for this
++        /// specific success-path notice, it needs its own mechanism — there isn't one to reuse.
++        /// </summary>
++        private const string DuplicateNameWarning =
++            "An image with the same name already exists. The existing image was replaced.";
++
++        private readonly IUnitOfWork _unitOfWork;
++        private readonly ICurrentTenant _currentTenant;
++        private readonly IPrintImageStorage _storage;
++        private readonly PrintImageOptions _options;
++
++        public PrintImageService(
++            IUnitOfWork unitOfWork,
++            ICurrentTenant currentTenant,
++            IPrintImageStorage storage,
++            IOptions<PrintImageOptions> options)
++        {
++            _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
++            _currentTenant = currentTenant ?? throw new ArgumentNullException(nameof(currentTenant));
++            _storage = storage ?? throw new ArgumentNullException(nameof(storage));
++            _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
++        }
++
++        /// <inheritdoc />
++        public async Task<Result<PrintImageUploadResult>> UploadAsync(
++            UploadPrintImageRequest request, CancellationToken cancellationToken = default)
++        {
++            // Matches BatchUploadService's convention: resolved here, not passed in by the
++            // caller. A system-admin token has no tenant to own the uploaded file, so it is
++            // rejected rather than offered an "upload on behalf of tenant X" path.
++            if (_currentTenant.TenantId is not long tenantId)
++            {
++                return Result.Failure<PrintImageUploadResult>(PrintingErrors.PrintImageActorNotResolved());
++            }
++
++            if (request?.File is null || request.File.Length == 0)
++            {
++                return Result.Failure<PrintImageUploadResult>(PrintingErrors.PrintImageFileMissing());
++            }
++
++            string originalFileName = Path.GetFileName(request.File.FileName);
++
++            // ---- Outside the transaction: the physical write cannot be rolled back by a DB
++            // transaction regardless of where it is called from, so it is not nested inside one
++            // — matching BatchUploadService's "decrypt/parse happens outside the transaction"
++            // structure. A DB failure after this succeeds leaves the new file orphaned; that is
++            // the same accepted tradeoff as an uploaded-but-never-attached image (module
++            // requirements §7, decision Q-10: no scheduled cleanup mechanism). -----------------
++            Result<StoredImage> saveResult = await _storage.SaveAsync(tenantId, request.File, cancellationToken);
++            if (saveResult.IsFailure)
++            {
++                return Result.Failure<PrintImageUploadResult>(saveResult.Error);
++            }
++
++            StoredImage saved = saveResult.Value;
++            string? staleStoredPath = null;
++
++            Result<PrintImageUploadResult> result = await _unitOfWork.ExecuteInTransactionAsync(async () =>
++            {
++                string? warning = null;
++
++                PrintImage? existing = await _unitOfWork.PrintImages.GetByOriginalFileNameAsync(
++                    tenantId, originalFileName, cancellationToken);
++
++                if (existing is not null)
++                {
++                    // Decision Q-10: same name replaces. Only the row is removed here — the old
++                    // file's physical delete is deferred until after this transaction commits
++                    // (see below), not performed inline. Deleting it now and then having the
++                    // transaction roll back would leave the database still pointing at a file
++                    // that no longer exists, which is worse than the orphan-file tradeoff this
++                    // module already accepts: the database would be actively wrong, not just
++                    // incomplete.
++                    staleStoredPath = existing.StoredPath;
++                    _unitOfWork.PrintImages.Remove(existing);
++                    warning = DuplicateNameWarning;
++                }
++
++                var printImage = new PrintImage
++                {
++                    TenantId = tenantId,
++                    OriginalFileName = originalFileName,
++                    StoredFileName = saved.StoredFileName,
++                    StoredPath = saved.StoredPath,
++                    ContentType = saved.ContentType,
++                    SizeBytes = saved.SizeBytes,
++                    UploadedAt = DateTime.UtcNow,
++                };
++
++                await _unitOfWork.PrintImages.AddAsync(printImage, cancellationToken);
++
++                string imagePath = CombineUrl(_options.PublicBaseUrl, saved.StoredPath);
++                return Result.Success(new PrintImageUploadResult(imagePath, warning));
++            }, cancellationToken);
++
++            // ---- After a successful commit: the old row is now durably gone, so it is safe to
++            // remove its physical file. Best-effort — logged internally by the storage
++            // implementation, never fails an upload that has already succeeded. --------------
++            if (result.IsSuccess && staleStoredPath is not null)
++            {
++                await _storage.DeleteAsync(staleStoredPath, cancellationToken);
++            }
++
++            return result;
++        }
++
++        private static string CombineUrl(string baseUrl, string relativePath) =>
++            $"{baseUrl.TrimEnd('/')}/{relativePath.TrimStart('/')}";
++    }
++}
+diff --git a/InfrastructureLayer/Services/ServiceManager.cs b/InfrastructureLayer/Services/ServiceManager.cs
+index 61b2fe7..24b4453 100644
+--- a/InfrastructureLayer/Services/ServiceManager.cs
++++ b/InfrastructureLayer/Services/ServiceManager.cs
+@@ -20,6 +20,7 @@ namespace InfrastructureLayer.Services
+         private readonly Lazy<ITransferService> _transfers;
+         private readonly Lazy<IDisposalService> _disposals;
+         private readonly Lazy<IBranchRequestService> _branchRequests;
++        private readonly Lazy<IPrintImageService> _printImages;
+ 
+         public ServiceManager(
+             Func<IAuthService> authFactory,
+@@ -32,7 +33,8 @@ namespace InfrastructureLayer.Services
+             Func<ICardFileGenerationService> cardFileFactory,
+             Func<ITransferService> transferFactory,
+             Func<IDisposalService> disposalFactory,
+-            Func<IBranchRequestService> branchRequestFactory)
++            Func<IBranchRequestService> branchRequestFactory,
++            Func<IPrintImageService> printImageFactory)
+         {
+             _auth = new Lazy<IAuthService>(authFactory);
+             _tenants = new Lazy<ITenantService>(tenantFactory);
+@@ -45,6 +47,7 @@ namespace InfrastructureLayer.Services
+             _transfers = new Lazy<ITransferService>(transferFactory);
+             _disposals = new Lazy<IDisposalService>(disposalFactory);
+             _branchRequests = new Lazy<IBranchRequestService>(branchRequestFactory);
++            _printImages = new Lazy<IPrintImageService>(printImageFactory);
+         }
+ 
+         public IAuthService Auth => _auth.Value;
+@@ -58,5 +61,6 @@ namespace InfrastructureLayer.Services
+         public ITransferService Transfers => _transfers.Value;
+         public IDisposalService Disposals => _disposals.Value;
+         public IBranchRequestService BranchRequests => _branchRequests.Value;
++        public IPrintImageService PrintImages => _printImages.Value;
+     }
+ }
+\ No newline at end of file
+diff --git a/InfrastructureLayer/Storage/LocalDiskPrintImageStorage.cs b/InfrastructureLayer/Storage/LocalDiskPrintImageStorage.cs
+new file mode 100644
+index 0000000..222c5e2
+--- /dev/null
++++ b/InfrastructureLayer/Storage/LocalDiskPrintImageStorage.cs
+@@ -0,0 +1,184 @@
++using System;
++using System.Collections.Generic;
++using System.IO;
++using System.Threading;
++using System.Threading.Tasks;
++using ApplicationLayer.Contracts;
++using ApplicationLayer.Errors;
++using ApplicationLayer.Options;
++using DomainLayer.Common;
++using Microsoft.AspNetCore.Http;
++using Microsoft.Extensions.Hosting;
++using Microsoft.Extensions.Logging;
++using Microsoft.Extensions.Options;
++
++namespace InfrastructureLayer.Storage
++{
++    /// <summary>
++    /// Local-disk <see cref="IPrintImageStorage"/> implementation (module requirements §5–§7,
++    /// Printing Module decision Q-10). This is the first component in this codebase that writes
++    /// application content to the filesystem (everything else — card files, batch reports —
++    /// stays in memory or streams straight to the HTTP response), so it owns the full
++    /// validate-then-save contract itself rather than following an existing file-I/O precedent.
++    /// </summary>
++    public sealed class LocalDiskPrintImageStorage : IPrintImageStorage
++    {
++        /// <summary>
++        /// Known image-format signatures ("magic bytes"), keyed by the extension they must be
++        /// declared under. Deliberately hardcoded, not driven by
++        /// <see cref="PrintImageOptions.AllowedExtensions"/> — see the class doc comment on
++        /// <see cref="IPrintImageStorage"/>: an operator adding an extension to configuration
++        /// without a matching entry here simply can never pass content validation (fails closed),
++        /// rather than silently trusting an unverified format.
++        /// </summary>
++        private static readonly IReadOnlyDictionary<string, byte[]> SignaturesByExtension =
++            new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
++            {
++                [".png"] = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A },
++                // JPEG's SOI + APPn marker bytes are constant across every JFIF/Exif variant;
++                // the marker segments that follow differ, so only these three bytes are checked.
++                [".jpg"] = new byte[] { 0xFF, 0xD8, 0xFF },
++                [".jpeg"] = new byte[] { 0xFF, 0xD8, 0xFF },
++            };
++
++        private static readonly IReadOnlyDictionary<string, string> ContentTypesByExtension =
++            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
++            {
++                [".png"] = "image/png",
++                [".jpg"] = "image/jpeg",
++                [".jpeg"] = "image/jpeg",
++            };
++
++        private readonly PrintImageOptions _options;
++        private readonly string _physicalRoot;
++        private readonly ILogger<LocalDiskPrintImageStorage> _logger;
++
++        public LocalDiskPrintImageStorage(
++            IOptions<PrintImageOptions> options, IHostEnvironment environment, ILogger<LocalDiskPrintImageStorage> logger)
++        {
++            _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
++            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
++            _physicalRoot = ResolvePhysicalRoot(environment, _options);
++        }
++
++        /// <summary>
++        /// Resolves <see cref="PrintImageOptions.RootPath"/> to an absolute path, relative to
++        /// <paramref name="environment"/>'s content root when not already absolute — the same
++        /// base Program.cs already resolves <c>LogEncryptionOptions.Directory</c> against.
++        /// Shared between this class's constructor and Program.cs's static-file mapping so the
++        /// two can never resolve to different physical locations.
++        /// </summary>
++        public static string ResolvePhysicalRoot(IHostEnvironment environment, PrintImageOptions options) =>
++            Path.IsPathRooted(options.RootPath)
++                ? options.RootPath
++                : Path.Combine(environment.ContentRootPath, options.RootPath);
++
++        /// <inheritdoc />
++        public async Task<Result<StoredImage>> SaveAsync(
++            long tenantId, IFormFile file, CancellationToken cancellationToken = default)
++        {
++            if (file is null || file.Length == 0)
++            {
++                return Result.Failure<StoredImage>(PrintingErrors.PrintImageFileMissing());
++            }
++
++            if (file.Length > _options.MaxSizeBytes)
++            {
++                return Result.Failure<StoredImage>(PrintingErrors.PrintImageFileTooLarge(_options.MaxSizeBytes));
++            }
++
++            // The client controls FileName entirely; Path.GetFileName strips any directory
++            // component a hostile or careless client attaches, matching
++            // BatchUploadService.SanitizeFileName's exact reasoning. Only the extension survives
++            // into the physical name anyway (decision Q-10) — the sanitized name itself is never
++            // persisted or written to disk.
++            string extension = Path.GetExtension(Path.GetFileName(file.FileName));
++            bool isAllowedExtension = !string.IsNullOrEmpty(extension) &&
++                Array.Exists(_options.AllowedExtensions, e => string.Equals(e, extension, StringComparison.OrdinalIgnoreCase));
++
++            if (!isAllowedExtension)
++            {
++                return Result.Failure<StoredImage>(PrintingErrors.PrintImageInvalidExtension());
++            }
++
++            byte[] bytes = await ReadAllBytesAsync(file, cancellationToken);
++
++            if (!MatchesSignature(bytes, extension))
++            {
++                // Covers both "extension lies about the content" and "extension has no known
++                // signature at all" (an operator-added AllowedExtensions entry with nothing in
++                // SignaturesByExtension) — both fail the same way, on purpose.
++                return Result.Failure<StoredImage>(PrintingErrors.PrintImageUnsupportedContent());
++            }
++
++            string storedFileName = $"{Guid.NewGuid():N}{extension.ToLowerInvariant()}";
++            string tenantSegment = tenantId.ToString(System.Globalization.CultureInfo.InvariantCulture);
++            string physicalDirectory = Path.Combine(_physicalRoot, tenantSegment);
++            string physicalPath = Path.Combine(physicalDirectory, storedFileName);
++            // Forward slashes always, regardless of OS: this becomes a URL path segment
++            // (PrintImageService combines it with PublicBaseUrl), never a local file path again.
++            string storedPath = $"{tenantSegment}/{storedFileName}";
++
++            try
++            {
++                Directory.CreateDirectory(physicalDirectory);
++                await File.WriteAllBytesAsync(physicalPath, bytes, cancellationToken);
++            }
++            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
++            {
++                _logger.LogError(ex, "Failed to save print image for tenant {TenantId}", tenantId);
++                return Result.Failure<StoredImage>(PrintingErrors.PrintImageSaveFailed());
++            }
++
++            string contentType = ContentTypesByExtension[extension.ToLowerInvariant()];
++            return Result.Success(new StoredImage(storedFileName, storedPath, contentType, bytes.LongLength));
++        }
++
++        /// <inheritdoc />
++        public Task DeleteAsync(string storedPath, CancellationToken cancellationToken = default)
++        {
++            if (string.IsNullOrWhiteSpace(storedPath))
++            {
++                return Task.CompletedTask;
++            }
++
++            // storedPath is always a value this class generated and the caller read back from
++            // PrintImage.StoredPath — never client input — so no path-traversal guard is needed
++            // beyond the normal Path.Combine behavior.
++            string physicalPath = Path.Combine(_physicalRoot, storedPath.Replace('/', Path.DirectorySeparatorChar));
++
++            try
++            {
++                if (File.Exists(physicalPath))
++                {
++                    File.Delete(physicalPath);
++                }
++            }
++            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
++            {
++                // Best-effort by contract (see the interface doc comment): logged, never thrown.
++                _logger.LogWarning(ex, "Failed to delete print image at {StoredPath}", storedPath);
++            }
++
++            return Task.CompletedTask;
++        }
++
++        private static bool MatchesSignature(byte[] bytes, string extension)
++        {
++            if (!SignaturesByExtension.TryGetValue(extension, out byte[]? signature))
++            {
++                return false;
++            }
++
++            return bytes.Length >= signature.Length &&
++                   bytes.AsSpan(0, signature.Length).SequenceEqual(signature);
++        }
++
++        private static async Task<byte[]> ReadAllBytesAsync(IFormFile file, CancellationToken cancellationToken)
++        {
++            using var memoryStream = new MemoryStream();
++            await file.CopyToAsync(memoryStream, cancellationToken);
++            return memoryStream.ToArray();
++        }
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/PrintImagesController.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/PrintImagesController.cs
+new file mode 100644
+index 0000000..42162f3
+--- /dev/null
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/PrintImagesController.cs
+@@ -0,0 +1,47 @@
++using System.Threading;
++using System.Threading.Tasks;
++using ApplicationLayer.DTOs.Printing;
++using ApplicationLayer.ServicesContracts;
++using InventoryManagmentAndInstanceIssuancePresentationLayer.Common;
++using Microsoft.AspNetCore.Authorization;
++using Microsoft.AspNetCore.Http;
++using Microsoft.AspNetCore.Mvc;
++
++namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
++{
++    /// <summary>
++    /// Print-configuration image upload endpoint (module requirements §5–§7, Printing Module
++    /// decision Q-10). Requires authentication; the uploading tenant is resolved from the
++    /// caller's token by <see cref="IPrintImageService"/> itself, not by this controller — a
++    /// system-admin token is rejected there, the same way <c>InventoryController.Upload</c>
++    /// rejects one for batch uploads.
++    /// </summary>
++    /// <response code="401">No valid bearer token was supplied.</response>
++    [ApiController]
++    [Route("api/print-images")]
++    [Authorize]
++    [Produces("application/json")]
++    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
++    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
++    public sealed class PrintImagesController : ControllerBase
++    {
++        private readonly IServiceManager _services;
++
++        public PrintImagesController(IServiceManager services) => _services = services;
++
++        /// <summary>
++        /// Uploads a print-configuration image. The client stores only the returned
++        /// <c>imagePath</c> onto a product's print configuration (module requirement §5); it
++        /// never constructs or guesses that path itself. If a non-deleted image with the same
++        /// original file name already exists for the caller's tenant, it is replaced and the
++        /// response carries a non-null <c>warning</c> — this is not a failure.
++        /// </summary>
++        [HttpPost]
++        [Consumes("multipart/form-data")]
++        [ProducesResponseType(typeof(ApiResponse<PrintImageUploadResult>), StatusCodes.Status200OK)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
++        public async Task<IActionResult> Upload(
++            [FromForm] UploadPrintImageRequest request, CancellationToken cancellationToken)
++            => (await _services.PrintImages.UploadAsync(request, cancellationToken)).ToActionResult(this);
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Program.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Program.cs
+index c2f58d8..d05327e 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Program.cs
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Program.cs
+@@ -2,12 +2,14 @@ using ApplicationLayer.Options;
+ using InfrastructureLayer;
+ using InfrastructureLayer.Data;
+ using InfrastructureLayer.Logging;
++using InfrastructureLayer.Storage;
+ using InventoryManagmentAndInstanceIssuancePresentationLayer.Common;
+ using InventoryManagmentAndInstanceIssuancePresentationLayer.Filters;
+ using InventoryManagmentAndInstanceIssuancePresentationLayer.Middleware;
+ using InventoryManagmentAndInstanceIssuancePresentationLayer.Security;
+ using InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger;
+ using Microsoft.AspNetCore.Mvc;
++using Microsoft.Extensions.FileProviders;
+ using Microsoft.Extensions.Options;
+ using Microsoft.OpenApi.Models;
+ using Serilog;
+@@ -132,6 +134,30 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
+ 
+             app.UseHttpsRedirection();
+ 
++            // Printing Module, Phase 4: serves uploaded print-configuration images at
++            // PrintImageOptions.PublicBaseUrl, mapped directly to the resolved physical root -
++            // LocalDiskPrintImageStorage.ResolvePhysicalRoot, so this can never point somewhere
++            // different from where uploads are actually written. Deliberately its own
++            // StaticFileOptions rather than a default app.UseStaticFiles() over wwwroot: uploaded
++            // tenant content stays out of the wwwroot tree entirely, and this mapping still works
++            // if the app has no wwwroot at all.
++            // Unauthenticated by design, like any other static-file middleware - it runs outside
++            // the MVC pipeline, before [Authorize] would apply. The physical file name is an
++            // unguessable GUID and the path embeds no other tenant data, so this is the same
++            // security posture as any link-shared asset. Flagged: if these images need to be
++            // access-controlled instead, this needs a dedicated authenticated endpoint rather
++            // than static-file middleware.
++            PrintImageOptions printImageOptions =
++                app.Services.GetRequiredService<IOptions<PrintImageOptions>>().Value;
++            string printImagePhysicalRoot =
++                LocalDiskPrintImageStorage.ResolvePhysicalRoot(app.Environment, printImageOptions);
++            Directory.CreateDirectory(printImagePhysicalRoot);
++            app.UseStaticFiles(new StaticFileOptions
++            {
++                FileProvider = new PhysicalFileProvider(printImagePhysicalRoot),
++                RequestPath = printImageOptions.PublicBaseUrl,
++            });
++
+             // Authentication must run before authorization so the principal is established first.
+             app.UseAuthentication();
+             app.UseAuthorization();
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/appsettings.json b/InventoryManagmentAndInstanceIssuancePresentationLayer/appsettings.json
+index e2b2ccf..8369362 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/appsettings.json
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/appsettings.json
+@@ -12,6 +12,12 @@
+   "CardFile": {
+     "MaxCardsPerRequest": 50000
+   },
++  "PrintImages": {
++    "RootPath": "uploads/products",
++    "PublicBaseUrl": "/uploads/products",
++    "MaxSizeBytes": 5242880,
++    "AllowedExtensions": [ ".png", ".jpg", ".jpeg" ]
++  },
+   "Logging": {
+     "LogLevel": {
+       "Default": "Information",
+-- 
+2.43.0
+

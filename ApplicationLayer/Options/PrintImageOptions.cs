@@ -10,12 +10,20 @@ namespace ApplicationLayer.Options
         public const string SectionName = "PrintImages";
 
         /// <summary>
-        /// Physical root directory images are written under, relative to the content root (e.g.
-        /// <c>wwwroot/uploads/products</c>). Each tenant gets its own subdirectory beneath this
-        /// root — <c>{RootPath}/{tenantId}/{guid}.{extension}</c> — so a duplicate file name from
-        /// one tenant can never collide with, or overwrite, another tenant's file (decision Q-10).
+        /// Physical root directory images are written under, resolved relative to the
+        /// application's content root (<see cref="Microsoft.Extensions.Hosting.IHostEnvironment.ContentRootPath"/>,
+        /// the same base Program.cs already resolves <c>LogEncryptionOptions.Directory</c>
+        /// against) when not already absolute — see
+        /// <c>LocalDiskPrintImageStorage.ResolvePhysicalRoot</c>. Deliberately not
+        /// <c>wwwroot</c>-relative: Program.cs maps this exact resolved path to
+        /// <see cref="PublicBaseUrl"/> via its own <c>StaticFileOptions</c>, so uploaded content
+        /// never has to share a directory tree with other static web assets, and works
+        /// identically whether or not the app even has a <c>wwwroot</c>. Each tenant gets its own
+        /// subdirectory beneath this root — <c>{RootPath}/{tenantId}/{guid}.{extension}</c> — so a
+        /// duplicate file name from one tenant can never collide with, or overwrite, another
+        /// tenant's file (decision Q-10).
         /// </summary>
-        public string RootPath { get; set; } = "wwwroot/uploads/products";
+        public string RootPath { get; set; } = "uploads/products";
 
         /// <summary>
         /// Public URL prefix matching <see cref="RootPath"/> (e.g. <c>/uploads/products</c>),

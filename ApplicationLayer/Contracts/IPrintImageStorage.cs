@@ -10,8 +10,10 @@ namespace ApplicationLayer.Contracts
     /// </summary>
     /// <param name="StoredFileName">GUID-based physical file name, including extension.</param>
     /// <param name="StoredPath">
-    /// Path relative to the configured image root, e.g. <c>products/7/&lt;guid&gt;.png</c> — the
-    /// value returned to clients as <c>imagePath</c>.
+    /// Path relative to the configured image root, e.g. <c>7/&lt;guid&gt;.png</c> for tenant 7 —
+    /// <em>not</em> the full public URL. <c>IPrintImageService</c> combines
+    /// <c>PrintImageOptions.PublicBaseUrl</c> with this value to build the <c>imagePath</c>
+    /// returned to clients; this type only knows about the physical layout, not the URL scheme.
     /// </param>
     /// <param name="ContentType">MIME type detected from the file's magic bytes, not the client-supplied header.</param>
     /// <param name="SizeBytes">File size in bytes.</param>

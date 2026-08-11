@@ -27,5 +27,7 @@
         IDisposalService Disposals { get; }
         /// <summary>Branch stock request use cases: raise, confirm, refuse, cancel (API §4.9).</summary>
         IBranchRequestService BranchRequests { get; }
+        /// <summary>Print-configuration image upload use case (module requirements §5–§7, Printing Module Q-10).</summary>
+        IPrintImageService PrintImages { get; }
     }
 }

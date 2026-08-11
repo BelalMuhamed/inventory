@@ -38,10 +38,11 @@ namespace DomainLayer.Entities
         public string StoredFileName { get; set; } = string.Empty;
 
         /// <summary>
-        /// Path relative to the configured image root, e.g. <c>products/7/&lt;guid&gt;.png</c>
-        /// (decision Q-10: tenant-scoped directory). This is the value returned to clients as
-        /// <c>imagePath</c> and the value stored back onto a product print configuration's
-        /// <c>ImagePath</c> column.
+        /// Path relative to the configured image root, e.g. <c>7/&lt;guid&gt;.png</c> for tenant 7
+        /// (decision Q-10: tenant-scoped directory) — <em>not</em> the full public URL.
+        /// <c>PrintImageService</c> combines <c>PrintImageOptions.PublicBaseUrl</c> with this
+        /// value to build the <c>imagePath</c> returned to clients and stored back onto a
+        /// product print configuration's <c>ImagePath</c> column.
         /// </summary>
         public string StoredPath { get; set; } = string.Empty;
 
