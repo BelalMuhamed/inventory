@@ -41,15 +41,23 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         public async Task<IActionResult> GetById(long id, CancellationToken cancellationToken)
             => (await _services.Products.GetByIdAsync(id, cancellationToken)).ToActionResult(this);
 
-        /// <summary>Creates a product. Admin callers supply the target tenant id.</summary>
+        /// <summary>
+        /// Creates a product. Admin callers supply the target tenant id. A system admin may also
+        /// attach a print configuration in the same call (Printing Module, phase 7); a tenant
+        /// caller may still create a plain product without one.
+        /// </summary>
         [HttpPost]
         [ProducesResponseType(typeof(ApiResponse<ProductResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
         public async Task<IActionResult> Create([FromBody] CreateProductRequest request, CancellationToken cancellationToken)
             => (await _services.Products.CreateAsync(request, cancellationToken)).ToActionResult(this);
 
-        /// <summary>Updates a product's name, status, threshold, transaction-way, and printer type.</summary>
+        /// <summary>
+        /// Updates a product's name, status, threshold, and transaction-way. Printer family is
+        /// not changeable here — use <c>PUT /api/products/{id}/print-config</c>.
+        /// </summary>
         [HttpPut("{id:long}")]
         [ProducesResponseType(typeof(ApiResponse<ProductResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]

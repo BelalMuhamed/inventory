@@ -1,4 +1,5 @@
 using System;
+using ApplicationLayer.DTOs.Printing;
 using DomainLayer.Enums;
 
 namespace ApplicationLayer.DTOs.Products
@@ -24,9 +25,16 @@ namespace ApplicationLayer.DTOs.Products
     /// Create payload (API Spec §4.6). <paramref name="TenantId"/> is used only by a system-admin
     /// caller to target a tenant; for a tenant caller it is ignored (the token's tenant is used).
     /// <para>
-    /// <c>PrintedFaceImagePath</c> from the endpoint spec is intentionally excluded: per ERD §2.2 it
-    /// is not a Products column — it belongs to the Evolis/Matica print-configuration tables (ERD §7)
-    /// and will be handled by the Print Configuration module.
+    /// <paramref name="Matica"/> / <paramref name="Evolis"/> (Printing Module, phase 7) let a
+    /// system admin attach the product's print configuration in the same call — "the product and
+    /// its printing configuration should behave as a single aggregate." Supplying either one
+    /// requires a system-admin caller (decision Q-09, confirmed); a tenant caller supplying
+    /// either fails with <c>PrintingErrors.ProductPrintConfigOnlySystemAdmin</c>. A tenant caller
+    /// may still create a plain product with neither supplied — only the combined
+    /// product-plus-configuration action is admin-gated, not product creation itself. Exactly one
+    /// of the two, matching <see cref="UsingPrinterType"/>, is required when either is supplied —
+    /// enforced by <c>IProductPrintConfigComposer.ValidateAsync</c>, the same validation the
+    /// standalone <c>PUT /api/products/{id}/print-config</c> endpoint uses.
     /// </para>
     /// </summary>
     public sealed record CreateProductRequest(
@@ -35,13 +43,23 @@ namespace ApplicationLayer.DTOs.Products
         UsingPrinterType UsingPrinterType,
         ActivationStatus ActivationStatus = DomainLayer.Enums.ActivationStatus.Active,
         int LowProductThreshold = 0,
-        long? TenantId = null);
+        long? TenantId = null,
+        MaticaPrintConfigRequest? Matica = null,
+        EvolisPrintConfigRequest? Evolis = null);
 
-    /// <summary>Update payload. A product cannot be reassigned to another tenant.</summary>
+    /// <summary>
+    /// Update payload. A product cannot be reassigned to another tenant.
+    /// <para>
+    /// <b>Printing Module, phase 7:</b> no longer carries <c>UsingPrinterType</c> — a product's
+    /// printer family can only be changed via <c>PUT /api/products/{id}/print-config</c>
+    /// (system-admin only, confirmed), which switches it atomically together with the matching
+    /// configuration row (decision Q-08). Letting this endpoint change it independently would let
+    /// a product's declared family and its configuration row disagree with each other.
+    /// </para>
+    /// </summary>
     public sealed record UpdateProductRequest(
         string Name,
         ProductTransactionWay ProductTransactionWay,
-        UsingPrinterType UsingPrinterType,
         ActivationStatus ActivationStatus,
         int LowProductThreshold);
 

@@ -31,5 +31,7 @@
         IPrintImageService PrintImages { get; }
         /// <summary>Printer registry management use cases (ERD §6, Printing Module Q-01/Q-09).</summary>
         IPrinterConfigurationService Printers { get; }
+        /// <summary>Product print-configuration sub-resource use case (decision Q-07).</summary>
+        IProductPrintConfigurationService ProductPrintConfigs { get; }
     }
 }

@@ -505,7 +505,10 @@
     <value>المنتج رقم {0} ماله إعدادات طباعة.</value>
   </data>
   <data name="ProductPrintConfig.OnlySystemAdmin" xml:space="preserve">
-    <value>الأدمن بس اللي يقدر يعدّل إعدادات طباعة المنتج.</value>
+    <value>الأدمن بس اللي يقدر ينشئ أو يعدّل إعدادات طباعة المنتج.</value>
+  </data>
+  <data name="ProductPrintConfig.ActorNotResolved" xml:space="preserve">
+    <value>معرفناش مين اللي بيستخدم النظام دلوقتي.</value>
   </data>
   <data name="ProductPrintConfig.MaticaPayloadRequired" xml:space="preserve">
     <value>لازم تبعت إعدادات طباعة ماتيكا لما نوع الطابعة يكون ماتيكا.</value>

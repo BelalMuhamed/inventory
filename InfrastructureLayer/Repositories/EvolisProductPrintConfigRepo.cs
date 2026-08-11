@@ -22,5 +22,10 @@ namespace InfrastructureLayer.Repositories
             // Tracked (no AsNoTracking): the caller (IProductPrintConfigComposer) updates this
             // instance in place, or removes it outright for a printer-family switch (decision Q-08).
             Set.FirstOrDefaultAsync(e => e.TenantId == tenantId && e.ProductId == productId, cancellationToken);
+
+        public Task<EvolisProductPrintConfiguration?> GetByProductIdIncludingDeletedAsync(
+            long tenantId, long productId, CancellationToken cancellationToken = default) =>
+            Context.Set<EvolisProductPrintConfiguration>().IgnoreQueryFilters()
+                .FirstOrDefaultAsync(e => e.TenantId == tenantId && e.ProductId == productId, cancellationToken);
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using ApplicationLayer.DTOs.Products;
 using DomainLayer.Enums;
 
 namespace ApplicationLayer.DTOs.Printing
@@ -143,24 +144,6 @@ namespace ApplicationLayer.DTOs.Printing
         string? ImagePath);
 
     /// <summary>
-    /// The print-configuration half of a product-creation payload (module requirement §4: "the
-    /// product and its printing configuration should behave as a single aggregate"). Exactly one
-    /// of <paramref name="Matica"/> / <paramref name="Evolis"/> must be supplied, matching
-    /// <paramref name="UsingPrinterType"/> — validated by <c>IProductPrintConfigComposer</c>
-    /// (mirrors <c>ValidatedTransferLine</c>/<c>ITransferComposer</c>'s split for the same reason:
-    /// one implementation of the matching rule, shared by product creation and the standalone
-    /// sub-resource update below).
-    /// <para>
-    /// Not yet wired into <c>CreateProductRequest</c> — that extension lands in the phase that
-    /// implements <c>ProductService</c>'s orchestration of this composer.
-    /// </para>
-    /// </summary>
-    public sealed record CreateProductPrintConfigRequest(
-        UsingPrinterType UsingPrinterType,
-        MaticaPrintConfigRequest? Matica,
-        EvolisPrintConfigRequest? Evolis);
-
-    /// <summary>
     /// Payload for <c>PUT /api/products/{id}/print-config</c> (decision Q-07: sub-resource, no
     /// standalone POST/DELETE). Also the payload shape for a printer-family switch (decision
     /// Q-08): supplying a different <see cref="UsingPrinterType"/> than the product currently has,
@@ -182,6 +165,17 @@ namespace ApplicationLayer.DTOs.Printing
         UsingPrinterType UsingPrinterType,
         MaticaPrintConfigResponse? Matica,
         EvolisPrintConfigResponse? Evolis);
+
+    /// <summary>
+    /// Combined product + print-configuration view for
+    /// <c>GET /api/products/{id}/print-config/full</c> (Printing Module, phase 7). System-admin
+    /// only. <see cref="PrintConfig"/> is <c>null</c> when the product has no configuration yet —
+    /// this endpoint surfaces that gap rather than failing, since it exists specifically as an
+    /// administrative overview.
+    /// </summary>
+    public sealed record ProductWithPrintConfigResponse(
+        ProductResponse Product,
+        ProductPrintConfigResponse? PrintConfig);
 
     // =====================================================================================
     //  Print images (module requirements §5/§6/§7, Printing Module Q-10)

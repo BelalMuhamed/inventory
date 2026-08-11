@@ -877,6 +877,15 @@ namespace InfrastructureLayer.Data
         /// printer-family switch (decision Q-08), where the old configuration row is explicitly
         /// hard-deleted by the service, not soft-deleted.
         /// </para>
+        /// <para>
+        /// <b>P6 addition:</b> <see cref="MaticaProductPrintConfiguration.Product"/> and
+        /// <see cref="EvolisProductPrintConfiguration.Product"/> are navigation properties added
+        /// after P1 shipped, for the same reason as <see cref="Printer.Branch"/> /
+        /// <see cref="MaticaPrinterConfiguration.Printer"/> (P5): a product created in the same
+        /// transaction as its print configuration has no real id yet when the configuration
+        /// object is built, and EF Core needs the navigation to fix up the foreign key once that
+        /// id is generated. Metadata only — no schema change, no new migration.
+        /// </para>
         /// </summary>
         private static void ConfigureProductPrintConfigurations(ModelBuilder modelBuilder)
         {
@@ -903,7 +912,7 @@ namespace InfrastructureLayer.Data
                       .HasForeignKey(m => m.TenantId)
                       .OnDelete(DeleteBehavior.NoAction);
 
-                entity.HasOne<Product>()
+                entity.HasOne(m => m.Product)
                       .WithMany()
                       .HasForeignKey(m => m.ProductId)
                       .OnDelete(DeleteBehavior.NoAction);
@@ -941,7 +950,7 @@ namespace InfrastructureLayer.Data
                       .HasForeignKey(e => e.TenantId)
                       .OnDelete(DeleteBehavior.NoAction);
 
-                entity.HasOne<Product>()
+                entity.HasOne(e => e.Product)
                       .WithMany()
                       .HasForeignKey(e => e.ProductId)
                       .OnDelete(DeleteBehavior.NoAction);

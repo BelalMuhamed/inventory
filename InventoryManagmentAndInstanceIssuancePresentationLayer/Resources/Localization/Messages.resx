@@ -505,7 +505,10 @@
     <value>Product {0} has no print configuration.</value>
   </data>
   <data name="ProductPrintConfig.OnlySystemAdmin" xml:space="preserve">
-    <value>Only a system administrator can update a product's print configuration.</value>
+    <value>Only a system administrator can create or update a product's print configuration.</value>
+  </data>
+  <data name="ProductPrintConfig.ActorNotResolved" xml:space="preserve">
+    <value>The acting principal could not be resolved.</value>
   </data>
   <data name="ProductPrintConfig.MaticaPayloadRequired" xml:space="preserve">
     <value>A Matica print configuration payload is required when the printer type is Matica.</value>

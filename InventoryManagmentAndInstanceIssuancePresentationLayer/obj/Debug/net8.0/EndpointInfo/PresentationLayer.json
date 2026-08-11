@@ -3356,6 +3356,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Conflict",
             "content": {
@@ -4180,6 +4190,272 @@
           },
           "422": {
             "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{productId}/print-config": {
+      "get": {
+        "tags": [
+          "ProductPrintConfig"
+        ],
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "Accept-Language",
+            "in": "header",
+            "description": "Response language: 'en' (default) or 'ar'.",
+            "schema": {
+              "enum": [
+                "en",
+                "ar"
+              ],
+              "type": "string",
+              "default": "en"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductPrintConfigResponseApiResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "ProductPrintConfig"
+        ],
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "Accept-Language",
+            "in": "header",
+            "description": "Response language: 'en' (default) or 'ar'.",
+            "schema": {
+              "enum": [
+                "en",
+                "ar"
+              ],
+              "type": "string",
+              "default": "en"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProductPrintConfigRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProductPrintConfigRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProductPrintConfigRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductPrintConfigResponseApiResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{productId}/print-config/full": {
+      "get": {
+        "tags": [
+          "ProductPrintConfig"
+        ],
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "Accept-Language",
+            "in": "header",
+            "description": "Response language: 'en' (default) or 'ar'.",
+            "schema": {
+              "enum": [
+                "en",
+                "ar"
+              ],
+              "type": "string",
+              "default": "en"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductWithPrintConfigResponseApiResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
             "content": {
               "application/json": {
                 "schema": {
@@ -6236,6 +6512,12 @@
             "type": "integer",
             "format": "int64",
             "nullable": true
+          },
+          "matica": {
+            "$ref": "#/components/schemas/MaticaPrintConfigRequest"
+          },
+          "evolis": {
+            "$ref": "#/components/schemas/EvolisPrintConfigRequest"
           }
         },
         "additionalProperties": false
@@ -6593,10 +6875,162 @@
         },
         "additionalProperties": false
       },
+      "EvolisPrintConfigRequest": {
+        "type": "object",
+        "properties": {
+          "ribbonTypeId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "printWay": {
+            "$ref": "#/components/schemas/PrintWay"
+          },
+          "x": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "y": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "printedFace": {
+            "$ref": "#/components/schemas/PrintedFace"
+          },
+          "fontFamily": {
+            "type": "string",
+            "nullable": true
+          },
+          "fontSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "printColor": {
+            "type": "string",
+            "nullable": true
+          },
+          "backgroundColor": {
+            "type": "string",
+            "nullable": true
+          },
+          "fontStyle": {
+            "type": "string",
+            "nullable": true
+          },
+          "imagePath": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "EvolisPrintConfigResponse": {
+        "type": "object",
+        "properties": {
+          "ribbonTypeId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "ribbonTypeName": {
+            "type": "string",
+            "nullable": true
+          },
+          "printWay": {
+            "$ref": "#/components/schemas/PrintWay"
+          },
+          "x": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "y": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "printedFace": {
+            "$ref": "#/components/schemas/PrintedFace"
+          },
+          "fontFamily": {
+            "type": "string",
+            "nullable": true
+          },
+          "fontSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "printColor": {
+            "type": "string",
+            "nullable": true
+          },
+          "backgroundColor": {
+            "type": "string",
+            "nullable": true
+          },
+          "fontStyle": {
+            "type": "string",
+            "nullable": true
+          },
+          "imagePath": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "LogoutRequest": {
         "type": "object",
         "properties": {
           "refreshToken": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "MaticaPrintConfigRequest": {
+        "type": "object",
+        "properties": {
+          "cpi": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "fontSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "offsetX": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "offsetY": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "imagePath": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "MaticaPrintConfigResponse": {
+        "type": "object",
+        "properties": {
+          "cpi": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "fontSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "offsetX": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "offsetY": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "imagePath": {
             "type": "string",
             "nullable": true
           }
@@ -6690,6 +7124,22 @@
           }
         },
         "additionalProperties": false
+      },
+      "PrintWay": {
+        "enum": [
+          0,
+          1
+        ],
+        "type": "integer",
+        "format": "int32"
+      },
+      "PrintedFace": {
+        "enum": [
+          0,
+          1
+        ],
+        "type": "integer",
+        "format": "int32"
       },
       "PrinterResponse": {
         "type": "object",
@@ -6950,6 +7400,40 @@
         },
         "additionalProperties": false
       },
+      "ProductPrintConfigResponse": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "usingPrinterType": {
+            "$ref": "#/components/schemas/UsingPrinterType"
+          },
+          "matica": {
+            "$ref": "#/components/schemas/MaticaPrintConfigResponse"
+          },
+          "evolis": {
+            "$ref": "#/components/schemas/EvolisPrintConfigResponse"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProductPrintConfigResponseApiResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ProductPrintConfigResponse"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
       "ProductReceiveOutcome": {
         "enum": [
           0,
@@ -7088,6 +7572,33 @@
         ],
         "type": "integer",
         "format": "int32"
+      },
+      "ProductWithPrintConfigResponse": {
+        "type": "object",
+        "properties": {
+          "product": {
+            "$ref": "#/components/schemas/ProductResponse"
+          },
+          "printConfig": {
+            "$ref": "#/components/schemas/ProductPrintConfigResponse"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProductWithPrintConfigResponseApiResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ProductWithPrintConfigResponse"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
       },
       "ReceiveTransferLine": {
         "type": "object",
@@ -8081,6 +8592,21 @@
         },
         "additionalProperties": false
       },
+      "UpdateProductPrintConfigRequest": {
+        "type": "object",
+        "properties": {
+          "usingPrinterType": {
+            "$ref": "#/components/schemas/UsingPrinterType"
+          },
+          "matica": {
+            "$ref": "#/components/schemas/MaticaPrintConfigRequest"
+          },
+          "evolis": {
+            "$ref": "#/components/schemas/EvolisPrintConfigRequest"
+          }
+        },
+        "additionalProperties": false
+      },
       "UpdateProductRequest": {
         "type": "object",
         "properties": {
@@ -8090,9 +8616,6 @@
           },
           "productTransactionWay": {
             "$ref": "#/components/schemas/ProductTransactionWay"
-          },
-          "usingPrinterType": {
-            "$ref": "#/components/schemas/UsingPrinterType"
           },
           "activationStatus": {
             "$ref": "#/components/schemas/ActivationStatus"

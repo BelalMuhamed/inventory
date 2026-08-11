@@ -28,6 +28,12 @@ namespace DomainLayer.Entities
         /// <summary>The product this configuration belongs to (FK → Products.Id). Unique per tenant among non-deleted rows.</summary>
         public long ProductId { get; set; }
 
+        /// <summary>
+        /// Navigation to the owning product. See the parallel remarks on
+        /// <see cref="MaticaProductPrintConfiguration.Product"/> — same reason, same mechanism.
+        /// </summary>
+        public Product Product { get; set; } = null!;
+
         /// <summary>Ribbon type reference (FK → RibbonTypes.Id; decision Q-05).</summary>
         public long RibbonTypeId { get; set; }
 

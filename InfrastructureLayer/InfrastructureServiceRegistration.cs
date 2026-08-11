@@ -133,6 +133,11 @@ namespace InfrastructureLayer
             services.AddScoped<IPrinterConfigurationService, PrinterConfigurationService>();
             services.AddScoped<System.Func<IPrinterConfigurationService>>(sp => sp.GetRequiredService<IPrinterConfigurationService>);
 
+            // Printing Module, Phase 6.
+            services.AddScoped<IProductPrintConfigComposer, ProductPrintConfigComposer>();
+            services.AddScoped<IProductPrintConfigurationService, ProductPrintConfigurationService>();
+            services.AddScoped<System.Func<IProductPrintConfigurationService>>(sp => sp.GetRequiredService<IProductPrintConfigurationService>);
+
             return services;
 
            

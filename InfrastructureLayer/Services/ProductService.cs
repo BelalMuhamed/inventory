@@ -19,16 +19,26 @@ namespace InfrastructureLayer.Services
     /// <see cref="ICurrentTenant"/>: a tenant principal is scoped to its own tenant; a system admin
     /// bypasses scoping and may target any tenant. Business failures surface as categorized
     /// <see cref="Error"/>s.
+    /// <para>
+    /// Printing Module, phase 7: <see cref="CreateAsync"/> can attach a print configuration in the
+    /// same call via <see cref="IProductPrintConfigComposer"/> — system-admin only (decision Q-09,
+    /// confirmed) — and <see cref="SoftDeleteAsync"/>/<see cref="RestoreAsync"/> cascade to it.
+    /// <see cref="UpdateAsync"/> deliberately does not touch it at all: a product's printer family
+    /// can only change via <c>PUT /api/products/{id}/print-config</c> (confirmed), so this service
+    /// never has two different code paths capable of changing it.
+    /// </para>
     /// </summary>
     public sealed class ProductService : IProductService
     {
         private readonly IUnitOfWork _unitOfWork;
         private readonly ICurrentTenant _currentTenant;
+        private readonly IProductPrintConfigComposer _composer;
 
-        public ProductService(IUnitOfWork unitOfWork, ICurrentTenant currentTenant)
+        public ProductService(IUnitOfWork unitOfWork, ICurrentTenant currentTenant, IProductPrintConfigComposer composer)
         {
             _unitOfWork = unitOfWork;
             _currentTenant = currentTenant;
+            _composer = composer;
         }
 
         public async Task<Result<PaginatedResponse<ProductResponse>>> GetAllAsync(
@@ -56,6 +66,16 @@ namespace InfrastructureLayer.Services
         public async Task<Result<ProductResponse>> CreateAsync(
             CreateProductRequest request, CancellationToken cancellationToken = default)
         {
+            bool hasPrintConfigPayload = request.Matica is not null || request.Evolis is not null;
+
+            // Decision Q-09, confirmed: a tenant caller may still create a plain product — only
+            // attaching a print configuration in the same call is system-admin only. Checked
+            // before tenant resolution since it's a pure role check, independent of it.
+            if (hasPrintConfigPayload && !_currentTenant.IsSystemAdmin)
+            {
+                return Result.Failure<ProductResponse>(PrintingErrors.ProductPrintConfigOnlySystemAdmin());
+            }
+
             long targetTenantId;
 
             if (_currentTenant.IsSystemAdmin)
@@ -74,19 +94,48 @@ namespace InfrastructureLayer.Services
             if (await _unitOfWork.Products.NameExistsAsync(targetTenantId, request.Name, null, cancellationToken))
                 return Result.Failure<ProductResponse>(ProductErrors.NameAlreadyExists(request.Name));
 
-            var product = new Product
+            // Read-only validation, matching IProductPrintConfigComposer's own contract: resolved
+            // before the transaction opens, so a bad payload never creates the product either —
+            // the module requirement is "single aggregate", not "product first, config maybe".
+            ValidatedProductPrintConfig? validatedConfig = null;
+            if (hasPrintConfigPayload)
             {
-                TenantId = targetTenantId,
-                Name = request.Name,
-                ActivationStatus = request.ActivationStatus,
-                LowProductThreshold = request.LowProductThreshold,
-                ProductTransactionWay = request.ProductTransactionWay,
-                UsingPrinterType = request.UsingPrinterType
-            };
+                Result<ValidatedProductPrintConfig> validation = await _composer.ValidateAsync(
+                    targetTenantId, request.UsingPrinterType, request.Matica, request.Evolis, cancellationToken);
+                if (validation.IsFailure)
+                {
+                    return Result.Failure<ProductResponse>(validation.Error);
+                }
 
-            await _unitOfWork.Products.AddAsync(product, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);   // CreatedAt + audit row written by the interceptor
-            return Map(product);
+                validatedConfig = validation.Value;
+            }
+
+            return await _unitOfWork.ExecuteInTransactionAsync(async () =>
+            {
+                var product = new Product
+                {
+                    TenantId = targetTenantId,
+                    Name = request.Name,
+                    ActivationStatus = request.ActivationStatus,
+                    LowProductThreshold = request.LowProductThreshold,
+                    ProductTransactionWay = request.ProductTransactionWay,
+                    UsingPrinterType = request.UsingPrinterType
+                };
+
+                await _unitOfWork.Products.AddAsync(product, cancellationToken);
+
+                if (validatedConfig is not null)
+                {
+                    // Passes the Product entity itself, not its id: product.Id does not exist yet
+                    // — it's generated by the AddAsync above, once this transaction's single
+                    // SaveChanges call actually runs. StageForProductAsync sets the
+                    // configuration's Product navigation so EF Core fixes up the foreign key once
+                    // that id is generated (see IProductPrintConfigComposer's doc comment).
+                    await _composer.StageForProductAsync(targetTenantId, product, validatedConfig, cancellationToken);
+                }
+
+                return Result.Success(Map(product));
+            }, cancellationToken);
         }
 
         public async Task<Result<ProductResponse>> UpdateAsync(
@@ -116,7 +165,10 @@ namespace InfrastructureLayer.Services
             product.ActivationStatus = request.ActivationStatus;
             product.LowProductThreshold = request.LowProductThreshold;
             product.ProductTransactionWay = request.ProductTransactionWay;
-            product.UsingPrinterType = request.UsingPrinterType;
+            // UsingPrinterType is intentionally not touched here (Printing Module, phase 7,
+            // confirmed): it can only change via PUT /api/products/{id}/print-config, which
+            // switches it atomically together with the matching configuration row (decision
+            // Q-08). UpdateProductRequest no longer carries the field at all.
 
             _unitOfWork.Products.Update(product);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -141,13 +193,19 @@ namespace InfrastructureLayer.Services
             (long? actorId, Error? actorError) = await ResolveActorIdAsync(cancellationToken);
             if (actorError is not null) return Result.Failure(actorError);
 
-            product.IsDeleted = true;
-            product.DeletedAt = DateTime.UtcNow;
-            product.DeletedBy = actorId;
+            return await _unitOfWork.ExecuteInTransactionAsync(async () =>
+            {
+                product.IsDeleted = true;
+                product.DeletedAt = DateTime.UtcNow;
+                product.DeletedBy = actorId;
+                _unitOfWork.Products.Update(product);
 
-            _unitOfWork.Products.Update(product);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-            return Result.Success();
+                // Module requirement §4: "deleting a product should remove its associated print
+                // configuration." Silently no-ops if the product has no configuration row.
+                await _composer.SoftDeleteForProductAsync(product.TenantId, product.Id, actorId, cancellationToken);
+
+                return Result.Success();
+            }, cancellationToken);
         }
 
         public async Task<Result> RestoreAsync(long id, CancellationToken cancellationToken = default)
@@ -156,13 +214,17 @@ namespace InfrastructureLayer.Services
             if (error is not null) return Result.Failure(error);
             if (!product!.IsDeleted) return Result.Failure(ProductErrors.NotDeleted(id));
 
-            product.IsDeleted = false;
-            product.DeletedAt = null;
-            product.DeletedBy = null;
+            return await _unitOfWork.ExecuteInTransactionAsync(async () =>
+            {
+                product.IsDeleted = false;
+                product.DeletedAt = null;
+                product.DeletedBy = null;
+                _unitOfWork.Products.Update(product);
 
-            _unitOfWork.Products.Update(product);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-            return Result.Success();
+                await _composer.RestoreForProductAsync(product.TenantId, product.Id, cancellationToken);
+
+                return Result.Success();
+            }, cancellationToken);
         }
 
         public Task<Result<ProductResponse>> ActivateAsync(long id, CancellationToken cancellationToken = default) =>

@@ -1,0 +1,593 @@
+From 976144eb6285be02cde3de42ab251dc2875ae43a Mon Sep 17 00:00:00 2001
+From: Claude <claude@anthropic.com>
+Date: Tue, 11 Aug 2026 05:44:09 +0000
+Subject: [PATCH] P7-printing-module-product-aggregate-integration
+
+Printing Module, Phase 7 (ProductService wired to the composer - the module's original
+requirement finally holds end to end: product and print configuration behave as one
+aggregate). Three confirmed decisions locked this phase's shape:
+
+1. Attaching a print-config payload at product creation is system-admin only; creating a
+   PLAIN product (no config) stays open to any tenant caller - only the combined action is
+   gated, not product creation itself.
+2. UsingPrinterType removed entirely from UpdateProductRequest. A product's printer family can
+   now change only via PUT /api/products/{id}/print-config (system-admin only, atomic switch
+   per Q-08) - never independently through the plain product update. Two code paths capable of
+   changing the same field was the risk being closed here.
+3. GET /api/products/{id} stays untouched (no interface change) - print config remains reachable
+   via its own endpoint. Added instead: GET /api/products/{id}/print-config/full, system-admin
+   only, returning product + print config combined in one call (PrintConfig is null, not an
+   error, when the product has none yet - an admin overview should work at any lifecycle stage).
+
+Changes:
+- CreateProductRequest: gained optional Matica/Evolis fields. ProductService.CreateAsync
+  validates via the composer before opening a transaction (a bad payload never creates the
+  product either), then stages both inside one ExecuteInTransactionAsync - passing the Product
+  entity itself to StageForProductAsync (P6's fix), not a bare id, since product.Id doesn't
+  exist until that same SaveChanges call runs.
+- UpdateProductRequest: UsingPrinterType field removed (not just ignored - removed from the
+  contract, so the API honestly reflects what's possible).
+- ProductService.SoftDeleteAsync / RestoreAsync: moved from a bare SaveChangesAsync to
+  ExecuteInTransactionAsync, cascading to IProductPrintConfigComposer.SoftDeleteForProductAsync /
+  RestoreForProductAsync in the same commit as the product's own soft-delete/restore.
+- ProductPrintConfigurationService: new GetProductWithConfigAsync (system-admin only, bypasses
+  tenant scope). BuildResponseAsync refactored into a shared TryBuildConfigResponseAsync used by
+  both GetForProductAsync (fails when no config exists) and GetProductWithConfigAsync (tolerates
+  none). ProductResponse mapping duplicated as a single trivial line rather than reaching into
+  ProductService - services in this codebase are siblings talking to repositories, not to
+  each other.
+- ProductPrintConfigController: new GET api/products/{id}/print-config/full.
+- PrintingErrors.ProductPrintConfigOnlySystemAdmin wording generalized ('create or update',
+  was 'update') since the same code now covers both paths - EN + AR resx updated to match, no
+  new key needed.
+
+Cleanup: removed CreateProductPrintConfigRequest (ApplicationLayer/DTOs/Printing/PrintingDtos.cs),
+defined in P2 but never consumed - P7 bypassed it by flattening Matica/Evolis directly onto
+CreateProductRequest instead of nesting them under a second, redundant UsingPrinterType field
+that could disagree with the product's own. Dead code, removed rather than left stale.
+
+Verified: no other Product entity construction site exists outside ProductService (checked
+before touching it); IProductService is the only interface ProductService implements, with no
+other implementers to break; every composer/repo call cross-checked against its real contract
+signature; DTO field order cross-checked constructor-call to record-definition for every new or
+changed type; 27/27 error codes still have full EN/AR resx parity after the wording edit.
+---
+ .../DTOs/Printing/PrintingDtos.cs             |  30 ++---
+ ApplicationLayer/DTOs/Products/ProductDtos.cs |  30 ++++-
+ ApplicationLayer/Errors/PrintingErrors.cs     |   4 +-
+ .../IProductPrintConfigurationService.cs      |  14 +++
+ .../ServicesContracts/IProductService.cs      |  13 +-
+ .../ProductPrintConfigurationService.cs       |  49 +++++++-
+ .../Services/ProductService.cs                | 114 ++++++++++++++----
+ .../Controllers/ProductController.cs          |  12 +-
+ .../ProductPrintConfigController.cs           |  13 ++
+ .../Resources/Localization/Messages.ar.resx   |   2 +-
+ .../Resources/Localization/Messages.resx      |   2 +-
+ 11 files changed, 223 insertions(+), 60 deletions(-)
+
+diff --git a/ApplicationLayer/DTOs/Printing/PrintingDtos.cs b/ApplicationLayer/DTOs/Printing/PrintingDtos.cs
+index 0aed5df..3288550 100644
+--- a/ApplicationLayer/DTOs/Printing/PrintingDtos.cs
++++ b/ApplicationLayer/DTOs/Printing/PrintingDtos.cs
+@@ -1,4 +1,5 @@
+ using System;
++using ApplicationLayer.DTOs.Products;
+ using DomainLayer.Enums;
+ 
+ namespace ApplicationLayer.DTOs.Printing
+@@ -142,24 +143,6 @@ namespace ApplicationLayer.DTOs.Printing
+         string FontStyle,
+         string? ImagePath);
+ 
+-    /// <summary>
+-    /// The print-configuration half of a product-creation payload (module requirement §4: "the
+-    /// product and its printing configuration should behave as a single aggregate"). Exactly one
+-    /// of <paramref name="Matica"/> / <paramref name="Evolis"/> must be supplied, matching
+-    /// <paramref name="UsingPrinterType"/> — validated by <c>IProductPrintConfigComposer</c>
+-    /// (mirrors <c>ValidatedTransferLine</c>/<c>ITransferComposer</c>'s split for the same reason:
+-    /// one implementation of the matching rule, shared by product creation and the standalone
+-    /// sub-resource update below).
+-    /// <para>
+-    /// Not yet wired into <c>CreateProductRequest</c> — that extension lands in the phase that
+-    /// implements <c>ProductService</c>'s orchestration of this composer.
+-    /// </para>
+-    /// </summary>
+-    public sealed record CreateProductPrintConfigRequest(
+-        UsingPrinterType UsingPrinterType,
+-        MaticaPrintConfigRequest? Matica,
+-        EvolisPrintConfigRequest? Evolis);
+-
+     /// <summary>
+     /// Payload for <c>PUT /api/products/{id}/print-config</c> (decision Q-07: sub-resource, no
+     /// standalone POST/DELETE). Also the payload shape for a printer-family switch (decision
+@@ -183,6 +166,17 @@ namespace ApplicationLayer.DTOs.Printing
+         MaticaPrintConfigResponse? Matica,
+         EvolisPrintConfigResponse? Evolis);
+ 
++    /// <summary>
++    /// Combined product + print-configuration view for
++    /// <c>GET /api/products/{id}/print-config/full</c> (Printing Module, phase 7). System-admin
++    /// only. <see cref="PrintConfig"/> is <c>null</c> when the product has no configuration yet —
++    /// this endpoint surfaces that gap rather than failing, since it exists specifically as an
++    /// administrative overview.
++    /// </summary>
++    public sealed record ProductWithPrintConfigResponse(
++        ProductResponse Product,
++        ProductPrintConfigResponse? PrintConfig);
++
+     // =====================================================================================
+     //  Print images (module requirements §5/§6/§7, Printing Module Q-10)
+     // =====================================================================================
+diff --git a/ApplicationLayer/DTOs/Products/ProductDtos.cs b/ApplicationLayer/DTOs/Products/ProductDtos.cs
+index d21cac1..c177b01 100644
+--- a/ApplicationLayer/DTOs/Products/ProductDtos.cs
++++ b/ApplicationLayer/DTOs/Products/ProductDtos.cs
+@@ -1,4 +1,5 @@
+ using System;
++using ApplicationLayer.DTOs.Printing;
+ using DomainLayer.Enums;
+ 
+ namespace ApplicationLayer.DTOs.Products
+@@ -24,9 +25,16 @@ namespace ApplicationLayer.DTOs.Products
+     /// Create payload (API Spec §4.6). <paramref name="TenantId"/> is used only by a system-admin
+     /// caller to target a tenant; for a tenant caller it is ignored (the token's tenant is used).
+     /// <para>
+-    /// <c>PrintedFaceImagePath</c> from the endpoint spec is intentionally excluded: per ERD §2.2 it
+-    /// is not a Products column — it belongs to the Evolis/Matica print-configuration tables (ERD §7)
+-    /// and will be handled by the Print Configuration module.
++    /// <paramref name="Matica"/> / <paramref name="Evolis"/> (Printing Module, phase 7) let a
++    /// system admin attach the product's print configuration in the same call — "the product and
++    /// its printing configuration should behave as a single aggregate." Supplying either one
++    /// requires a system-admin caller (decision Q-09, confirmed); a tenant caller supplying
++    /// either fails with <c>PrintingErrors.ProductPrintConfigOnlySystemAdmin</c>. A tenant caller
++    /// may still create a plain product with neither supplied — only the combined
++    /// product-plus-configuration action is admin-gated, not product creation itself. Exactly one
++    /// of the two, matching <see cref="UsingPrinterType"/>, is required when either is supplied —
++    /// enforced by <c>IProductPrintConfigComposer.ValidateAsync</c>, the same validation the
++    /// standalone <c>PUT /api/products/{id}/print-config</c> endpoint uses.
+     /// </para>
+     /// </summary>
+     public sealed record CreateProductRequest(
+@@ -35,13 +43,23 @@ namespace ApplicationLayer.DTOs.Products
+         UsingPrinterType UsingPrinterType,
+         ActivationStatus ActivationStatus = DomainLayer.Enums.ActivationStatus.Active,
+         int LowProductThreshold = 0,
+-        long? TenantId = null);
++        long? TenantId = null,
++        MaticaPrintConfigRequest? Matica = null,
++        EvolisPrintConfigRequest? Evolis = null);
+ 
+-    /// <summary>Update payload. A product cannot be reassigned to another tenant.</summary>
++    /// <summary>
++    /// Update payload. A product cannot be reassigned to another tenant.
++    /// <para>
++    /// <b>Printing Module, phase 7:</b> no longer carries <c>UsingPrinterType</c> — a product's
++    /// printer family can only be changed via <c>PUT /api/products/{id}/print-config</c>
++    /// (system-admin only, confirmed), which switches it atomically together with the matching
++    /// configuration row (decision Q-08). Letting this endpoint change it independently would let
++    /// a product's declared family and its configuration row disagree with each other.
++    /// </para>
++    /// </summary>
+     public sealed record UpdateProductRequest(
+         string Name,
+         ProductTransactionWay ProductTransactionWay,
+-        UsingPrinterType UsingPrinterType,
+         ActivationStatus ActivationStatus,
+         int LowProductThreshold);
+ 
+diff --git a/ApplicationLayer/Errors/PrintingErrors.cs b/ApplicationLayer/Errors/PrintingErrors.cs
+index e0347a6..092d1b6 100644
+--- a/ApplicationLayer/Errors/PrintingErrors.cs
++++ b/ApplicationLayer/Errors/PrintingErrors.cs
+@@ -79,10 +79,10 @@ namespace ApplicationLayer.Errors
+         public static Error ProductPrintConfigActorNotResolved() =>
+             Error.Unauthorized("ProductPrintConfig.ActorNotResolved", "The acting principal could not be resolved.");
+ 
+-        /// <summary>A tenant caller attempted to update a product's print configuration (→ 403, decision Q-09, confirmed).</summary>
++        /// <summary>A tenant caller attempted to create or update a product's print configuration (→ 403, decision Q-09, confirmed).</summary>
+         public static Error ProductPrintConfigOnlySystemAdmin() =>
+             Error.Forbidden("ProductPrintConfig.OnlySystemAdmin",
+-                "Only a system administrator can update a product's print configuration.");
++                "Only a system administrator can create or update a product's print configuration.");
+ 
+         /// <summary>The product has no print configuration row yet (→ 404). Not expected under the single-aggregate design; defensive.</summary>
+         public static Error ProductPrintConfigNotFound(long productId) =>
+diff --git a/ApplicationLayer/ServicesContracts/IProductPrintConfigurationService.cs b/ApplicationLayer/ServicesContracts/IProductPrintConfigurationService.cs
+index 01a0c53..3fe9ca5 100644
+--- a/ApplicationLayer/ServicesContracts/IProductPrintConfigurationService.cs
++++ b/ApplicationLayer/ServicesContracts/IProductPrintConfigurationService.cs
+@@ -30,5 +30,19 @@ namespace ApplicationLayer.ServicesContracts
+         /// </summary>
+         Task<Result<ProductPrintConfigResponse>> UpdateForProductAsync(
+             long productId, UpdateProductPrintConfigRequest request, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Returns a product together with its print configuration in one call
++        /// (<c>GET /api/products/{id}/print-config/full</c>, Printing Module phase 7).
++        /// System-admin only — fails with <c>PrintingErrors.ProductPrintConfigOnlySystemAdmin</c>
++        /// for a tenant caller, and bypasses tenant scoping entirely for the admin (matching
++        /// every other admin-only read in this module). Unlike <see cref="GetForProductAsync"/>,
++        /// a product with no configuration yet is not an error here — the response's print
++        /// configuration is <c>null</c> rather than the call failing, since this endpoint exists
++        /// specifically as an administrative overview that should work at any point in a
++        /// product's lifecycle.
++        /// </summary>
++        Task<Result<ProductWithPrintConfigResponse>> GetProductWithConfigAsync(
++            long productId, CancellationToken cancellationToken = default);
+     }
+ }
+diff --git a/ApplicationLayer/ServicesContracts/IProductService.cs b/ApplicationLayer/ServicesContracts/IProductService.cs
+index 3491760..3536ac8 100644
+--- a/ApplicationLayer/ServicesContracts/IProductService.cs
++++ b/ApplicationLayer/ServicesContracts/IProductService.cs
+@@ -21,10 +21,19 @@ namespace ApplicationLayer.ServicesContracts
+         /// <summary>Returns a single product by id, scoped to the caller.</summary>
+         Task<Result<ProductResponse>> GetByIdAsync(long id, CancellationToken cancellationToken = default);
+ 
+-        /// <summary>Creates a product. Admin callers must supply <see cref="CreateProductRequest.TenantId"/>.</summary>
++        /// <summary>
++        /// Creates a product. Admin callers must supply <see cref="CreateProductRequest.TenantId"/>.
++        /// A system admin may also attach a print configuration in the same call (Printing Module,
++        /// phase 7); a tenant caller may still create a plain product without one.
++        /// </summary>
+         Task<Result<ProductResponse>> CreateAsync(CreateProductRequest request, CancellationToken cancellationToken = default);
+ 
+-        /// <summary>Updates a product's name, status, threshold, transaction-way, and printer type.</summary>
++        /// <summary>
++        /// Updates a product's name, status, threshold, and transaction-way. Printer family is not
++        /// changeable here (Printing Module, phase 7, confirmed) — use
++        /// <c>PUT /api/products/{id}/print-config</c>, which switches it atomically together with
++        /// the matching configuration row.
++        /// </summary>
+         Task<Result<ProductResponse>> UpdateAsync(long id, UpdateProductRequest request, CancellationToken cancellationToken = default);
+ 
+         /// <summary>Soft-deletes a product, recording the acting principal as the deleter.</summary>
+diff --git a/InfrastructureLayer/Services/ProductPrintConfigurationService.cs b/InfrastructureLayer/Services/ProductPrintConfigurationService.cs
+index fb48893..6e3ee59 100644
+--- a/InfrastructureLayer/Services/ProductPrintConfigurationService.cs
++++ b/InfrastructureLayer/Services/ProductPrintConfigurationService.cs
+@@ -2,6 +2,7 @@ using System.Threading;
+ using System.Threading.Tasks;
+ using ApplicationLayer.Contracts;
+ using ApplicationLayer.DTOs.Printing;
++using ApplicationLayer.DTOs.Products;
+ using ApplicationLayer.Errors;
+ using ApplicationLayer.ServicesContracts;
+ using DomainLayer.Common;
+@@ -88,6 +89,30 @@ namespace InfrastructureLayer.Services
+             }, cancellationToken);
+         }
+ 
++        /// <inheritdoc />
++        public async Task<Result<ProductWithPrintConfigResponse>> GetProductWithConfigAsync(
++            long productId, CancellationToken cancellationToken = default)
++        {
++            if (!_currentTenant.IsSystemAdmin)
++            {
++                return Result.Failure<ProductWithPrintConfigResponse>(PrintingErrors.ProductPrintConfigOnlySystemAdmin());
++            }
++
++            // Admin-only, so no tenant scoping to resolve — matches every other admin-only read
++            // in this module (e.g. PrinterConfigurationService reads bypass scope for an admin
++            // the same way).
++            Product? product = await _unitOfWork.Products.GetByIdIncludingDeletedAsync(productId, cancellationToken);
++            if (product is null)
++            {
++                return Result.Failure<ProductWithPrintConfigResponse>(ProductErrors.NotFound(productId));
++            }
++
++            ProductResponse productResponse = MapProduct(product);
++            ProductPrintConfigResponse? configResponse = await TryBuildConfigResponseAsync(product, cancellationToken);
++
++            return new ProductWithPrintConfigResponse(productResponse, configResponse);
++        }
++
+         private async Task<ProductPrintConfigResponse> MapValidatedResponseAsync(
+             long productId, ValidatedProductPrintConfig validated, CancellationToken cancellationToken)
+         {
+@@ -131,6 +156,18 @@ namespace InfrastructureLayer.Services
+         // entities it just staged rather than re-querying.
+         private async Task<Result<ProductPrintConfigResponse>> BuildResponseAsync(
+             Product product, CancellationToken cancellationToken)
++        {
++            ProductPrintConfigResponse? response = await TryBuildConfigResponseAsync(product, cancellationToken);
++            return response is null
++                ? Result.Failure<ProductPrintConfigResponse>(PrintingErrors.ProductPrintConfigNotFound(product.Id))
++                : response;
++        }
++
++        // Shared by BuildResponseAsync (fails when no configuration exists — the sub-resource GET
++        // expects one) and GetProductWithConfigAsync (tolerates none — the admin overview should
++        // work at any point in a product's lifecycle, including before a configuration exists).
++        private async Task<ProductPrintConfigResponse?> TryBuildConfigResponseAsync(
++            Product product, CancellationToken cancellationToken)
+         {
+             if (product.UsingPrinterType == UsingPrinterType.Matica)
+             {
+@@ -138,7 +175,7 @@ namespace InfrastructureLayer.Services
+                     product.TenantId, product.Id, cancellationToken);
+                 if (matica is null)
+                 {
+-                    return Result.Failure<ProductPrintConfigResponse>(PrintingErrors.ProductPrintConfigNotFound(product.Id));
++                    return null;
+                 }
+ 
+                 var maticaResponse = new MaticaPrintConfigResponse(
+@@ -151,7 +188,7 @@ namespace InfrastructureLayer.Services
+                 product.TenantId, product.Id, cancellationToken);
+             if (evolis is null)
+             {
+-                return Result.Failure<ProductPrintConfigResponse>(PrintingErrors.ProductPrintConfigNotFound(product.Id));
++                return null;
+             }
+ 
+             RibbonType? ribbonType = await _unitOfWork.RibbonTypes.GetByIdAsync(evolis.RibbonTypeId, cancellationToken);
+@@ -173,6 +210,14 @@ namespace InfrastructureLayer.Services
+             return new ProductPrintConfigResponse(product.Id, product.UsingPrinterType, null, evolisResponse);
+         }
+ 
++        // Duplicates ProductService.Map's single-line projection rather than depending on
++        // ProductService directly — services in this codebase are siblings that talk to
++        // repositories, not to each other, and this mapping is trivial enough that the
++        // duplication carries negligible drift risk.
++        private static ProductResponse MapProduct(Product p) => new(
++            p.Id, p.TenantId, p.Name, p.ActivationStatus, p.LowProductThreshold,
++            p.ProductTransactionWay, p.UsingPrinterType, p.IsDeleted, p.CreatedAt, p.UpdatedAt, p.DeletedAt);
++
+         // Loads a product and enforces caller scope: a tenant caller may only touch its own
+         // tenant's products, and a missing/out-of-scope product both return NotFound (no
+         // existence leak) — matches ProductService.LoadScopedAsync exactly.
+diff --git a/InfrastructureLayer/Services/ProductService.cs b/InfrastructureLayer/Services/ProductService.cs
+index 63309ee..976e2de 100644
+--- a/InfrastructureLayer/Services/ProductService.cs
++++ b/InfrastructureLayer/Services/ProductService.cs
+@@ -19,16 +19,26 @@ namespace InfrastructureLayer.Services
+     /// <see cref="ICurrentTenant"/>: a tenant principal is scoped to its own tenant; a system admin
+     /// bypasses scoping and may target any tenant. Business failures surface as categorized
+     /// <see cref="Error"/>s.
++    /// <para>
++    /// Printing Module, phase 7: <see cref="CreateAsync"/> can attach a print configuration in the
++    /// same call via <see cref="IProductPrintConfigComposer"/> — system-admin only (decision Q-09,
++    /// confirmed) — and <see cref="SoftDeleteAsync"/>/<see cref="RestoreAsync"/> cascade to it.
++    /// <see cref="UpdateAsync"/> deliberately does not touch it at all: a product's printer family
++    /// can only change via <c>PUT /api/products/{id}/print-config</c> (confirmed), so this service
++    /// never has two different code paths capable of changing it.
++    /// </para>
+     /// </summary>
+     public sealed class ProductService : IProductService
+     {
+         private readonly IUnitOfWork _unitOfWork;
+         private readonly ICurrentTenant _currentTenant;
++        private readonly IProductPrintConfigComposer _composer;
+ 
+-        public ProductService(IUnitOfWork unitOfWork, ICurrentTenant currentTenant)
++        public ProductService(IUnitOfWork unitOfWork, ICurrentTenant currentTenant, IProductPrintConfigComposer composer)
+         {
+             _unitOfWork = unitOfWork;
+             _currentTenant = currentTenant;
++            _composer = composer;
+         }
+ 
+         public async Task<Result<PaginatedResponse<ProductResponse>>> GetAllAsync(
+@@ -56,6 +66,16 @@ namespace InfrastructureLayer.Services
+         public async Task<Result<ProductResponse>> CreateAsync(
+             CreateProductRequest request, CancellationToken cancellationToken = default)
+         {
++            bool hasPrintConfigPayload = request.Matica is not null || request.Evolis is not null;
++
++            // Decision Q-09, confirmed: a tenant caller may still create a plain product — only
++            // attaching a print configuration in the same call is system-admin only. Checked
++            // before tenant resolution since it's a pure role check, independent of it.
++            if (hasPrintConfigPayload && !_currentTenant.IsSystemAdmin)
++            {
++                return Result.Failure<ProductResponse>(PrintingErrors.ProductPrintConfigOnlySystemAdmin());
++            }
++
+             long targetTenantId;
+ 
+             if (_currentTenant.IsSystemAdmin)
+@@ -74,19 +94,48 @@ namespace InfrastructureLayer.Services
+             if (await _unitOfWork.Products.NameExistsAsync(targetTenantId, request.Name, null, cancellationToken))
+                 return Result.Failure<ProductResponse>(ProductErrors.NameAlreadyExists(request.Name));
+ 
+-            var product = new Product
++            // Read-only validation, matching IProductPrintConfigComposer's own contract: resolved
++            // before the transaction opens, so a bad payload never creates the product either —
++            // the module requirement is "single aggregate", not "product first, config maybe".
++            ValidatedProductPrintConfig? validatedConfig = null;
++            if (hasPrintConfigPayload)
+             {
+-                TenantId = targetTenantId,
+-                Name = request.Name,
+-                ActivationStatus = request.ActivationStatus,
+-                LowProductThreshold = request.LowProductThreshold,
+-                ProductTransactionWay = request.ProductTransactionWay,
+-                UsingPrinterType = request.UsingPrinterType
+-            };
+-
+-            await _unitOfWork.Products.AddAsync(product, cancellationToken);
+-            await _unitOfWork.SaveChangesAsync(cancellationToken);   // CreatedAt + audit row written by the interceptor
+-            return Map(product);
++                Result<ValidatedProductPrintConfig> validation = await _composer.ValidateAsync(
++                    targetTenantId, request.UsingPrinterType, request.Matica, request.Evolis, cancellationToken);
++                if (validation.IsFailure)
++                {
++                    return Result.Failure<ProductResponse>(validation.Error);
++                }
++
++                validatedConfig = validation.Value;
++            }
++
++            return await _unitOfWork.ExecuteInTransactionAsync(async () =>
++            {
++                var product = new Product
++                {
++                    TenantId = targetTenantId,
++                    Name = request.Name,
++                    ActivationStatus = request.ActivationStatus,
++                    LowProductThreshold = request.LowProductThreshold,
++                    ProductTransactionWay = request.ProductTransactionWay,
++                    UsingPrinterType = request.UsingPrinterType
++                };
++
++                await _unitOfWork.Products.AddAsync(product, cancellationToken);
++
++                if (validatedConfig is not null)
++                {
++                    // Passes the Product entity itself, not its id: product.Id does not exist yet
++                    // — it's generated by the AddAsync above, once this transaction's single
++                    // SaveChanges call actually runs. StageForProductAsync sets the
++                    // configuration's Product navigation so EF Core fixes up the foreign key once
++                    // that id is generated (see IProductPrintConfigComposer's doc comment).
++                    await _composer.StageForProductAsync(targetTenantId, product, validatedConfig, cancellationToken);
++                }
++
++                return Result.Success(Map(product));
++            }, cancellationToken);
+         }
+ 
+         public async Task<Result<ProductResponse>> UpdateAsync(
+@@ -116,7 +165,10 @@ namespace InfrastructureLayer.Services
+             product.ActivationStatus = request.ActivationStatus;
+             product.LowProductThreshold = request.LowProductThreshold;
+             product.ProductTransactionWay = request.ProductTransactionWay;
+-            product.UsingPrinterType = request.UsingPrinterType;
++            // UsingPrinterType is intentionally not touched here (Printing Module, phase 7,
++            // confirmed): it can only change via PUT /api/products/{id}/print-config, which
++            // switches it atomically together with the matching configuration row (decision
++            // Q-08). UpdateProductRequest no longer carries the field at all.
+ 
+             _unitOfWork.Products.Update(product);
+             await _unitOfWork.SaveChangesAsync(cancellationToken);
+@@ -141,13 +193,19 @@ namespace InfrastructureLayer.Services
+             (long? actorId, Error? actorError) = await ResolveActorIdAsync(cancellationToken);
+             if (actorError is not null) return Result.Failure(actorError);
+ 
+-            product.IsDeleted = true;
+-            product.DeletedAt = DateTime.UtcNow;
+-            product.DeletedBy = actorId;
++            return await _unitOfWork.ExecuteInTransactionAsync(async () =>
++            {
++                product.IsDeleted = true;
++                product.DeletedAt = DateTime.UtcNow;
++                product.DeletedBy = actorId;
++                _unitOfWork.Products.Update(product);
+ 
+-            _unitOfWork.Products.Update(product);
+-            await _unitOfWork.SaveChangesAsync(cancellationToken);
+-            return Result.Success();
++                // Module requirement §4: "deleting a product should remove its associated print
++                // configuration." Silently no-ops if the product has no configuration row.
++                await _composer.SoftDeleteForProductAsync(product.TenantId, product.Id, actorId, cancellationToken);
++
++                return Result.Success();
++            }, cancellationToken);
+         }
+ 
+         public async Task<Result> RestoreAsync(long id, CancellationToken cancellationToken = default)
+@@ -156,13 +214,17 @@ namespace InfrastructureLayer.Services
+             if (error is not null) return Result.Failure(error);
+             if (!product!.IsDeleted) return Result.Failure(ProductErrors.NotDeleted(id));
+ 
+-            product.IsDeleted = false;
+-            product.DeletedAt = null;
+-            product.DeletedBy = null;
++            return await _unitOfWork.ExecuteInTransactionAsync(async () =>
++            {
++                product.IsDeleted = false;
++                product.DeletedAt = null;
++                product.DeletedBy = null;
++                _unitOfWork.Products.Update(product);
+ 
+-            _unitOfWork.Products.Update(product);
+-            await _unitOfWork.SaveChangesAsync(cancellationToken);
+-            return Result.Success();
++                await _composer.RestoreForProductAsync(product.TenantId, product.Id, cancellationToken);
++
++                return Result.Success();
++            }, cancellationToken);
+         }
+ 
+         public Task<Result<ProductResponse>> ActivateAsync(long id, CancellationToken cancellationToken = default) =>
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/ProductController.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/ProductController.cs
+index 3f74051..8ca1e9c 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/ProductController.cs
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/ProductController.cs
+@@ -41,15 +41,23 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         public async Task<IActionResult> GetById(long id, CancellationToken cancellationToken)
+             => (await _services.Products.GetByIdAsync(id, cancellationToken)).ToActionResult(this);
+ 
+-        /// <summary>Creates a product. Admin callers supply the target tenant id.</summary>
++        /// <summary>
++        /// Creates a product. Admin callers supply the target tenant id. A system admin may also
++        /// attach a print configuration in the same call (Printing Module, phase 7); a tenant
++        /// caller may still create a plain product without one.
++        /// </summary>
+         [HttpPost]
+         [ProducesResponseType(typeof(ApiResponse<ProductResponse>), StatusCodes.Status200OK)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
+         public async Task<IActionResult> Create([FromBody] CreateProductRequest request, CancellationToken cancellationToken)
+             => (await _services.Products.CreateAsync(request, cancellationToken)).ToActionResult(this);
+ 
+-        /// <summary>Updates a product's name, status, threshold, transaction-way, and printer type.</summary>
++        /// <summary>
++        /// Updates a product's name, status, threshold, and transaction-way. Printer family is
++        /// not changeable here — use <c>PUT /api/products/{id}/print-config</c>.
++        /// </summary>
+         [HttpPut("{id:long}")]
+         [ProducesResponseType(typeof(ApiResponse<ProductResponse>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/ProductPrintConfigController.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/ProductPrintConfigController.cs
+index d245111..6d24902 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/ProductPrintConfigController.cs
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/ProductPrintConfigController.cs
+@@ -48,5 +48,18 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         public async Task<IActionResult> Update(
+             long productId, [FromBody] UpdateProductPrintConfigRequest request, CancellationToken cancellationToken)
+             => (await _services.ProductPrintConfigs.UpdateForProductAsync(productId, request, cancellationToken)).ToActionResult(this);
++
++        /// <summary>
++        /// Gets a product together with its print configuration in one call
++        /// (Printing Module, phase 7). System-admin only. <c>printConfig</c> is <c>null</c> when
++        /// the product has no configuration yet — not an error, since this endpoint exists as an
++        /// administrative overview.
++        /// </summary>
++        [HttpGet("full")]
++        [ProducesResponseType(typeof(ApiResponse<ProductWithPrintConfigResponse>), StatusCodes.Status200OK)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
++        public async Task<IActionResult> GetFull(long productId, CancellationToken cancellationToken)
++            => (await _services.ProductPrintConfigs.GetProductWithConfigAsync(productId, cancellationToken)).ToActionResult(this);
+     }
+ }
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+index ddb113b..bdf9c45 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+@@ -505,7 +505,7 @@
+     <value>المنتج رقم {0} ماله إعدادات طباعة.</value>
+   </data>
+   <data name="ProductPrintConfig.OnlySystemAdmin" xml:space="preserve">
+-    <value>الأدمن بس اللي يقدر يعدّل إعدادات طباعة المنتج.</value>
++    <value>الأدمن بس اللي يقدر ينشئ أو يعدّل إعدادات طباعة المنتج.</value>
+   </data>
+   <data name="ProductPrintConfig.ActorNotResolved" xml:space="preserve">
+     <value>معرفناش مين اللي بيستخدم النظام دلوقتي.</value>
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+index e34556c..71fb159 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+@@ -505,7 +505,7 @@
+     <value>Product {0} has no print configuration.</value>
+   </data>
+   <data name="ProductPrintConfig.OnlySystemAdmin" xml:space="preserve">
+-    <value>Only a system administrator can update a product's print configuration.</value>
++    <value>Only a system administrator can create or update a product's print configuration.</value>
+   </data>
+   <data name="ProductPrintConfig.ActorNotResolved" xml:space="preserve">
+     <value>The acting principal could not be resolved.</value>
+-- 
+2.43.0
+

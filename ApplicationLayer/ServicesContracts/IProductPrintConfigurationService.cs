@@ -30,5 +30,19 @@ namespace ApplicationLayer.ServicesContracts
         /// </summary>
         Task<Result<ProductPrintConfigResponse>> UpdateForProductAsync(
             long productId, UpdateProductPrintConfigRequest request, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Returns a product together with its print configuration in one call
+        /// (<c>GET /api/products/{id}/print-config/full</c>, Printing Module phase 7).
+        /// System-admin only — fails with <c>PrintingErrors.ProductPrintConfigOnlySystemAdmin</c>
+        /// for a tenant caller, and bypasses tenant scoping entirely for the admin (matching
+        /// every other admin-only read in this module). Unlike <see cref="GetForProductAsync"/>,
+        /// a product with no configuration yet is not an error here — the response's print
+        /// configuration is <c>null</c> rather than the call failing, since this endpoint exists
+        /// specifically as an administrative overview that should work at any point in a
+        /// product's lifecycle.
+        /// </summary>
+        Task<Result<ProductWithPrintConfigResponse>> GetProductWithConfigAsync(
+            long productId, CancellationToken cancellationToken = default);
     }
 }
