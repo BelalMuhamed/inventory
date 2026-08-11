@@ -15,21 +15,25 @@ using Microsoft.Extensions.Options;
 namespace InfrastructureLayer.Storage
 {
     /// <summary>
-    /// Local-disk <see cref="IPrintImageStorage"/> implementation (module requirements §5–§7,
-    /// Printing Module decision Q-10). This is the first component in this codebase that writes
-    /// application content to the filesystem (everything else — card files, batch reports —
-    /// stays in memory or streams straight to the HTTP response), so it owns the full
-    /// validate-then-save contract itself rather than following an existing file-I/O precedent.
+    /// Local-disk <see cref="IPrintImageStorage"/> implementation. This is the first component in
+    /// this codebase that writes application content to the filesystem (everything else — card
+    /// files, batch reports — stays in memory or streams straight to the HTTP response), so it
+    /// owns the full validate-then-save contract itself rather than following an existing
+    /// file-I/O precedent.
+    /// <para>
+    /// <b>Revision:</b> the physical file name is now the sanitized original client-supplied
+    /// name, not a generated GUID, and the tenant subdirectory is named after the tenant's
+    /// sanitized username, not their numeric id — see <see cref="FileSystemNameSanitizer"/>.
+    /// </para>
     /// </summary>
     public sealed class LocalDiskPrintImageStorage : IPrintImageStorage
     {
         /// <summary>
         /// Known image-format signatures ("magic bytes"), keyed by the extension they must be
         /// declared under. Deliberately hardcoded, not driven by
-        /// <see cref="PrintImageOptions.AllowedExtensions"/> — see the class doc comment on
-        /// <see cref="IPrintImageStorage"/>: an operator adding an extension to configuration
-        /// without a matching entry here simply can never pass content validation (fails closed),
-        /// rather than silently trusting an unverified format.
+        /// <see cref="PrintImageOptions.AllowedExtensions"/> — an operator adding an extension to
+        /// configuration without a matching entry here simply can never pass content validation
+        /// (fails closed), rather than silently trusting an unverified format.
         /// </summary>
         private static readonly IReadOnlyDictionary<string, byte[]> SignaturesByExtension =
             new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
@@ -65,8 +69,6 @@ namespace InfrastructureLayer.Storage
         /// Resolves <see cref="PrintImageOptions.RootPath"/> to an absolute path, relative to
         /// <paramref name="environment"/>'s content root when not already absolute — the same
         /// base Program.cs already resolves <c>LogEncryptionOptions.Directory</c> against.
-        /// Shared between this class's constructor and Program.cs's static-file mapping so the
-        /// two can never resolve to different physical locations.
         /// </summary>
         public static string ResolvePhysicalRoot(IHostEnvironment environment, PrintImageOptions options) =>
             Path.IsPathRooted(options.RootPath)
@@ -75,7 +77,7 @@ namespace InfrastructureLayer.Storage
 
         /// <inheritdoc />
         public async Task<Result<StoredImage>> SaveAsync(
-            long tenantId, IFormFile file, CancellationToken cancellationToken = default)
+            string tenantFolder, IFormFile file, CancellationToken cancellationToken = default)
         {
             if (file is null || file.Length == 0)
             {
@@ -87,12 +89,10 @@ namespace InfrastructureLayer.Storage
                 return Result.Failure<StoredImage>(PrintingErrors.PrintImageFileTooLarge(_options.MaxSizeBytes));
             }
 
-            // The client controls FileName entirely; Path.GetFileName strips any directory
-            // component a hostile or careless client attaches, matching
-            // BatchUploadService.SanitizeFileName's exact reasoning. Only the extension survives
-            // into the physical name anyway (decision Q-10) — the sanitized name itself is never
-            // persisted or written to disk.
-            string extension = Path.GetExtension(Path.GetFileName(file.FileName));
+            // Path.GetFileName strips any directory component a hostile or careless client
+            // attaches, matching BatchUploadService.SanitizeFileName's exact reasoning.
+            string clientFileName = Path.GetFileName(file.FileName);
+            string extension = Path.GetExtension(clientFileName);
             bool isAllowedExtension = !string.IsNullOrEmpty(extension) &&
                 Array.Exists(_options.AllowedExtensions, e => string.Equals(e, extension, StringComparison.OrdinalIgnoreCase));
 
@@ -111,13 +111,28 @@ namespace InfrastructureLayer.Storage
                 return Result.Failure<StoredImage>(PrintingErrors.PrintImageUnsupportedContent());
             }
 
-            string storedFileName = $"{Guid.NewGuid():N}{extension.ToLowerInvariant()}";
-            string tenantSegment = tenantId.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            string physicalDirectory = Path.Combine(_physicalRoot, tenantSegment);
-            string physicalPath = Path.Combine(physicalDirectory, storedFileName);
-            // Forward slashes always, regardless of OS: this becomes a URL path segment
-            // (PrintImageService combines it with PublicBaseUrl), never a local file path again.
-            string storedPath = $"{tenantSegment}/{storedFileName}";
+            string? sanitizedFileName = FileSystemNameSanitizer.SanitizeFileName(clientFileName);
+            if (sanitizedFileName is null)
+            {
+                return Result.Failure<StoredImage>(PrintingErrors.PrintImageInvalidFileName());
+            }
+
+            string physicalDirectory = Path.Combine(_physicalRoot, tenantFolder);
+            string physicalPath = Path.Combine(physicalDirectory, sanitizedFileName);
+            // Forward slashes always, regardless of OS: this is stored as PrintImage.StoredPath
+            // and later re-resolved by GetPhysicalPath — never treated as a URL, since images are
+            // no longer served as static files.
+            string storedPath = $"{tenantFolder}/{sanitizedFileName}";
+
+            // Defensive: the caller (PrintImageService) already checked for a duplicate
+            // OriginalFileName in the database before calling this, but sanitization could in
+            // principle collapse two different original names to the same physical name (e.g.
+            // "café.png" and "cafe.png") — the database's uniqueness constraint is on the
+            // unsanitized name, so it would not catch that. Refuse to silently overwrite.
+            if (File.Exists(physicalPath))
+            {
+                return Result.Failure<StoredImage>(PrintingErrors.PrintImageNameConflict(sanitizedFileName));
+            }
 
             try
             {
@@ -126,12 +141,12 @@ namespace InfrastructureLayer.Storage
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                _logger.LogError(ex, "Failed to save print image for tenant {TenantId}", tenantId);
+                _logger.LogError(ex, "Failed to save print image under tenant folder {TenantFolder}", tenantFolder);
                 return Result.Failure<StoredImage>(PrintingErrors.PrintImageSaveFailed());
             }
 
             string contentType = ContentTypesByExtension[extension.ToLowerInvariant()];
-            return Result.Success(new StoredImage(storedFileName, storedPath, contentType, bytes.LongLength));
+            return Result.Success(new StoredImage(sanitizedFileName, storedPath, contentType, bytes.LongLength));
         }
 
         /// <inheritdoc />
@@ -142,10 +157,7 @@ namespace InfrastructureLayer.Storage
                 return Task.CompletedTask;
             }
 
-            // storedPath is always a value this class generated and the caller read back from
-            // PrintImage.StoredPath — never client input — so no path-traversal guard is needed
-            // beyond the normal Path.Combine behavior.
-            string physicalPath = Path.Combine(_physicalRoot, storedPath.Replace('/', Path.DirectorySeparatorChar));
+            string physicalPath = GetPhysicalPath(storedPath);
 
             try
             {
@@ -161,6 +173,38 @@ namespace InfrastructureLayer.Storage
             }
 
             return Task.CompletedTask;
+        }
+
+        /// <inheritdoc />
+        public string GetPhysicalPath(string storedPath) =>
+            // storedPath is always a value this class generated (or the migration produced) and
+            // the caller read back from PrintImage.StoredPath — never client input — so no
+            // path-traversal guard is needed beyond the normal Path.Combine behavior.
+            Path.Combine(_physicalRoot, storedPath.Replace('/', Path.DirectorySeparatorChar));
+
+        /// <inheritdoc />
+        public Task<bool> MoveAsync(
+            string oldRelativePath, string newRelativePath, CancellationToken cancellationToken = default)
+        {
+            string oldPhysicalPath = GetPhysicalPath(oldRelativePath);
+            string newPhysicalPath = GetPhysicalPath(newRelativePath);
+
+            if (!File.Exists(oldPhysicalPath) || File.Exists(newPhysicalPath))
+            {
+                return Task.FromResult(false);
+            }
+
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(newPhysicalPath)!);
+                File.Move(oldPhysicalPath, newPhysicalPath);
+                return Task.FromResult(true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(ex, "Failed to move print image from {Old} to {New}", oldRelativePath, newRelativePath);
+                return Task.FromResult(false);
+            }
         }
 
         private static bool MatchesSignature(byte[] bytes, string extension)

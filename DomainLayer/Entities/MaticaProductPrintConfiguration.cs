@@ -8,7 +8,7 @@ namespace DomainLayer.Entities
     /// one row per product among non-deleted rows — decision Q-02 dropped the ERD's per-face
     /// cardinality, so there is deliberately no <c>PrintedFace</c> column here (decision Q-04).
     /// Field set is <see cref="Cpi"/>, <see cref="FontSize"/>, <see cref="OffsetX"/>,
-    /// <see cref="OffsetY"/>, and <see cref="ImagePath"/> per decision Q-03 — no separate
+    /// <see cref="OffsetY"/>, and <see cref="ImageId"/> per decision Q-03 — no separate
     /// <c>Font</c>/<c>FontFamily</c> field.
     /// <para>
     /// Lifecycle follows the owning <see cref="Product"/> as a single aggregate (module
@@ -58,10 +58,11 @@ namespace DomainLayer.Entities
         public int OffsetY { get; set; }
 
         /// <summary>
-        /// Server-local path to the print image (app-pool readable), returned by the image-upload
-        /// endpoint (module requirement §5). Null until an image has been uploaded and attached
-        /// to this configuration.
+        /// The print image for this configuration (FK → PrintImages.Id). Null until an image has
+        /// been uploaded and attached. Replaces the earlier bare <c>ImagePath</c> string (single
+        /// source of truth: <see cref="PrintImage"/> owns the image's metadata and physical
+        /// location; this table only references it by id).
         /// </summary>
-        public string? ImagePath { get; set; }
+        public long? ImageId { get; set; }
     }
 }

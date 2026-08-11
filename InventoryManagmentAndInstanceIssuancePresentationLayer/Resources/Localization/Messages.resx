@@ -528,6 +528,21 @@
   <data name="ProductPrintConfig.InvalidHexColor" xml:space="preserve">
     <value>'{0}' is not a valid HEX color. Use the form #RRGGBB or #RRGGBBAA.</value>
   </data>
+  <data name="ProductPrintConfig.ImageNotFound" xml:space="preserve">
+    <value>No print image exists with id {0}.</value>
+  </data>
+  <data name="PrintImage.OnlySystemAdmin" xml:space="preserve">
+    <value>Only a system administrator can upload, replace, or migrate print images.</value>
+  </data>
+  <data name="PrintImage.TenantRequired" xml:space="preserve">
+    <value>A target tenant id is required when uploading a print image as a system administrator.</value>
+  </data>
+  <data name="PrintImage.TargetTenantNotFound" xml:space="preserve">
+    <value>No tenant exists with id {0}.</value>
+  </data>
+  <data name="PrintImage.NotFound" xml:space="preserve">
+    <value>No print image was found with id {0}.</value>
+  </data>
   <data name="PrintImage.FileMissing" xml:space="preserve">
     <value>No image file was supplied.</value>
   </data>
@@ -540,8 +555,11 @@
   <data name="PrintImage.UnsupportedContent" xml:space="preserve">
     <value>The uploaded file's content does not match a supported image format.</value>
   </data>
-  <data name="PrintImage.ActorNotResolved" xml:space="preserve">
-    <value>The acting principal could not be resolved.</value>
+  <data name="PrintImage.InvalidFileName" xml:space="preserve">
+    <value>The file name could not be used. Please rename the file and try again.</value>
+  </data>
+  <data name="PrintImage.NameConflict" xml:space="preserve">
+    <value>Another image named '{0}' already exists for this tenant.</value>
   </data>
   <data name="PrintImage.SaveFailed" xml:space="preserve">
     <value>The image could not be saved. Please try again.</value>

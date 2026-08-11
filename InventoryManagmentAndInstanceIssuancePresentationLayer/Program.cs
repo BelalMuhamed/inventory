@@ -2,15 +2,12 @@ using ApplicationLayer.Options;
 using InfrastructureLayer;
 using InfrastructureLayer.Data;
 using InfrastructureLayer.Logging;
-using InfrastructureLayer.Storage;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Common;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Filters;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Middleware;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Security;
 using InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.FileProviders;
-using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
 using Serilog;
 using Serilog.Events;
@@ -134,29 +131,14 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
 
             app.UseHttpsRedirection();
 
-            // Printing Module, Phase 4: serves uploaded print-configuration images at
-            // PrintImageOptions.PublicBaseUrl, mapped directly to the resolved physical root -
-            // LocalDiskPrintImageStorage.ResolvePhysicalRoot, so this can never point somewhere
-            // different from where uploads are actually written. Deliberately its own
-            // StaticFileOptions rather than a default app.UseStaticFiles() over wwwroot: uploaded
-            // tenant content stays out of the wwwroot tree entirely, and this mapping still works
-            // if the app has no wwwroot at all.
-            // Unauthenticated by design, like any other static-file middleware - it runs outside
-            // the MVC pipeline, before [Authorize] would apply. The physical file name is an
-            // unguessable GUID and the path embeds no other tenant data, so this is the same
-            // security posture as any link-shared asset. Flagged: if these images need to be
-            // access-controlled instead, this needs a dedicated authenticated endpoint rather
-            // than static-file middleware.
-            PrintImageOptions printImageOptions =
-                app.Services.GetRequiredService<IOptions<PrintImageOptions>>().Value;
-            string printImagePhysicalRoot =
-                LocalDiskPrintImageStorage.ResolvePhysicalRoot(app.Environment, printImageOptions);
-            Directory.CreateDirectory(printImagePhysicalRoot);
-            app.UseStaticFiles(new StaticFileOptions
-            {
-                FileProvider = new PhysicalFileProvider(printImagePhysicalRoot),
-                RequestPath = printImageOptions.PublicBaseUrl,
-            });
+            // Revision, "Print Images & Product Print Configuration" change request: the
+            // unauthenticated static-file mount that used to serve print images here is removed.
+            // Folders are now named after the tenant's username and files keep their original
+            // names (points 2/3 of that change request), which makes physical paths guessable in
+            // a way the previous GUID-named/tenant-id-foldered scheme wasn't - serving them
+            // without an auth check was no longer safe. Every retrieval now goes through
+            // GET /api/print-images/{id} (PrintImagesController), which checks tenant ownership
+            // server-side before streaming a single byte.
 
             // Authentication must run before authorization so the principal is established first.
             app.UseAuthentication();

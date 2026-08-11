@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using ApplicationLayer.DTOs.Products;
 using DomainLayer.Enums;
 
@@ -104,7 +105,7 @@ namespace ApplicationLayer.DTOs.Printing
         int FontSize,
         int OffsetX,
         int OffsetY,
-        string? ImagePath);
+        long? ImageId);
 
     /// <summary>Matica printing parameters as returned to clients.</summary>
     public sealed record MaticaPrintConfigResponse(
@@ -112,7 +113,7 @@ namespace ApplicationLayer.DTOs.Printing
         int FontSize,
         int OffsetX,
         int OffsetY,
-        string? ImagePath);
+        long? ImageId);
 
     /// <summary>Evolis printing parameters payload. <see cref="RibbonTypeId"/> per decision Q-05.</summary>
     public sealed record EvolisPrintConfigRequest(
@@ -126,7 +127,7 @@ namespace ApplicationLayer.DTOs.Printing
         string PrintColor,
         string BackgroundColor,
         string FontStyle,
-        string? ImagePath);
+        long? ImageId);
 
     /// <summary>Evolis printing parameters as returned to clients, with the ribbon type resolved by name.</summary>
     public sealed record EvolisPrintConfigResponse(
@@ -141,7 +142,7 @@ namespace ApplicationLayer.DTOs.Printing
         string PrintColor,
         string BackgroundColor,
         string FontStyle,
-        string? ImagePath);
+        long? ImageId);
 
     /// <summary>
     /// Payload for <c>PUT /api/products/{id}/print-config</c> (decision Q-07: sub-resource, no
@@ -178,14 +179,44 @@ namespace ApplicationLayer.DTOs.Printing
         ProductPrintConfigResponse? PrintConfig);
 
     // =====================================================================================
-    //  Print images (module requirements §5/§6/§7, Printing Module Q-10)
+    //  Print images (module requirements §5/§6/§7; revised for admin-only upload, ImageId
+    //  references, and explicit replace)
     // =====================================================================================
 
     /// <summary>
-    /// Result of <c>POST /api/print-images</c> (decision Q-10). <paramref name="Warning"/> is set
-    /// only when the upload replaced an existing image of the same name for this tenant — the
-    /// client must never treat <paramref name="Warning"/> being present as a failure; the upload
-    /// still succeeded and <paramref name="ImagePath"/> is always the newly saved file.
+    /// Print image metadata returned to clients. Deliberately excludes
+    /// <c>StoredFileName</c>/<c>StoredPath</c> — physical layout is an implementation detail;
+    /// clients retrieve content via <c>GET /api/print-images/{id}</c>, never by constructing a
+    /// path themselves.
     /// </summary>
-    public sealed record PrintImageUploadResult(string ImagePath, string? Warning);
+    public sealed record PrintImageResponse(
+        long Id,
+        long TenantId,
+        string OriginalFileName,
+        string ContentType,
+        long SizeBytes,
+        DateTime UploadedAt);
+
+    /// <summary>
+    /// Result of <c>POST /api/print-images</c>. <paramref name="Created"/> is <c>false</c> when a
+    /// non-deleted image with the same original file name already existed for the target tenant —
+    /// nothing was saved, and <paramref name="Image"/> is that <em>existing</em> image's metadata,
+    /// not a new one. The controller uses this to choose between <c>200 OK</c> (created) and
+    /// <c>409 Conflict</c> (already exists) — the client decides whether to keep the existing
+    /// image (do nothing further) or replace it explicitly via
+    /// <c>PUT /api/print-images/{id}</c> using the id in <paramref name="Image"/>.
+    /// </summary>
+    public sealed record UploadPrintImageResult(bool Created, PrintImageResponse Image);
+
+    /// <summary>
+    /// Summary of a run of the one-time legacy-image migration (renaming GUID-named,
+    /// tenant-id-foldered files to the current original-name/tenant-username scheme). Idempotent:
+    /// re-running finds nothing left to migrate once every row has been processed once.
+    /// </summary>
+    /// <param name="Migrated">Rows successfully moved to the new naming scheme this run.</param>
+    /// <param name="AlreadyCurrent">Rows that already matched the new scheme — nothing to do.</param>
+    /// <param name="Failed">Rows that could not be migrated (see <paramref name="Notes"/> for why).</param>
+    /// <param name="Notes">Human-readable detail per row that was renamed to avoid a collision, or that failed.</param>
+    public sealed record MigrateLegacyImagesResult(
+        int Migrated, int AlreadyCurrent, int Failed, IReadOnlyList<string> Notes);
 }

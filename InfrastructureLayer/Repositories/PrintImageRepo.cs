@@ -14,9 +14,9 @@ namespace InfrastructureLayer.Repositories
 
         public Task<PrintImage?> GetByOriginalFileNameAsync(
             long tenantId, string originalFileName, CancellationToken cancellationToken = default) =>
-            // Tracked (no AsNoTracking): decision Q-10's replace flow removes this row directly
-            // when a duplicate name is uploaded.
-            Set.FirstOrDefaultAsync(
+            // AsNoTracking: both current callers (the duplicate check in UploadAsync and the
+            // name-collision check in ReplaceAsync) only read this row - neither mutates it.
+            Set.AsNoTracking().FirstOrDefaultAsync(
                 i => i.TenantId == tenantId && i.OriginalFileName == originalFileName, cancellationToken);
     }
 }

@@ -905,8 +905,6 @@ namespace InfrastructureLayer.Data
             {
                 entity.HasKey(m => m.Id);
 
-                entity.Property(m => m.ImagePath).HasMaxLength(500);
-
                 entity.HasOne<Tenant>()
                       .WithMany()
                       .HasForeignKey(m => m.TenantId)
@@ -917,6 +915,19 @@ namespace InfrastructureLayer.Data
                       .HasForeignKey(m => m.ProductId)
                       .OnDelete(DeleteBehavior.NoAction);
 
+                // Single source of truth for image data (revision, "Print Images & Product Print
+                // Configuration" change request, point 6): references PrintImages.Id instead of
+                // carrying a bare path string. NoAction, matching this codebase's cross-aggregate
+                // FK convention — replacing an image happens in place on the same PrintImage row
+                // (PUT /api/print-images/{id}), so this FK is never left dangling by a replace.
+                entity.HasOne<PrintImage>()
+                      .WithMany()
+                      .HasForeignKey(m => m.ImageId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasIndex(m => m.ImageId)
+                      .HasDatabaseName("IX_MaticaProductPrintConfigurations_ImageId");
+
                 // Decision Q-02: exactly one row per product among non-deleted rows.
                 entity.HasIndex(m => new { m.TenantId, m.ProductId })
                       .IsUnique()
@@ -925,11 +936,11 @@ namespace InfrastructureLayer.Data
 
                 entity.HasQueryFilter(m => !m.IsDeleted);
 
-                // Decision Q-03 follow-up: FontSize is the only numeric field in this module
-                // that gets a DB-level guard. Cpi/OffsetX/OffsetY are left unconstrained.
+                // Revised (was "> 0"): 0 must be a valid FontSize, per explicit correction to the
+                // original Q-03 follow-up decision. Cpi/OffsetX/OffsetY remain unconstrained.
                 entity.ToTable("MaticaProductPrintConfigurations", t =>
                 {
-                    t.HasCheckConstraint("CK_MaticaProductPrintConfigurations_FontSize_Positive", "[FontSize] > 0");
+                    t.HasCheckConstraint("CK_MaticaProductPrintConfigurations_FontSize_NonNegative", "[FontSize] >= 0");
                 });
             });
 
@@ -943,7 +954,6 @@ namespace InfrastructureLayer.Data
                 entity.Property(e => e.PrintColor).IsRequired().HasMaxLength(9);
                 entity.Property(e => e.BackgroundColor).IsRequired().HasMaxLength(9);
                 entity.Property(e => e.FontStyle).IsRequired().HasMaxLength(50);
-                entity.Property(e => e.ImagePath).HasMaxLength(500);
 
                 entity.HasOne<Tenant>()
                       .WithMany()
@@ -960,6 +970,16 @@ namespace InfrastructureLayer.Data
                       .HasForeignKey(e => e.RibbonTypeId)
                       .OnDelete(DeleteBehavior.NoAction);
 
+                // Single source of truth for image data — see the parallel comment on
+                // MaticaProductPrintConfiguration above.
+                entity.HasOne<PrintImage>()
+                      .WithMany()
+                      .HasForeignKey(e => e.ImageId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasIndex(e => e.ImageId)
+                      .HasDatabaseName("IX_EvolisProductPrintConfigurations_ImageId");
+
                 // Decision Q-02: exactly one row per product among non-deleted rows.
                 entity.HasIndex(e => new { e.TenantId, e.ProductId })
                       .IsUnique()
@@ -971,13 +991,13 @@ namespace InfrastructureLayer.Data
 
                 entity.HasQueryFilter(e => !e.IsDeleted);
 
-                // Decision Q-03 follow-up: FontSize is the only numeric field in this module
-                // that gets a DB-level guard. HEX-format validation for PrintColor/
-                // BackgroundColor is left entirely to the Application-layer validator (P2),
-                // not enforced here.
+                // Revised (was "> 0"): 0 must be a valid FontSize, per explicit correction to the
+                // original Q-03 follow-up decision. HEX-format validation for PrintColor/
+                // BackgroundColor is left entirely to the Application-layer validator, not
+                // enforced here.
                 entity.ToTable("EvolisProductPrintConfigurations", t =>
                 {
-                    t.HasCheckConstraint("CK_EvolisProductPrintConfigurations_FontSize_Positive", "[FontSize] > 0");
+                    t.HasCheckConstraint("CK_EvolisProductPrintConfigurations_FontSize_NonNegative", "[FontSize] >= 0");
                 });
             });
 

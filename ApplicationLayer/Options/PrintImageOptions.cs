@@ -2,7 +2,7 @@ namespace ApplicationLayer.Options
 {
     /// <summary>
     /// Settings for print-configuration image uploads, bound from the <c>"PrintImages"</c>
-    /// section (Printing Module, decision Q-10).
+    /// section.
     /// </summary>
     public sealed class PrintImageOptions
     {
@@ -14,24 +14,18 @@ namespace ApplicationLayer.Options
         /// application's content root (<see cref="Microsoft.Extensions.Hosting.IHostEnvironment.ContentRootPath"/>,
         /// the same base Program.cs already resolves <c>LogEncryptionOptions.Directory</c>
         /// against) when not already absolute — see
-        /// <c>LocalDiskPrintImageStorage.ResolvePhysicalRoot</c>. Deliberately not
-        /// <c>wwwroot</c>-relative: Program.cs maps this exact resolved path to
-        /// <see cref="PublicBaseUrl"/> via its own <c>StaticFileOptions</c>, so uploaded content
-        /// never has to share a directory tree with other static web assets, and works
-        /// identically whether or not the app even has a <c>wwwroot</c>. Each tenant gets its own
-        /// subdirectory beneath this root — <c>{RootPath}/{tenantId}/{guid}.{extension}</c> — so a
-        /// duplicate file name from one tenant can never collide with, or overwrite, another
-        /// tenant's file (decision Q-10).
+        /// <c>LocalDiskPrintImageStorage.ResolvePhysicalRoot</c>. Each tenant gets its own
+        /// subdirectory beneath this root, named after their (sanitized) username — e.g.
+        /// <c>{RootPath}/acme-corp/student-card-front.png</c> — not their numeric id.
+        /// <para>
+        /// <b>Revision note:</b> images are no longer served as static files (no public URL
+        /// exists for this content anymore); every retrieval goes through the authenticated
+        /// <c>GET /api/print-images/{id}</c> endpoint, which enforces tenant ownership
+        /// server-side before streaming a single byte. There is deliberately no
+        /// <c>PublicBaseUrl</c> setting any more.
+        /// </para>
         /// </summary>
         public string RootPath { get; set; } = "uploads/products";
-
-        /// <summary>
-        /// Public URL prefix matching <see cref="RootPath"/> (e.g. <c>/uploads/products</c>),
-        /// used to build the <c>imagePath</c> returned to clients. Kept separate from
-        /// <see cref="RootPath"/> so the physical location and the served URL can diverge without
-        /// a code change.
-        /// </summary>
-        public string PublicBaseUrl { get; set; } = "/uploads/products";
 
         /// <summary>Maximum accepted upload size in bytes. Defaults to 5 MB.</summary>
         public long MaxSizeBytes { get; set; } = 5 * 1024 * 1024;
@@ -39,7 +33,7 @@ namespace ApplicationLayer.Options
         /// <summary>
         /// Allowed file extensions (lowercase, with leading dot). Extension is one input to the
         /// upload check; the file's actual content is independently verified via magic-byte
-        /// signature sniffing (decision Q-10) — an allowed extension alone never admits a file.
+        /// signature sniffing — an allowed extension alone never admits a file.
         /// </summary>
         public string[] AllowedExtensions { get; set; } = { ".png", ".jpg", ".jpeg" };
     }

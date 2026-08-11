@@ -126,8 +126,28 @@ namespace ApplicationLayer.Errors
                 .WithArg(value);
 
         // =================================================================================
-        //  Print images (module requirements §5–§7, decision Q-10)
+        //  Print images (module requirements §5–§7; revised for admin-only upload, ImageId
+        //  references, and explicit replace)
         // =================================================================================
+
+        /// <summary>A tenant caller attempted to upload, replace, or migrate print images (→ 403). Revised: upload is now system-admin only, reversed from the original tenant-only design.</summary>
+        public static Error PrintImageOnlySystemAdmin() =>
+            Error.Forbidden("PrintImage.OnlySystemAdmin",
+                "Only a system administrator can upload, replace, or migrate print images.");
+
+        /// <summary>An upload did not supply a target tenant id (→ 422). The admin caller has no tenant of their own to infer one from.</summary>
+        public static Error PrintImageTenantRequired() =>
+            Error.Validation("PrintImage.TenantRequired",
+                "A target tenant id is required when uploading a print image as a system administrator.");
+
+        /// <summary>The supplied target tenant does not exist (→ 422).</summary>
+        public static Error PrintImageTargetTenantNotFound(long tenantId) =>
+            Error.Validation("PrintImage.TargetTenantNotFound", $"No tenant exists with id {tenantId}.")
+                .WithArg(tenantId.ToString());
+
+        /// <summary>No print image with that id in the caller's scope (→ 404, no existence leak).</summary>
+        public static Error PrintImageNotFound(long id) =>
+            Error.NotFound("PrintImage.NotFound", $"No print image was found with id {id}.").WithArg(id.ToString());
 
         /// <summary>No file was supplied, or the supplied file has zero bytes (→ 422).</summary>
         public static Error PrintImageFileMissing() =>
@@ -145,22 +165,41 @@ namespace ApplicationLayer.Errors
 
         /// <summary>
         /// The file's actual content, detected from its magic bytes, does not match a supported
-        /// image format (→ 422, decision Q-10) — the client-supplied extension and Content-Type
-        /// are not trusted on their own.
+        /// image format (→ 422) — the client-supplied extension and Content-Type are not trusted
+        /// on their own.
         /// </summary>
         public static Error PrintImageUnsupportedContent() =>
             Error.Validation("PrintImage.UnsupportedContent",
                 "The uploaded file's content does not match a supported image format.");
 
         /// <summary>
-        /// The caller has no resolvable tenant context (e.g. a system-admin token, which this
-        /// endpoint does not support — there is no tenant to own the uploaded file) (→ 401).
+        /// The client-supplied file name could not be made filesystem-safe (→ 422) — sanitization
+        /// stripped it down to nothing (e.g. a name built entirely from invalid characters).
         /// </summary>
-        public static Error PrintImageActorNotResolved() =>
-            Error.Unauthorized("PrintImage.ActorNotResolved", "The acting principal could not be resolved.");
+        public static Error PrintImageInvalidFileName() =>
+            Error.Validation("PrintImage.InvalidFileName",
+                "The file name could not be used. Please rename the file and try again.");
+
+        /// <summary>
+        /// Replacing an image (<c>PUT /api/print-images/{id}</c>) under a new name collides with a
+        /// different, existing image for the same tenant (→ 409).
+        /// </summary>
+        public static Error PrintImageNameConflict(string fileName) =>
+            Error.Conflict("PrintImage.NameConflict",
+                $"Another image named '{fileName}' already exists for this tenant.")
+                .WithArg(fileName);
 
         /// <summary>The image could not be saved to disk (→ 500). Not caller-driven; logged with full context.</summary>
         public static Error PrintImageSaveFailed() =>
             Error.Internal("PrintImage.SaveFailed", "The image could not be saved. Please try again.");
+
+        /// <summary>
+        /// The print configuration references an <c>ImageId</c> that does not exist, or belongs
+        /// to a different tenant (→ 422). Mirrors <see cref="ProductPrintConfigRibbonTypeNotFound"/>'s
+        /// existence-check pattern.
+        /// </summary>
+        public static Error ProductPrintConfigImageNotFound(long imageId) =>
+            Error.Validation("ProductPrintConfig.ImageNotFound", $"No print image exists with id {imageId}.")
+                .WithArg(imageId.ToString());
     }
 }

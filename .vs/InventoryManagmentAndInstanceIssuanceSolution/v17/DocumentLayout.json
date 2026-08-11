@@ -271,8 +271,7 @@
               "RelativeToolTip": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\ProductPrintConfigController.cs",
               "ViewState": "AgIAACQAAAAAAAAAAAAYwAAAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-11T06:38:10.697Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-11T06:38:10.697Z"
             },
             {
               "$type": "Document",
@@ -284,8 +283,7 @@
               "RelativeToolTip": "InfrastructureLayer\\Services\\PrintImageService.cs",
               "ViewState": "AgIAAGwAAAAAAAAAAAAewIQAAAAIAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-11T06:28:37.552Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-11T06:28:37.552Z"
             },
             {
               "$type": "Document",
@@ -297,8 +295,7 @@
               "RelativeToolTip": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\PrintImagesController.cs",
               "ViewState": "AgIAABUAAAAAAAAAAAAAACwAAAAPAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-11T06:27:37.964Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-11T06:27:37.964Z"
             },
             {
               "$type": "Document",
@@ -310,8 +307,7 @@
               "RelativeToolTip": "InfrastructureLayer\\Migrations\\20260810170233_printing-module-domain-and-persistence.patch.cs",
               "ViewState": "AgIAAA0AAAAAAAAAAAAQwAAAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-10T17:02:33.405Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-10T17:02:33.405Z"
             },
             {
               "$type": "Document",
@@ -371,8 +367,7 @@
               "RelativeToolTip": "InfrastructureLayer\\UnitOfWork.cs",
               "ViewState": "AgIAAGoAAAAAAAAAAAAewHwAAAAIAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-07-27T09:58:15.814Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-07-27T09:58:15.814Z"
             },
             {
               "$type": "Document",
@@ -396,8 +391,7 @@
               "RelativeToolTip": "DomainLayer\\Enums\\UsingPrinterType.cs",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-04T07:54:27.227Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-04T07:54:27.227Z"
             },
             {
               "$type": "Document",
@@ -409,8 +403,7 @@
               "RelativeToolTip": "InventoryManagmentAndInstanceIssuancePresentationLayer\\appsettings.json",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAIAAAA8AAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
-              "WhenOpened": "2026-07-28T07:44:00.053Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-07-28T07:44:00.053Z"
             },
             {
               "$type": "Document",
@@ -566,8 +559,7 @@
               "RelativeToolTip": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\InventoryController.cs",
               "ViewState": "AgIAAB0AAAAAAAAAAAAAAB0AAAAoAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-03T11:42:40.678Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-03T11:42:40.678Z"
             },
             {
               "$type": "Document",
@@ -651,8 +643,7 @@
               "RelativeToolTip": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\CardFilesController.cs",
               "ViewState": "AgIAAE4AAAAAAAAAAAAQwFwAAAAIAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-04T08:05:13.983Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-04T08:05:13.983Z"
             },
             {
               "$type": "Document",
@@ -688,8 +679,7 @@
               "RelativeToolTip": "InfrastructureLayer\\Services\\CardFileGenerationService.cs",
               "ViewState": "AgIAAKEAAAAAAAAAAAAewLMAAAAIAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-04T08:17:53.043Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-04T08:17:53.043Z"
             },
             {
               "$type": "Document",

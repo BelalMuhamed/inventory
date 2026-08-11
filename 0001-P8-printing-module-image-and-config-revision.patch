@@ -1,0 +1,1894 @@
+From 97807cb5cf9fa07428fbbe873679e55053b7f67a Mon Sep 17 00:00:00 2001
+From: Claude <claude@anthropic.com>
+Date: Tue, 11 Aug 2026 08:03:01 +0000
+Subject: [PATCH] P8-printing-module-image-and-config-revision
+
+Printing Module, Phase 8 - revision request: 'Print Images & Product Print Configuration'
+(6 points, all confirmed before implementation).
+
+1. Upload/replace/migrate authorization flipped to system-admin-only (was tenant-only).
+   New GET /api/print-images/{id}, both roles, tenant-scoped for a tenant caller - the only
+   way to fetch an image now; no public static-file path exists any more.
+2. Tenant folders now named after Tenant.Username (sanitized), not TenantId - confirmed.
+3. Physical file names now the sanitized original client name, not a generated GUID.
+4. Duplicate handling: POST is create-only (409 Conflict + existing image's metadata, never
+   auto-replaces). Explicit replace is its own endpoint: PUT /api/print-images/{id} updates the
+   same PrintImage row's content in place - same Id, so any product print configuration
+   referencing it by ImageId is never left dangling by a replace, and there was no need to block
+   replacing an in-use image after all.
+5. FontSize CHECK constraints on both product print config tables relaxed from '> 0' to '>= 0'
+   (Cpi already had no constraint). 0 is now a valid value for both.
+6. ImagePath (bare string) replaced with ImageId (FK -> PrintImages.Id) on both
+   MaticaProductPrintConfiguration and EvolisProductPrintConfiguration. Composer validates
+   ImageId existence + tenant match, mirroring the existing RibbonTypeId check.
+
+New: FileSystemNameSanitizer (tenant-folder and filename sanitization, Windows-reserved-name
+guard, fails closed rather than silently inventing a name). One-time, idempotent, admin-triggered
+POST /api/print-images/migrate-legacy-storage moves already-uploaded images (GUID name,
+tenant-id folder) to the new scheme - not a background job, an explicit on-demand operational
+endpoint, consistent with the standing 'no scheduled cleanup mechanism' decision.
+
+This phase started from a large batch of uncommitted work already present in the working tree
+(from an interrupted earlier session) rather than a blank slate. Every file was read end-to-end
+against the confirmed design before being trusted, not assumed correct. Found and fixed during
+that review, before anything was committed:
+
+- Migration re-entrancy bug: the idempotency check recomputed the expected file name from
+  scratch every run. A second run following a sanitization-collision-driven rename (e.g.
+  'front-2.png') would have recomputed 'front.png' again, unwinding the disambiguation and
+  risking re-triggering the exact collision it had just resolved. Fixed to check by folder
+  membership instead of the exact recomputed file name - once a row is in the tenant's current
+  folder, later runs leave its name alone.
+- Doc-comment inaccuracy: PrintImage.OriginalFileName is the raw client-supplied name (only
+  directory-stripped), not the sanitized one - that's StoredFileName. The comment said the
+  opposite.
+- Dead code: PrintingErrors.PrintImageTenantRequired was defined but unreachable, because
+  UploadPrintImageRequest.TenantId was a non-nullable long - a missing tenant id would have hit
+  ASP.NET Core's raw model-validation 400 instead of this app's localized ApiResponse envelope.
+  Made TenantId nullable and wired the explicit check, matching CreatePrinterRequest/
+  CreateProductRequest's established pattern instead of leaving the check dead.
+- Invented API caught before use: an early controller draft called a
+  ToActionResult(this, conflictOnSuccess: true) overload that does not exist - ResultExtensions.cs
+  drives its status-code mapping entirely from ErrorCategory on a failed Result, with no hook for
+  forcing a status on a technically-successful one. Rewrote the 409-on-duplicate-upload path to
+  construct the ApiResponse/ObjectResult directly instead.
+- Two more stale doc comments describing the old auto-replace behavor, on IPrintImageRepo and
+  its EF implementation, corrected; the latter also switched from tracked to AsNoTracking, since
+  neither of its two current callers (duplicate check in UploadAsync, collision check in
+  ReplaceAsync) mutates the row it returns.
+
+Verified: 33/33 error codes have full EN/AR resx parity (script-checked, zero missing, zero
+WithArg/{0}-placeholder mismatches); brace/paren balance on every touched file; every
+interface-to-implementation-to-controller method signature cross-checked; every new type name
+checked for collisions across the whole codebase; both resx files confirmed well-formed XML;
+appsettings.json confirmed valid JSON; GenericRepo.GetAllAsync's AsNoTracking + Set.Update's
+re-attach behavior confirmed compatible before trusting the migration flow's mutate-after-bulk-read
+pattern.
+---
+ ApplicationLayer/Contracts/IPrintImageRepo.cs |  12 +-
+ .../Contracts/IPrintImageStorage.cs           |  67 +++-
+ .../DTOs/Printing/PrintingDtos.cs             |  51 ++-
+ ApplicationLayer/Errors/PrintingErrors.cs     |  53 ++-
+ ApplicationLayer/Options/PrintImageOptions.cs |  30 +-
+ .../ServicesContracts/IPrintImageService.cs   |  80 ++++-
+ .../EvolisProductPrintConfiguration.cs        |   9 +-
+ .../MaticaProductPrintConfiguration.cs        |  11 +-
+ DomainLayer/Entities/PrintImage.cs            |  53 +--
+ InfrastructureLayer/Data/AppDbContext.cs      |  42 ++-
+ .../Repositories/PrintImageRepo.cs            |   6 +-
+ .../Services/PrintImageService.cs             | 329 ++++++++++++++----
+ .../Services/ProductPrintConfigComposer.cs    |  43 ++-
+ .../ProductPrintConfigurationService.cs       |   8 +-
+ .../Storage/FileSystemNameSanitizer.cs        |  90 +++++
+ .../Storage/LocalDiskPrintImageStorage.cs     | 106 ++++--
+ .../Controllers/PrintImagesController.cs      |  95 ++++-
+ .../Program.cs                                |  34 +-
+ .../Resources/Localization/Messages.ar.resx   |  22 +-
+ .../Resources/Localization/Messages.resx      |  22 +-
+ .../appsettings.json                          |   1 -
+ 21 files changed, 897 insertions(+), 267 deletions(-)
+ create mode 100644 InfrastructureLayer/Storage/FileSystemNameSanitizer.cs
+
+diff --git a/ApplicationLayer/Contracts/IPrintImageRepo.cs b/ApplicationLayer/Contracts/IPrintImageRepo.cs
+index 81f54e0..517b3f8 100644
+--- a/ApplicationLayer/Contracts/IPrintImageRepo.cs
++++ b/ApplicationLayer/Contracts/IPrintImageRepo.cs
+@@ -5,16 +5,16 @@ using DomainLayer.Entities;
+ namespace ApplicationLayer.Contracts
+ {
+     /// <summary>
+-    /// Data-access contract for <see cref="PrintImage"/> (module requirements §5–§7, Printing
+-    /// Module Q-10).
++    /// Data-access contract for <see cref="PrintImage"/> (module requirements §5–§7).
+     /// </summary>
+     public interface IPrintImageRepo : IGenericRepo<PrintImage, long>
+     {
+         /// <summary>
+-        /// Finds the tracked row for a tenant's existing upload with this exact original file
+-        /// name, or <c>null</c> when none exists. Backs the decision Q-10 duplicate-name replace
+-        /// flow: found → the old row (and its physical file) is removed before the new one is
+-        /// inserted, inside one transaction.
++        /// Finds a tenant's existing upload with this exact original file name, or <c>null</c>
++        /// when none exists. Backs duplicate detection on <c>POST /api/print-images</c>
++        /// (create-only: a match is reported back as a conflict, nothing is inserted) and the
++        /// name-collision check on <c>PUT /api/print-images/{id}</c> (a replacement's new name
++        /// must not collide with a <em>different</em> existing row for the same tenant).
+         /// </summary>
+         Task<PrintImage?> GetByOriginalFileNameAsync(
+             long tenantId, string originalFileName, CancellationToken cancellationToken = default);
+diff --git a/ApplicationLayer/Contracts/IPrintImageStorage.cs b/ApplicationLayer/Contracts/IPrintImageStorage.cs
+index 77f6883..b4697c8 100644
+--- a/ApplicationLayer/Contracts/IPrintImageStorage.cs
++++ b/ApplicationLayer/Contracts/IPrintImageStorage.cs
+@@ -6,24 +6,25 @@ using Microsoft.AspNetCore.Http;
+ namespace ApplicationLayer.Contracts
+ {
+     /// <summary>
+-    /// Outcome of a successful physical save (module requirements §5/§6, Printing Module Q-10).
++    /// Outcome of a successful physical save.
+     /// </summary>
+-    /// <param name="StoredFileName">GUID-based physical file name, including extension.</param>
++    /// <param name="StoredFileName">
++    /// Sanitized physical file name, including extension — equal to the sanitized original
++    /// client-supplied name (no longer a generated GUID; see the revised upload design).
++    /// </param>
+     /// <param name="StoredPath">
+-    /// Path relative to the configured image root, e.g. <c>7/&lt;guid&gt;.png</c> for tenant 7 —
+-    /// <em>not</em> the full public URL. <c>IPrintImageService</c> combines
+-    /// <c>PrintImageOptions.PublicBaseUrl</c> with this value to build the <c>imagePath</c>
+-    /// returned to clients; this type only knows about the physical layout, not the URL scheme.
++    /// Path relative to the configured image root, e.g. <c>acme-corp/front.png</c> — physical
++    /// layout only. Clients never see or construct this; they retrieve images via
++    /// <c>GET /api/print-images/{id}</c>.
+     /// </param>
+     /// <param name="ContentType">MIME type detected from the file's magic bytes, not the client-supplied header.</param>
+     /// <param name="SizeBytes">File size in bytes.</param>
+     public sealed record StoredImage(string StoredFileName, string StoredPath, string ContentType, long SizeBytes);
+ 
+     /// <summary>
+-    /// Physical storage for uploaded print-configuration images (module requirements §5–§7,
+-    /// Printing Module Q-10). Pure I/O — no database access, no duplicate-name logic; that
+-    /// orchestration belongs to <c>IPrintImageService</c>, which pairs this with
+-    /// <see cref="IPrintImageRepo"/> inside one transaction. Kept as its own abstraction so a
++    /// Physical storage for uploaded print-configuration images. Pure I/O — no database access,
++    /// no duplicate-name policy decisions; that orchestration belongs to <c>IPrintImageService</c>,
++    /// which pairs this with <see cref="IPrintImageRepo"/>. Kept as its own abstraction so a
+     /// future storage backend (e.g. blob storage) is a single new implementation, matching this
+     /// codebase's existing pattern of infrastructure-facing interfaces living in
+     /// <c>ApplicationLayer.Contracts</c> (e.g. <c>IBatchFileEncryptor</c>).
+@@ -31,24 +32,52 @@ namespace ApplicationLayer.Contracts
+     public interface IPrintImageStorage
+     {
+         /// <summary>
+-        /// Validates and saves <paramref name="file"/> under a tenant-scoped directory (decision
+-        /// Q-10: <c>{root}/{tenantId}/{guid}.{extension}</c>), with the physical file name always
+-        /// a fresh GUID — never the client-supplied name. Validates maximum size, extension
+-        /// allowlist, and the file's actual content via magic-byte signature sniffing; the
+-        /// client-supplied <c>Content-Type</c> header is never trusted.
++        /// Validates and saves <paramref name="file"/> under
++        /// <c>{root}/{tenantFolder}/{sanitized-original-name}</c>. The physical file name is the
++        /// sanitized original client-supplied name — not a generated identifier — so uploading
++        /// the same logical file twice under different metadata rows would collide on disk; the
++        /// caller (<c>IPrintImageService</c>) is responsible for the duplicate-name policy
++        /// decision before calling this. Validates maximum size, extension allowlist, and the
++        /// file's actual content via magic-byte signature sniffing; the client-supplied
++        /// <c>Content-Type</c> header is never trusted.
+         /// </summary>
+-        /// <param name="tenantId">Owning tenant — determines the physical subdirectory.</param>
++        /// <param name="tenantFolder">
++        /// Sanitized, filesystem-safe tenant folder name (derived from the tenant's username, not
++        /// their numeric id) — determines the physical subdirectory. The caller sanitizes this;
++        /// this method trusts it as already safe.
++        /// </param>
+         /// <param name="file">The uploaded file.</param>
+         /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
+         Task<Result<StoredImage>> SaveAsync(
+-            long tenantId, IFormFile file, CancellationToken cancellationToken = default);
++            string tenantFolder, IFormFile file, CancellationToken cancellationToken = default);
+ 
+         /// <summary>
+         /// Deletes the physical file at <paramref name="storedPath"/>, if present. Never throws
+         /// for a missing file — deleting something already gone is not a failure for this
+-        /// method's caller (decision Q-10's replace flow calls this best-effort before saving the
+-        /// new file).
++        /// method's caller.
+         /// </summary>
+         Task DeleteAsync(string storedPath, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Resolves <paramref name="storedPath"/> (relative, as stored on
++        /// <c>PrintImage.StoredPath</c>) to an absolute physical path, for the retrieval endpoint
++        /// to hand to <c>ControllerBase.PhysicalFile</c>. Does not check the file exists — the
++        /// caller is expected to have already confirmed the owning <c>PrintImage</c> row exists
++        /// and the caller may access it; this method only resolves the path.
++        /// </summary>
++        string GetPhysicalPath(string storedPath);
++
++        /// <summary>
++        /// Moves an already-saved file from <paramref name="oldRelativePath"/> to
++        /// <paramref name="newRelativePath"/> (both relative to the configured root), creating the
++        /// destination directory if needed. Used by the one-time legacy-image migration
++        /// (renaming GUID-named, tenant-id-foldered files to the current
++        /// original-name/tenant-username scheme) — not part of the normal upload/replace flow.
++        /// Returns <c>false</c> (does not throw) if the source file does not exist or the
++        /// destination already exists, so the caller can report a per-row outcome rather than
++        /// aborting a bulk operation.
++        /// </summary>
++        Task<bool> MoveAsync(
++            string oldRelativePath, string newRelativePath, CancellationToken cancellationToken = default);
+     }
+ }
+diff --git a/ApplicationLayer/DTOs/Printing/PrintingDtos.cs b/ApplicationLayer/DTOs/Printing/PrintingDtos.cs
+index 3288550..e525748 100644
+--- a/ApplicationLayer/DTOs/Printing/PrintingDtos.cs
++++ b/ApplicationLayer/DTOs/Printing/PrintingDtos.cs
+@@ -1,4 +1,5 @@
+ using System;
++using System.Collections.Generic;
+ using ApplicationLayer.DTOs.Products;
+ using DomainLayer.Enums;
+ 
+@@ -104,7 +105,7 @@ namespace ApplicationLayer.DTOs.Printing
+         int FontSize,
+         int OffsetX,
+         int OffsetY,
+-        string? ImagePath);
++        long? ImageId);
+ 
+     /// <summary>Matica printing parameters as returned to clients.</summary>
+     public sealed record MaticaPrintConfigResponse(
+@@ -112,7 +113,7 @@ namespace ApplicationLayer.DTOs.Printing
+         int FontSize,
+         int OffsetX,
+         int OffsetY,
+-        string? ImagePath);
++        long? ImageId);
+ 
+     /// <summary>Evolis printing parameters payload. <see cref="RibbonTypeId"/> per decision Q-05.</summary>
+     public sealed record EvolisPrintConfigRequest(
+@@ -126,7 +127,7 @@ namespace ApplicationLayer.DTOs.Printing
+         string PrintColor,
+         string BackgroundColor,
+         string FontStyle,
+-        string? ImagePath);
++        long? ImageId);
+ 
+     /// <summary>Evolis printing parameters as returned to clients, with the ribbon type resolved by name.</summary>
+     public sealed record EvolisPrintConfigResponse(
+@@ -141,7 +142,7 @@ namespace ApplicationLayer.DTOs.Printing
+         string PrintColor,
+         string BackgroundColor,
+         string FontStyle,
+-        string? ImagePath);
++        long? ImageId);
+ 
+     /// <summary>
+     /// Payload for <c>PUT /api/products/{id}/print-config</c> (decision Q-07: sub-resource, no
+@@ -178,14 +179,44 @@ namespace ApplicationLayer.DTOs.Printing
+         ProductPrintConfigResponse? PrintConfig);
+ 
+     // =====================================================================================
+-    //  Print images (module requirements §5/§6/§7, Printing Module Q-10)
++    //  Print images (module requirements §5/§6/§7; revised for admin-only upload, ImageId
++    //  references, and explicit replace)
+     // =====================================================================================
+ 
+     /// <summary>
+-    /// Result of <c>POST /api/print-images</c> (decision Q-10). <paramref name="Warning"/> is set
+-    /// only when the upload replaced an existing image of the same name for this tenant — the
+-    /// client must never treat <paramref name="Warning"/> being present as a failure; the upload
+-    /// still succeeded and <paramref name="ImagePath"/> is always the newly saved file.
++    /// Print image metadata returned to clients. Deliberately excludes
++    /// <c>StoredFileName</c>/<c>StoredPath</c> — physical layout is an implementation detail;
++    /// clients retrieve content via <c>GET /api/print-images/{id}</c>, never by constructing a
++    /// path themselves.
+     /// </summary>
+-    public sealed record PrintImageUploadResult(string ImagePath, string? Warning);
++    public sealed record PrintImageResponse(
++        long Id,
++        long TenantId,
++        string OriginalFileName,
++        string ContentType,
++        long SizeBytes,
++        DateTime UploadedAt);
++
++    /// <summary>
++    /// Result of <c>POST /api/print-images</c>. <paramref name="Created"/> is <c>false</c> when a
++    /// non-deleted image with the same original file name already existed for the target tenant —
++    /// nothing was saved, and <paramref name="Image"/> is that <em>existing</em> image's metadata,
++    /// not a new one. The controller uses this to choose between <c>200 OK</c> (created) and
++    /// <c>409 Conflict</c> (already exists) — the client decides whether to keep the existing
++    /// image (do nothing further) or replace it explicitly via
++    /// <c>PUT /api/print-images/{id}</c> using the id in <paramref name="Image"/>.
++    /// </summary>
++    public sealed record UploadPrintImageResult(bool Created, PrintImageResponse Image);
++
++    /// <summary>
++    /// Summary of a run of the one-time legacy-image migration (renaming GUID-named,
++    /// tenant-id-foldered files to the current original-name/tenant-username scheme). Idempotent:
++    /// re-running finds nothing left to migrate once every row has been processed once.
++    /// </summary>
++    /// <param name="Migrated">Rows successfully moved to the new naming scheme this run.</param>
++    /// <param name="AlreadyCurrent">Rows that already matched the new scheme — nothing to do.</param>
++    /// <param name="Failed">Rows that could not be migrated (see <paramref name="Notes"/> for why).</param>
++    /// <param name="Notes">Human-readable detail per row that was renamed to avoid a collision, or that failed.</param>
++    public sealed record MigrateLegacyImagesResult(
++        int Migrated, int AlreadyCurrent, int Failed, IReadOnlyList<string> Notes);
+ }
+diff --git a/ApplicationLayer/Errors/PrintingErrors.cs b/ApplicationLayer/Errors/PrintingErrors.cs
+index 092d1b6..7021910 100644
+--- a/ApplicationLayer/Errors/PrintingErrors.cs
++++ b/ApplicationLayer/Errors/PrintingErrors.cs
+@@ -126,9 +126,29 @@ namespace ApplicationLayer.Errors
+                 .WithArg(value);
+ 
+         // =================================================================================
+-        //  Print images (module requirements §5–§7, decision Q-10)
++        //  Print images (module requirements §5–§7; revised for admin-only upload, ImageId
++        //  references, and explicit replace)
+         // =================================================================================
+ 
++        /// <summary>A tenant caller attempted to upload, replace, or migrate print images (→ 403). Revised: upload is now system-admin only, reversed from the original tenant-only design.</summary>
++        public static Error PrintImageOnlySystemAdmin() =>
++            Error.Forbidden("PrintImage.OnlySystemAdmin",
++                "Only a system administrator can upload, replace, or migrate print images.");
++
++        /// <summary>An upload did not supply a target tenant id (→ 422). The admin caller has no tenant of their own to infer one from.</summary>
++        public static Error PrintImageTenantRequired() =>
++            Error.Validation("PrintImage.TenantRequired",
++                "A target tenant id is required when uploading a print image as a system administrator.");
++
++        /// <summary>The supplied target tenant does not exist (→ 422).</summary>
++        public static Error PrintImageTargetTenantNotFound(long tenantId) =>
++            Error.Validation("PrintImage.TargetTenantNotFound", $"No tenant exists with id {tenantId}.")
++                .WithArg(tenantId.ToString());
++
++        /// <summary>No print image with that id in the caller's scope (→ 404, no existence leak).</summary>
++        public static Error PrintImageNotFound(long id) =>
++            Error.NotFound("PrintImage.NotFound", $"No print image was found with id {id}.").WithArg(id.ToString());
++
+         /// <summary>No file was supplied, or the supplied file has zero bytes (→ 422).</summary>
+         public static Error PrintImageFileMissing() =>
+             Error.Validation("PrintImage.FileMissing", "No image file was supplied.");
+@@ -145,22 +165,41 @@ namespace ApplicationLayer.Errors
+ 
+         /// <summary>
+         /// The file's actual content, detected from its magic bytes, does not match a supported
+-        /// image format (→ 422, decision Q-10) — the client-supplied extension and Content-Type
+-        /// are not trusted on their own.
++        /// image format (→ 422) — the client-supplied extension and Content-Type are not trusted
++        /// on their own.
+         /// </summary>
+         public static Error PrintImageUnsupportedContent() =>
+             Error.Validation("PrintImage.UnsupportedContent",
+                 "The uploaded file's content does not match a supported image format.");
+ 
+         /// <summary>
+-        /// The caller has no resolvable tenant context (e.g. a system-admin token, which this
+-        /// endpoint does not support — there is no tenant to own the uploaded file) (→ 401).
++        /// The client-supplied file name could not be made filesystem-safe (→ 422) — sanitization
++        /// stripped it down to nothing (e.g. a name built entirely from invalid characters).
+         /// </summary>
+-        public static Error PrintImageActorNotResolved() =>
+-            Error.Unauthorized("PrintImage.ActorNotResolved", "The acting principal could not be resolved.");
++        public static Error PrintImageInvalidFileName() =>
++            Error.Validation("PrintImage.InvalidFileName",
++                "The file name could not be used. Please rename the file and try again.");
++
++        /// <summary>
++        /// Replacing an image (<c>PUT /api/print-images/{id}</c>) under a new name collides with a
++        /// different, existing image for the same tenant (→ 409).
++        /// </summary>
++        public static Error PrintImageNameConflict(string fileName) =>
++            Error.Conflict("PrintImage.NameConflict",
++                $"Another image named '{fileName}' already exists for this tenant.")
++                .WithArg(fileName);
+ 
+         /// <summary>The image could not be saved to disk (→ 500). Not caller-driven; logged with full context.</summary>
+         public static Error PrintImageSaveFailed() =>
+             Error.Internal("PrintImage.SaveFailed", "The image could not be saved. Please try again.");
++
++        /// <summary>
++        /// The print configuration references an <c>ImageId</c> that does not exist, or belongs
++        /// to a different tenant (→ 422). Mirrors <see cref="ProductPrintConfigRibbonTypeNotFound"/>'s
++        /// existence-check pattern.
++        /// </summary>
++        public static Error ProductPrintConfigImageNotFound(long imageId) =>
++            Error.Validation("ProductPrintConfig.ImageNotFound", $"No print image exists with id {imageId}.")
++                .WithArg(imageId.ToString());
+     }
+ }
+diff --git a/ApplicationLayer/Options/PrintImageOptions.cs b/ApplicationLayer/Options/PrintImageOptions.cs
+index 55ea28f..f040f12 100644
+--- a/ApplicationLayer/Options/PrintImageOptions.cs
++++ b/ApplicationLayer/Options/PrintImageOptions.cs
+@@ -2,7 +2,7 @@ namespace ApplicationLayer.Options
+ {
+     /// <summary>
+     /// Settings for print-configuration image uploads, bound from the <c>"PrintImages"</c>
+-    /// section (Printing Module, decision Q-10).
++    /// section.
+     /// </summary>
+     public sealed class PrintImageOptions
+     {
+@@ -14,32 +14,26 @@ namespace ApplicationLayer.Options
+         /// application's content root (<see cref="Microsoft.Extensions.Hosting.IHostEnvironment.ContentRootPath"/>,
+         /// the same base Program.cs already resolves <c>LogEncryptionOptions.Directory</c>
+         /// against) when not already absolute — see
+-        /// <c>LocalDiskPrintImageStorage.ResolvePhysicalRoot</c>. Deliberately not
+-        /// <c>wwwroot</c>-relative: Program.cs maps this exact resolved path to
+-        /// <see cref="PublicBaseUrl"/> via its own <c>StaticFileOptions</c>, so uploaded content
+-        /// never has to share a directory tree with other static web assets, and works
+-        /// identically whether or not the app even has a <c>wwwroot</c>. Each tenant gets its own
+-        /// subdirectory beneath this root — <c>{RootPath}/{tenantId}/{guid}.{extension}</c> — so a
+-        /// duplicate file name from one tenant can never collide with, or overwrite, another
+-        /// tenant's file (decision Q-10).
++        /// <c>LocalDiskPrintImageStorage.ResolvePhysicalRoot</c>. Each tenant gets its own
++        /// subdirectory beneath this root, named after their (sanitized) username — e.g.
++        /// <c>{RootPath}/acme-corp/student-card-front.png</c> — not their numeric id.
++        /// <para>
++        /// <b>Revision note:</b> images are no longer served as static files (no public URL
++        /// exists for this content anymore); every retrieval goes through the authenticated
++        /// <c>GET /api/print-images/{id}</c> endpoint, which enforces tenant ownership
++        /// server-side before streaming a single byte. There is deliberately no
++        /// <c>PublicBaseUrl</c> setting any more.
++        /// </para>
+         /// </summary>
+         public string RootPath { get; set; } = "uploads/products";
+ 
+-        /// <summary>
+-        /// Public URL prefix matching <see cref="RootPath"/> (e.g. <c>/uploads/products</c>),
+-        /// used to build the <c>imagePath</c> returned to clients. Kept separate from
+-        /// <see cref="RootPath"/> so the physical location and the served URL can diverge without
+-        /// a code change.
+-        /// </summary>
+-        public string PublicBaseUrl { get; set; } = "/uploads/products";
+-
+         /// <summary>Maximum accepted upload size in bytes. Defaults to 5 MB.</summary>
+         public long MaxSizeBytes { get; set; } = 5 * 1024 * 1024;
+ 
+         /// <summary>
+         /// Allowed file extensions (lowercase, with leading dot). Extension is one input to the
+         /// upload check; the file's actual content is independently verified via magic-byte
+-        /// signature sniffing (decision Q-10) — an allowed extension alone never admits a file.
++        /// signature sniffing — an allowed extension alone never admits a file.
+         /// </summary>
+         public string[] AllowedExtensions { get; set; } = { ".png", ".jpg", ".jpeg" };
+     }
+diff --git a/ApplicationLayer/ServicesContracts/IPrintImageService.cs b/ApplicationLayer/ServicesContracts/IPrintImageService.cs
+index 1cedfc6..9aed220 100644
+--- a/ApplicationLayer/ServicesContracts/IPrintImageService.cs
++++ b/ApplicationLayer/ServicesContracts/IPrintImageService.cs
+@@ -7,29 +7,81 @@ using Microsoft.AspNetCore.Http;
+ namespace ApplicationLayer.ServicesContracts
+ {
+     /// <summary>
+-    /// Payload for <c>POST /api/print-images</c> (module requirement §5, multipart/form-data).
++    /// Payload for <c>POST /api/print-images</c> (multipart/form-data). System-admin only —
++    /// <paramref name="TenantId"/> is required because the admin caller has no tenant of their
++    /// own to infer one from, mirroring <c>CreatePrinterRequest.TenantId</c>.
+     /// </summary>
+     /// <param name="File">The image to upload.</param>
+-    public sealed record UploadPrintImageRequest(IFormFile File);
++    /// <param name="TenantId">The tenant the image is being uploaded for.</param>
++    public sealed record UploadPrintImageRequest(IFormFile File, long? TenantId);
+ 
+     /// <summary>
+-    /// Print-configuration image upload use case (module requirements §5–§7, Printing Module
+-    /// Q-10). Orchestrates <c>IPrintImageStorage</c> (physical save) and <c>IPrintImageRepo</c>
+-    /// (metadata + duplicate-name detection) inside one transaction — mirrors how
+-    /// <c>BatchUploadService</c> pairs its cipher and repository. A system-admin caller is
+-    /// rejected (<c>PrintingErrors.PrintImageActorNotResolved</c>): there is no tenant to own the
+-    /// uploaded file, the same reasoning <c>BatchUploadService.UploadAsync</c> already applies.
++    /// Payload for <c>PUT /api/print-images/{id}</c> — explicit, admin-only replace of an
++    /// existing image's content, in place, keeping its id.
++    /// </summary>
++    /// <param name="File">The replacement image.</param>
++    public sealed record ReplacePrintImageRequest(IFormFile File);
++
++    /// <summary>
++    /// Resolved content for <c>GET /api/print-images/{id}</c>, handed to
++    /// <c>ControllerBase.PhysicalFile</c> to stream the response — not JSON-serialized, so this
++    /// type never appears inside an <c>ApiResponse&lt;T&gt;</c> envelope.
++    /// </summary>
++    /// <param name="PhysicalPath">Absolute on-disk path to the file.</param>
++    /// <param name="ContentType">MIME type to send as the response's Content-Type.</param>
++    /// <param name="FileName">Original file name, used for the response's Content-Disposition.</param>
++    public sealed record PrintImageContent(string PhysicalPath, string ContentType, string FileName);
++
++    /// <summary>
++    /// Print-image management use case: upload, retrieve, and explicit replace (revision,
++    /// "Print Images &amp; Product Print Configuration" change request). Upload and replace are
++    /// system-admin only — reversed from the original design, where only tenants could upload.
++    /// Retrieval is open to both roles, scoped to the caller's own tenant for a tenant caller.
+     /// </summary>
+     public interface IPrintImageService
+     {
+         /// <summary>
+-        /// Validates and saves the uploaded image. When a non-deleted image with the same
+-        /// original file name already exists for the caller's tenant (decision Q-10), the
+-        /// existing file and row are deleted first — inside the same transaction — and the result
+-        /// carries a non-null <c>Warning</c>; this is not a failure, and <c>ImagePath</c> always
+-        /// names the newly saved file.
++        /// Validates and saves the uploaded image under the target tenant's folder (named after
++        /// their sanitized username, not their numeric id), using the sanitized original file
++        /// name as the physical name. Create-only: when a non-deleted image with the same
++        /// original file name already exists for that tenant, nothing is saved —
++        /// <see cref="UploadPrintImageResult.Created"/> is <c>false</c> and
++        /// <see cref="UploadPrintImageResult.Image"/> is the <em>existing</em> image's metadata,
++        /// so the caller can choose to keep it as-is or call <see cref="ReplaceAsync"/>
++        /// explicitly. This is a genuine outcome, not a failure — the result is
++        /// success either way; only the controller inspects
++        /// <c>Created</c> to choose between <c>200 OK</c> and <c>409 Conflict</c>.
+         /// </summary>
+-        Task<Result<PrintImageUploadResult>> UploadAsync(
++        Task<Result<UploadPrintImageResult>> UploadAsync(
+             UploadPrintImageRequest request, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Explicitly replaces an existing image's content, in place — same
++        /// <c>PrintImage.Id</c>, new bytes (and new name/content-type/size if the replacement
++        /// file differs from the original). Because the id never changes, any product print
++        /// configuration already referencing it by <c>ImageId</c> is unaffected. Rejects with
++        /// <c>PrintingErrors.PrintImageNameConflict</c> if the replacement's file name collides
++        /// with a <em>different</em> existing image for the same tenant.
++        /// </summary>
++        Task<Result<PrintImageResponse>> ReplaceAsync(
++            long id, ReplacePrintImageRequest request, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// Resolves the physical content for <c>GET /api/print-images/{id}</c>. A tenant caller
++        /// may only retrieve images belonging to their own tenant; a mismatch returns
++        /// <c>PrintingErrors.PrintImageNotFound</c>, the same as a genuinely missing id (no
++        /// existence leak). A system admin may retrieve any image.
++        /// </summary>
++        Task<Result<PrintImageContent>> GetContentAsync(long id, CancellationToken cancellationToken = default);
++
++        /// <summary>
++        /// One-time, admin-triggered, idempotent migration of images uploaded under the original
++        /// scheme (GUID physical name, tenant-id folder) to the current scheme (sanitized original
++        /// name, tenant-username folder). Safe to run more than once — a row already matching the
++        /// current scheme is left alone. Not a scheduled job; the locked decision against a
++        /// background cleanup mechanism still holds — this is an explicit, on-demand operational
++        /// tool, run when the admin chooses to run it.
++        /// </summary>
++        Task<Result<MigrateLegacyImagesResult>> MigrateLegacyImagesAsync(CancellationToken cancellationToken = default);
+     }
+ }
+diff --git a/DomainLayer/Entities/EvolisProductPrintConfiguration.cs b/DomainLayer/Entities/EvolisProductPrintConfiguration.cs
+index eddd7f5..6f63c59 100644
+--- a/DomainLayer/Entities/EvolisProductPrintConfiguration.cs
++++ b/DomainLayer/Entities/EvolisProductPrintConfiguration.cs
+@@ -65,10 +65,11 @@ namespace DomainLayer.Entities
+         public string FontStyle { get; set; } = string.Empty;
+ 
+         /// <summary>
+-        /// Server-local path to the print image (app-pool readable), returned by the image-upload
+-        /// endpoint (module requirement §5). Null until an image has been uploaded and attached
+-        /// to this configuration.
++        /// The print image for this configuration (FK → PrintImages.Id). Null until an image has
++        /// been uploaded and attached. Replaces the earlier bare <c>ImagePath</c> string (single
++        /// source of truth: <see cref="PrintImage"/> owns the image's metadata and physical
++        /// location; this table only references it by id).
+         /// </summary>
+-        public string? ImagePath { get; set; }
++        public long? ImageId { get; set; }
+     }
+ }
+diff --git a/DomainLayer/Entities/MaticaProductPrintConfiguration.cs b/DomainLayer/Entities/MaticaProductPrintConfiguration.cs
+index 47e48d0..f24c022 100644
+--- a/DomainLayer/Entities/MaticaProductPrintConfiguration.cs
++++ b/DomainLayer/Entities/MaticaProductPrintConfiguration.cs
+@@ -8,7 +8,7 @@ namespace DomainLayer.Entities
+     /// one row per product among non-deleted rows — decision Q-02 dropped the ERD's per-face
+     /// cardinality, so there is deliberately no <c>PrintedFace</c> column here (decision Q-04).
+     /// Field set is <see cref="Cpi"/>, <see cref="FontSize"/>, <see cref="OffsetX"/>,
+-    /// <see cref="OffsetY"/>, and <see cref="ImagePath"/> per decision Q-03 — no separate
++    /// <see cref="OffsetY"/>, and <see cref="ImageId"/> per decision Q-03 — no separate
+     /// <c>Font</c>/<c>FontFamily</c> field.
+     /// <para>
+     /// Lifecycle follows the owning <see cref="Product"/> as a single aggregate (module
+@@ -58,10 +58,11 @@ namespace DomainLayer.Entities
+         public int OffsetY { get; set; }
+ 
+         /// <summary>
+-        /// Server-local path to the print image (app-pool readable), returned by the image-upload
+-        /// endpoint (module requirement §5). Null until an image has been uploaded and attached
+-        /// to this configuration.
++        /// The print image for this configuration (FK → PrintImages.Id). Null until an image has
++        /// been uploaded and attached. Replaces the earlier bare <c>ImagePath</c> string (single
++        /// source of truth: <see cref="PrintImage"/> owns the image's metadata and physical
++        /// location; this table only references it by id).
+         /// </summary>
+-        public string? ImagePath { get; set; }
++        public long? ImageId { get; set; }
+     }
+ }
+diff --git a/DomainLayer/Entities/PrintImage.cs b/DomainLayer/Entities/PrintImage.cs
+index 771ab26..a76d741 100644
+--- a/DomainLayer/Entities/PrintImage.cs
++++ b/DomainLayer/Entities/PrintImage.cs
+@@ -3,11 +3,19 @@ using System;
+ namespace DomainLayer.Entities
+ {
+     /// <summary>
+-    /// Metadata for an uploaded print-configuration image (module requirements §5/§6/§7). Not
+-    /// soft-deletable and deliberately does not derive from <see cref="Common.AuditableEntity"/>
+-    /// — a replaced image is hard deleted, both the row and the physical file, by design
+-    /// (decision Q-10: "same name replaces the existing image", not a soft-deleted history of
+-    /// every upload).
++    /// Metadata for an uploaded print-configuration image (module requirements §5/§6/§7).
++    /// <see cref="Id"/> is the single source of truth other entities reference by — see
++    /// <c>MaticaProductPrintConfiguration.ImageId</c> / <c>EvolisProductPrintConfiguration.ImageId</c>.
++    /// Not soft-deletable and does not derive from <see cref="Common.AuditableEntity"/>.
++    /// <para>
++    /// <b>Revised design:</b> uploading no longer auto-replaces a same-name image (the original
++    /// decision Q-10 behavior) — a duplicate name is reported back to the client instead
++    /// (<c>PrintImageService.UploadAsync</c> returns <c>Created = false</c> with the existing
++    /// row's data), and replacing it is now a separate, explicit action
++    /// (<c>PUT /api/print-images/{id}</c>) that updates this same row's content in place, keeping
++    /// <see cref="Id"/> constant — so a product print configuration referencing it by id is never
++    /// left dangling by a replace.
++    /// </para>
+     /// <para>
+     /// <b>Scope note:</b> the locked decisions explicitly rule out a scheduled cleanup mechanism
+     /// for orphaned uploads (no <c>BackgroundService</c>, no <c>SystemCurrentTenant</c>). This
+@@ -20,42 +28,47 @@ namespace DomainLayer.Entities
+     /// </summary>
+     public sealed class PrintImage
+     {
+-        /// <summary>Primary key (BIGINT IDENTITY).</summary>
++        /// <summary>Primary key (BIGINT IDENTITY). The stable identifier other entities reference.</summary>
+         public long Id { get; set; }
+ 
+-        /// <summary>Owning tenant id (FK → Tenants.Id). Every physical path is scoped under this id.</summary>
++        /// <summary>Owning tenant id (FK → Tenants.Id). Every physical path is scoped under this tenant's folder.</summary>
+         public long TenantId { get; set; }
+ 
+         /// <summary>
+-        /// The file name as supplied by the uploading client. Never used as the physical file
+-        /// name (decision Q-10) — used only to detect a same-name re-upload within the tenant.
+-        /// Unique per tenant: uploading a duplicate name replaces this row rather than adding a
+-        /// second one.
++        /// The file name exactly as supplied by the uploading client (only a directory component,
++        /// if any, is stripped — never sanitized against invalid characters). Kept faithful to
++        /// what the client sent so duplicate detection matches the client's own notion of the
++        /// file's name; the filesystem-safe version used physically on disk is
++        /// <see cref="StoredFileName"/>, which can differ (e.g. an accented or punctuated name).
++        /// Unique per tenant: uploading a second file with the same name does not overwrite this
++        /// row — it is reported back as a conflict instead (see the class doc comment).
+         /// </summary>
+         public string OriginalFileName { get; set; } = string.Empty;
+ 
+-        /// <summary>GUID-based physical file name on disk, including extension (decision Q-10).</summary>
++        /// <summary>
++        /// Sanitized, filesystem-safe physical file name on disk — derived from
++        /// <see cref="OriginalFileName"/> but not always identical to it.
++        /// </summary>
+         public string StoredFileName { get; set; } = string.Empty;
+ 
+         /// <summary>
+-        /// Path relative to the configured image root, e.g. <c>7/&lt;guid&gt;.png</c> for tenant 7
+-        /// (decision Q-10: tenant-scoped directory) — <em>not</em> the full public URL.
+-        /// <c>PrintImageService</c> combines <c>PrintImageOptions.PublicBaseUrl</c> with this
+-        /// value to build the <c>imagePath</c> returned to clients and stored back onto a
+-        /// product print configuration's <c>ImagePath</c> column.
++        /// Path relative to the configured image root, e.g. <c>acme-corp/student-card-front.png</c>
++        /// for a tenant whose username sanitizes to <c>acme-corp</c> — the tenant's folder is named
++        /// after their username, not their numeric id. Physical layout only; clients never see or
++        /// construct this directly — they retrieve the image via <c>GET /api/print-images/{id}</c>.
+         /// </summary>
+         public string StoredPath { get; set; } = string.Empty;
+ 
+         /// <summary>
+-        /// MIME type detected from the file's magic bytes at upload time (decision Q-10) — never
+-        /// the client-supplied Content-Type header, which is not trusted.
++        /// MIME type detected from the file's magic bytes at upload time — never the
++        /// client-supplied Content-Type header, which is not trusted.
+         /// </summary>
+         public string ContentType { get; set; } = string.Empty;
+ 
+         /// <summary>File size in bytes.</summary>
+         public long SizeBytes { get; set; }
+ 
+-        /// <summary>UTC instant the file was uploaded.</summary>
++        /// <summary>UTC instant the file was uploaded (or last replaced via <c>PUT /api/print-images/{id}</c>).</summary>
+         public DateTime UploadedAt { get; set; }
+     }
+ }
+diff --git a/InfrastructureLayer/Data/AppDbContext.cs b/InfrastructureLayer/Data/AppDbContext.cs
+index 8e4bbf2..02f7834 100644
+--- a/InfrastructureLayer/Data/AppDbContext.cs
++++ b/InfrastructureLayer/Data/AppDbContext.cs
+@@ -905,8 +905,6 @@ namespace InfrastructureLayer.Data
+             {
+                 entity.HasKey(m => m.Id);
+ 
+-                entity.Property(m => m.ImagePath).HasMaxLength(500);
+-
+                 entity.HasOne<Tenant>()
+                       .WithMany()
+                       .HasForeignKey(m => m.TenantId)
+@@ -917,6 +915,19 @@ namespace InfrastructureLayer.Data
+                       .HasForeignKey(m => m.ProductId)
+                       .OnDelete(DeleteBehavior.NoAction);
+ 
++                // Single source of truth for image data (revision, "Print Images & Product Print
++                // Configuration" change request, point 6): references PrintImages.Id instead of
++                // carrying a bare path string. NoAction, matching this codebase's cross-aggregate
++                // FK convention — replacing an image happens in place on the same PrintImage row
++                // (PUT /api/print-images/{id}), so this FK is never left dangling by a replace.
++                entity.HasOne<PrintImage>()
++                      .WithMany()
++                      .HasForeignKey(m => m.ImageId)
++                      .OnDelete(DeleteBehavior.NoAction);
++
++                entity.HasIndex(m => m.ImageId)
++                      .HasDatabaseName("IX_MaticaProductPrintConfigurations_ImageId");
++
+                 // Decision Q-02: exactly one row per product among non-deleted rows.
+                 entity.HasIndex(m => new { m.TenantId, m.ProductId })
+                       .IsUnique()
+@@ -925,11 +936,11 @@ namespace InfrastructureLayer.Data
+ 
+                 entity.HasQueryFilter(m => !m.IsDeleted);
+ 
+-                // Decision Q-03 follow-up: FontSize is the only numeric field in this module
+-                // that gets a DB-level guard. Cpi/OffsetX/OffsetY are left unconstrained.
++                // Revised (was "> 0"): 0 must be a valid FontSize, per explicit correction to the
++                // original Q-03 follow-up decision. Cpi/OffsetX/OffsetY remain unconstrained.
+                 entity.ToTable("MaticaProductPrintConfigurations", t =>
+                 {
+-                    t.HasCheckConstraint("CK_MaticaProductPrintConfigurations_FontSize_Positive", "[FontSize] > 0");
++                    t.HasCheckConstraint("CK_MaticaProductPrintConfigurations_FontSize_NonNegative", "[FontSize] >= 0");
+                 });
+             });
+ 
+@@ -943,7 +954,6 @@ namespace InfrastructureLayer.Data
+                 entity.Property(e => e.PrintColor).IsRequired().HasMaxLength(9);
+                 entity.Property(e => e.BackgroundColor).IsRequired().HasMaxLength(9);
+                 entity.Property(e => e.FontStyle).IsRequired().HasMaxLength(50);
+-                entity.Property(e => e.ImagePath).HasMaxLength(500);
+ 
+                 entity.HasOne<Tenant>()
+                       .WithMany()
+@@ -960,6 +970,16 @@ namespace InfrastructureLayer.Data
+                       .HasForeignKey(e => e.RibbonTypeId)
+                       .OnDelete(DeleteBehavior.NoAction);
+ 
++                // Single source of truth for image data — see the parallel comment on
++                // MaticaProductPrintConfiguration above.
++                entity.HasOne<PrintImage>()
++                      .WithMany()
++                      .HasForeignKey(e => e.ImageId)
++                      .OnDelete(DeleteBehavior.NoAction);
++
++                entity.HasIndex(e => e.ImageId)
++                      .HasDatabaseName("IX_EvolisProductPrintConfigurations_ImageId");
++
+                 // Decision Q-02: exactly one row per product among non-deleted rows.
+                 entity.HasIndex(e => new { e.TenantId, e.ProductId })
+                       .IsUnique()
+@@ -971,13 +991,13 @@ namespace InfrastructureLayer.Data
+ 
+                 entity.HasQueryFilter(e => !e.IsDeleted);
+ 
+-                // Decision Q-03 follow-up: FontSize is the only numeric field in this module
+-                // that gets a DB-level guard. HEX-format validation for PrintColor/
+-                // BackgroundColor is left entirely to the Application-layer validator (P2),
+-                // not enforced here.
++                // Revised (was "> 0"): 0 must be a valid FontSize, per explicit correction to the
++                // original Q-03 follow-up decision. HEX-format validation for PrintColor/
++                // BackgroundColor is left entirely to the Application-layer validator, not
++                // enforced here.
+                 entity.ToTable("EvolisProductPrintConfigurations", t =>
+                 {
+-                    t.HasCheckConstraint("CK_EvolisProductPrintConfigurations_FontSize_Positive", "[FontSize] > 0");
++                    t.HasCheckConstraint("CK_EvolisProductPrintConfigurations_FontSize_NonNegative", "[FontSize] >= 0");
+                 });
+             });
+ 
+diff --git a/InfrastructureLayer/Repositories/PrintImageRepo.cs b/InfrastructureLayer/Repositories/PrintImageRepo.cs
+index 009c49b..65500c3 100644
+--- a/InfrastructureLayer/Repositories/PrintImageRepo.cs
++++ b/InfrastructureLayer/Repositories/PrintImageRepo.cs
+@@ -14,9 +14,9 @@ namespace InfrastructureLayer.Repositories
+ 
+         public Task<PrintImage?> GetByOriginalFileNameAsync(
+             long tenantId, string originalFileName, CancellationToken cancellationToken = default) =>
+-            // Tracked (no AsNoTracking): decision Q-10's replace flow removes this row directly
+-            // when a duplicate name is uploaded.
+-            Set.FirstOrDefaultAsync(
++            // AsNoTracking: both current callers (the duplicate check in UploadAsync and the
++            // name-collision check in ReplaceAsync) only read this row - neither mutates it.
++            Set.AsNoTracking().FirstOrDefaultAsync(
+                 i => i.TenantId == tenantId && i.OriginalFileName == originalFileName, cancellationToken);
+     }
+ }
+diff --git a/InfrastructureLayer/Services/PrintImageService.cs b/InfrastructureLayer/Services/PrintImageService.cs
+index a7ecf08..4bb058f 100644
+--- a/InfrastructureLayer/Services/PrintImageService.cs
++++ b/InfrastructureLayer/Services/PrintImageService.cs
+@@ -1,112 +1,98 @@
+ using System;
++using System.Collections.Generic;
+ using System.IO;
+ using System.Threading;
+ using System.Threading.Tasks;
+ using ApplicationLayer.Contracts;
+ using ApplicationLayer.DTOs.Printing;
+ using ApplicationLayer.Errors;
+-using ApplicationLayer.Options;
+ using ApplicationLayer.ServicesContracts;
+ using DomainLayer.Common;
+ using DomainLayer.Entities;
+-using Microsoft.Extensions.Options;
++using InfrastructureLayer.Storage;
++using Microsoft.Extensions.Logging;
+ 
+ namespace InfrastructureLayer.Services
+ {
+     /// <summary>
+-    /// Print-image upload use case (module requirements §5–§7, Printing Module decision Q-10).
+-    /// Pairs <see cref="IPrintImageStorage"/> (physical save/delete) with
+-    /// <see cref="IUnitOfWork.PrintImages"/> (metadata + duplicate-name detection) — mirrors how
+-    /// <c>BatchUploadService</c> pairs its cipher and repository.
++    /// Print-image management use case: upload, retrieve, explicit replace, and the one-time
++    /// legacy migration (revision, "Print Images &amp; Product Print Configuration" change
++    /// request). Pairs <see cref="IPrintImageStorage"/> (physical I/O) with
++    /// <see cref="IUnitOfWork.PrintImages"/> (metadata) — mirrors how <c>BatchUploadService</c>
++    /// pairs its cipher and repository.
+     /// </summary>
+     public sealed class PrintImageService : IPrintImageService
+     {
+-        /// <summary>
+-        /// Wording matches the requirements document's own example response verbatim. Not
+-        /// resolved through <c>IStringLocalizer&lt;Messages&gt;</c> — unlike every
+-        /// <c>PrintingErrors</c> message, this is not an <see cref="Error"/>, so it never passes
+-        /// through <c>LocalizeErrorResultFilter</c> (which only touches <c>ApiError.Code</c>).
+-        /// It is therefore always English today. Flagged: if Arabic wording is wanted for this
+-        /// specific success-path notice, it needs its own mechanism — there isn't one to reuse.
+-        /// </summary>
+-        private const string DuplicateNameWarning =
+-            "An image with the same name already exists. The existing image was replaced.";
+-
+         private readonly IUnitOfWork _unitOfWork;
+         private readonly ICurrentTenant _currentTenant;
+         private readonly IPrintImageStorage _storage;
+-        private readonly PrintImageOptions _options;
++        private readonly ILogger<PrintImageService> _logger;
+ 
+         public PrintImageService(
+             IUnitOfWork unitOfWork,
+             ICurrentTenant currentTenant,
+             IPrintImageStorage storage,
+-            IOptions<PrintImageOptions> options)
++            ILogger<PrintImageService> logger)
+         {
+             _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+             _currentTenant = currentTenant ?? throw new ArgumentNullException(nameof(currentTenant));
+             _storage = storage ?? throw new ArgumentNullException(nameof(storage));
+-            _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
++            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+         }
+ 
+         /// <inheritdoc />
+-        public async Task<Result<PrintImageUploadResult>> UploadAsync(
++        public async Task<Result<UploadPrintImageResult>> UploadAsync(
+             UploadPrintImageRequest request, CancellationToken cancellationToken = default)
+         {
+-            // Matches BatchUploadService's convention: resolved here, not passed in by the
+-            // caller. A system-admin token has no tenant to own the uploaded file, so it is
+-            // rejected rather than offered an "upload on behalf of tenant X" path.
+-            if (_currentTenant.TenantId is not long tenantId)
++            if (!_currentTenant.IsSystemAdmin)
+             {
+-                return Result.Failure<PrintImageUploadResult>(PrintingErrors.PrintImageActorNotResolved());
++                return Result.Failure<UploadPrintImageResult>(PrintingErrors.PrintImageOnlySystemAdmin());
+             }
+ 
+             if (request?.File is null || request.File.Length == 0)
+             {
+-                return Result.Failure<PrintImageUploadResult>(PrintingErrors.PrintImageFileMissing());
++                return Result.Failure<UploadPrintImageResult>(PrintingErrors.PrintImageFileMissing());
+             }
+ 
+-            string originalFileName = Path.GetFileName(request.File.FileName);
++            if (request.TenantId is not long targetTenantId)
++            {
++                return Result.Failure<UploadPrintImageResult>(PrintingErrors.PrintImageTenantRequired());
++            }
+ 
+-            // ---- Outside the transaction: the physical write cannot be rolled back by a DB
+-            // transaction regardless of where it is called from, so it is not nested inside one
+-            // — matching BatchUploadService's "decrypt/parse happens outside the transaction"
+-            // structure. A DB failure after this succeeds leaves the new file orphaned; that is
+-            // the same accepted tradeoff as an uploaded-but-never-attached image (module
+-            // requirements §7, decision Q-10: no scheduled cleanup mechanism). -----------------
+-            Result<StoredImage> saveResult = await _storage.SaveAsync(tenantId, request.File, cancellationToken);
+-            if (saveResult.IsFailure)
++            Tenant? tenant = await _unitOfWork.Tenants.GetByIdIncludingDeletedAsync(targetTenantId, cancellationToken);
++            if (tenant is null)
+             {
+-                return Result.Failure<PrintImageUploadResult>(saveResult.Error);
++                return Result.Failure<UploadPrintImageResult>(PrintingErrors.PrintImageTargetTenantNotFound(targetTenantId));
+             }
+ 
+-            StoredImage saved = saveResult.Value;
+-            string? staleStoredPath = null;
++            string originalFileName = Path.GetFileName(request.File.FileName);
+ 
+-            Result<PrintImageUploadResult> result = await _unitOfWork.ExecuteInTransactionAsync(async () =>
++            // Create-only: a duplicate is reported back, never silently replaced. Checked before
++            // any physical write, so a duplicate costs nothing but a query.
++            PrintImage? existing = await _unitOfWork.PrintImages.GetByOriginalFileNameAsync(
++                targetTenantId, originalFileName, cancellationToken);
++            if (existing is not null)
+             {
+-                string? warning = null;
++                return Result.Success(new UploadPrintImageResult(false, MapToResponse(existing)));
++            }
+ 
+-                PrintImage? existing = await _unitOfWork.PrintImages.GetByOriginalFileNameAsync(
+-                    tenantId, originalFileName, cancellationToken);
++            string tenantFolder = FileSystemNameSanitizer.SanitizeTenantFolder(tenant.Username, tenant.Id);
+ 
+-                if (existing is not null)
+-                {
+-                    // Decision Q-10: same name replaces. Only the row is removed here — the old
+-                    // file's physical delete is deferred until after this transaction commits
+-                    // (see below), not performed inline. Deleting it now and then having the
+-                    // transaction roll back would leave the database still pointing at a file
+-                    // that no longer exists, which is worse than the orphan-file tradeoff this
+-                    // module already accepts: the database would be actively wrong, not just
+-                    // incomplete.
+-                    staleStoredPath = existing.StoredPath;
+-                    _unitOfWork.PrintImages.Remove(existing);
+-                    warning = DuplicateNameWarning;
+-                }
++            // Outside any transaction: a physical write cannot be rolled back by a DB transaction
++            // regardless of where it's called from, so it is not nested inside one.
++            Result<StoredImage> saveResult = await _storage.SaveAsync(tenantFolder, request.File, cancellationToken);
++            if (saveResult.IsFailure)
++            {
++                return Result.Failure<UploadPrintImageResult>(saveResult.Error);
++            }
+ 
++            StoredImage saved = saveResult.Value;
++
++            return await _unitOfWork.ExecuteInTransactionAsync(async () =>
++            {
+                 var printImage = new PrintImage
+                 {
+-                    TenantId = tenantId,
++                    TenantId = targetTenantId,
+                     OriginalFileName = originalFileName,
+                     StoredFileName = saved.StoredFileName,
+                     StoredPath = saved.StoredPath,
+@@ -117,22 +103,231 @@ namespace InfrastructureLayer.Services
+ 
+                 await _unitOfWork.PrintImages.AddAsync(printImage, cancellationToken);
+ 
+-                string imagePath = CombineUrl(_options.PublicBaseUrl, saved.StoredPath);
+-                return Result.Success(new PrintImageUploadResult(imagePath, warning));
++                return Result.Success(new UploadPrintImageResult(true, MapToResponse(printImage)));
+             }, cancellationToken);
++        }
++
++        /// <inheritdoc />
++        public async Task<Result<PrintImageResponse>> ReplaceAsync(
++            long id, ReplacePrintImageRequest request, CancellationToken cancellationToken = default)
++        {
++            if (!_currentTenant.IsSystemAdmin)
++            {
++                return Result.Failure<PrintImageResponse>(PrintingErrors.PrintImageOnlySystemAdmin());
++            }
++
++            PrintImage? existing = await _unitOfWork.PrintImages.GetByIdAsync(id, cancellationToken);
++            if (existing is null)
++            {
++                return Result.Failure<PrintImageResponse>(PrintingErrors.PrintImageNotFound(id));
++            }
++
++            if (request?.File is null || request.File.Length == 0)
++            {
++                return Result.Failure<PrintImageResponse>(PrintingErrors.PrintImageFileMissing());
++            }
++
++            Tenant? tenant = await _unitOfWork.Tenants.GetByIdIncludingDeletedAsync(existing.TenantId, cancellationToken);
++            if (tenant is null)
++            {
++                // The owning tenant existed when this image was uploaded; a hard failure here
++                // would mean the tenant row itself is gone, which this service has no business
++                // deciding how to handle — surface it as a not-found on the image rather than
++                // inventing tenant-repair behavior.
++                return Result.Failure<PrintImageResponse>(PrintingErrors.PrintImageNotFound(id));
++            }
++
++            string newOriginalFileName = Path.GetFileName(request.File.FileName);
++
++            // Only check for a collision if the name is actually changing — replacing "front.png"
++            // with new bytes still named "front.png" can never collide with itself.
++            if (!string.Equals(newOriginalFileName, existing.OriginalFileName, StringComparison.Ordinal))
++            {
++                PrintImage? collision = await _unitOfWork.PrintImages.GetByOriginalFileNameAsync(
++                    existing.TenantId, newOriginalFileName, cancellationToken);
++                if (collision is not null && collision.Id != existing.Id)
++                {
++                    return Result.Failure<PrintImageResponse>(PrintingErrors.PrintImageNameConflict(newOriginalFileName));
++                }
++            }
++
++            string tenantFolder = FileSystemNameSanitizer.SanitizeTenantFolder(tenant.Username, tenant.Id);
++            string oldStoredPath = existing.StoredPath;
+ 
+-            // ---- After a successful commit: the old row is now durably gone, so it is safe to
+-            // remove its physical file. Best-effort — logged internally by the storage
+-            // implementation, never fails an upload that has already succeeded. --------------
+-            if (result.IsSuccess && staleStoredPath is not null)
++            Result<StoredImage> saveResult = await _storage.SaveAsync(tenantFolder, request.File, cancellationToken);
++            if (saveResult.IsFailure)
+             {
+-                await _storage.DeleteAsync(staleStoredPath, cancellationToken);
++                return Result.Failure<PrintImageResponse>(saveResult.Error);
+             }
+ 
+-            return result;
++            StoredImage saved = saveResult.Value;
++
++            existing.OriginalFileName = newOriginalFileName;
++            existing.StoredFileName = saved.StoredFileName;
++            existing.StoredPath = saved.StoredPath;
++            existing.ContentType = saved.ContentType;
++            existing.SizeBytes = saved.SizeBytes;
++            existing.UploadedAt = DateTime.UtcNow;
++            _unitOfWork.PrintImages.Update(existing);
++
++            await _unitOfWork.SaveChangesAsync(cancellationToken);
++
++            // Only after the DB commit succeeds, and only if the physical path actually changed —
++            // deleting it earlier and then failing to commit would leave the database pointing at
++            // a file that no longer exists.
++            if (!string.Equals(oldStoredPath, saved.StoredPath, StringComparison.Ordinal))
++            {
++                await _storage.DeleteAsync(oldStoredPath, cancellationToken);
++            }
++
++            return MapToResponse(existing);
++        }
++
++        /// <inheritdoc />
++        public async Task<Result<PrintImageContent>> GetContentAsync(
++            long id, CancellationToken cancellationToken = default)
++        {
++            PrintImage? image = await _unitOfWork.PrintImages.GetByIdAsync(id, cancellationToken);
++            if (image is null)
++            {
++                return Result.Failure<PrintImageContent>(PrintingErrors.PrintImageNotFound(id));
++            }
++
++            if (!_currentTenant.IsSystemAdmin)
++            {
++                if (_currentTenant.TenantId is not long tenantId || image.TenantId != tenantId)
++                {
++                    // Same NotFound as a genuinely missing id — no existence leak across tenants.
++                    return Result.Failure<PrintImageContent>(PrintingErrors.PrintImageNotFound(id));
++                }
++            }
++
++            string physicalPath = _storage.GetPhysicalPath(image.StoredPath);
++            if (!File.Exists(physicalPath))
++            {
++                _logger.LogError(
++                    "PrintImage {Id} has no file at its stored path {StoredPath}", image.Id, image.StoredPath);
++                return Result.Failure<PrintImageContent>(PrintingErrors.PrintImageNotFound(id));
++            }
++
++            return new PrintImageContent(physicalPath, image.ContentType, image.OriginalFileName);
++        }
++
++        /// <inheritdoc />
++        public async Task<Result<MigrateLegacyImagesResult>> MigrateLegacyImagesAsync(
++            CancellationToken cancellationToken = default)
++        {
++            if (!_currentTenant.IsSystemAdmin)
++            {
++                return Result.Failure<MigrateLegacyImagesResult>(PrintingErrors.PrintImageOnlySystemAdmin());
++            }
++
++            IReadOnlyList<PrintImage> allImages = await _unitOfWork.PrintImages.GetAllAsync(cancellationToken);
++
++            int migrated = 0;
++            int alreadyCurrent = 0;
++            int failed = 0;
++            var notes = new List<string>();
++
++            foreach (PrintImage image in allImages)
++            {
++                Tenant? tenant = await _unitOfWork.Tenants.GetByIdIncludingDeletedAsync(image.TenantId, cancellationToken);
++                if (tenant is null)
++                {
++                    failed++;
++                    notes.Add($"Image {image.Id}: owning tenant {image.TenantId} no longer exists.");
++                    continue;
++                }
++
++                string newTenantFolder = FileSystemNameSanitizer.SanitizeTenantFolder(tenant.Username, tenant.Id);
++
++                // "Already current" means the row already lives in the tenant's current-scheme
++                // folder — checked by folder alone, not by recomputing and comparing the exact
++                // expected file name. If an earlier run resolved a sanitization collision with a
++                // numeric suffix (e.g. "front-2.png"), recomputing from OriginalFileName would
++                // produce "front.png" again on a second run, which no longer matches this row's
++                // actual name — but the row is still correctly migrated, just under a
++                // disambiguated name. Comparing by folder avoids re-churning it every re-run.
++                string currentFolder = GetFolderSegment(image.StoredPath);
++                if (string.Equals(currentFolder, newTenantFolder, StringComparison.Ordinal))
++                {
++                    alreadyCurrent++;
++                    continue;
++                }
++
++                string? newFileName = FileSystemNameSanitizer.SanitizeFileName(image.OriginalFileName);
++                if (newFileName is null)
++                {
++                    failed++;
++                    notes.Add($"Image {image.Id}: original file name '{image.OriginalFileName}' can no longer be sanitized.");
++                    continue;
++                }
++
++                string newRelativePath = $"{newTenantFolder}/{newFileName}";
++
++                bool moved = await _storage.MoveAsync(image.StoredPath, newRelativePath, cancellationToken);
++
++                // A destination collision (rare: two different original names sanitizing to the
++                // same string within the same tenant) is disambiguated with a numeric suffix
++                // rather than aborting the run — this is a bulk, automatic, one-time operation,
++                // not a single explicit action, so auto-resolving and reporting it is preferable
++                // to halting on an edge case.
++                for (int attempt = 2; !moved && attempt <= 5; attempt++)
++                {
++                    string candidateName = InsertSuffix(newFileName, attempt);
++                    string candidatePath = $"{newTenantFolder}/{candidateName}";
++                    moved = await _storage.MoveAsync(image.StoredPath, candidatePath, cancellationToken);
++                    if (moved)
++                    {
++                        newFileName = candidateName;
++                        newRelativePath = candidatePath;
++                        notes.Add($"Image {image.Id}: renamed to '{candidateName}' to avoid a name collision after sanitization.");
++                    }
++                }
++
++                if (!moved)
++                {
++                    failed++;
++                    notes.Add($"Image {image.Id}: could not move to '{newRelativePath}' (source missing or destination still occupied).");
++                    continue;
++                }
++
++                image.StoredFileName = newFileName;
++                image.StoredPath = newRelativePath;
++                _unitOfWork.PrintImages.Update(image);
++
++                try
++                {
++                    // Saved per row rather than batched: each row's move is already durable on
++                    // disk once MoveAsync returns, so its database update should be durable
++                    // immediately too, independent of whether a later row in this run fails.
++                    await _unitOfWork.SaveChangesAsync(cancellationToken);
++                    migrated++;
++                }
++                catch (Exception ex)
++                {
++                    failed++;
++                    notes.Add($"Image {image.Id}: moved on disk but the database update failed ({ex.Message}).");
++                }
++            }
++
++            return new MigrateLegacyImagesResult(migrated, alreadyCurrent, failed, notes);
++        }
++
++        private static string GetFolderSegment(string relativePath)
++        {
++            int slash = relativePath.IndexOf('/');
++            return slash < 0 ? string.Empty : relativePath[..slash];
++        }
++
++        private static string InsertSuffix(string fileName, int suffix)
++        {
++            string extension = Path.GetExtension(fileName);
++            string baseName = Path.GetFileNameWithoutExtension(fileName);
++            return $"{baseName}-{suffix}{extension}";
+         }
+ 
+-        private static string CombineUrl(string baseUrl, string relativePath) =>
+-            $"{baseUrl.TrimEnd('/')}/{relativePath.TrimStart('/')}";
++        private static PrintImageResponse MapToResponse(PrintImage image) => new(
++            image.Id, image.TenantId, image.OriginalFileName, image.ContentType, image.SizeBytes, image.UploadedAt);
+     }
+ }
+diff --git a/InfrastructureLayer/Services/ProductPrintConfigComposer.cs b/InfrastructureLayer/Services/ProductPrintConfigComposer.cs
+index c165f77..97239a3 100644
+--- a/InfrastructureLayer/Services/ProductPrintConfigComposer.cs
++++ b/InfrastructureLayer/Services/ProductPrintConfigComposer.cs
+@@ -41,14 +41,20 @@ namespace InfrastructureLayer.Services
+ 
+             if (usingPrinterType == UsingPrinterType.Matica)
+             {
++                Result imageCheck = await ValidateImageIdAsync(tenantId, matica!.ImageId, cancellationToken);
++                if (imageCheck.IsFailure)
++                {
++                    return Result.Failure<ValidatedProductPrintConfig>(imageCheck.Error);
++                }
++
+                 var entity = new MaticaProductPrintConfiguration
+                 {
+                     TenantId = tenantId,
+-                    Cpi = matica!.Cpi,
++                    Cpi = matica.Cpi,
+                     FontSize = matica.FontSize,
+                     OffsetX = matica.OffsetX,
+                     OffsetY = matica.OffsetY,
+-                    ImagePath = matica.ImagePath,
++                    ImageId = matica.ImageId,
+                 };
+ 
+                 return Result.Success(new ValidatedProductPrintConfig(usingPrinterType, entity, null));
+@@ -73,6 +79,12 @@ namespace InfrastructureLayer.Services
+                     PrintingErrors.ProductPrintConfigInvalidHexColor(evolis.BackgroundColor));
+             }
+ 
++            Result evolisImageCheck = await ValidateImageIdAsync(tenantId, evolis.ImageId, cancellationToken);
++            if (evolisImageCheck.IsFailure)
++            {
++                return Result.Failure<ValidatedProductPrintConfig>(evolisImageCheck.Error);
++            }
++
+             var evolisEntity = new EvolisProductPrintConfiguration
+             {
+                 TenantId = tenantId,
+@@ -86,7 +98,7 @@ namespace InfrastructureLayer.Services
+                 PrintColor = evolis.PrintColor,
+                 BackgroundColor = evolis.BackgroundColor,
+                 FontStyle = evolis.FontStyle,
+-                ImagePath = evolis.ImagePath,
++                ImageId = evolis.ImageId,
+             };
+ 
+             return Result.Success(new ValidatedProductPrintConfig(usingPrinterType, null, evolisEntity));
+@@ -144,7 +156,7 @@ namespace InfrastructureLayer.Services
+                     existing.FontSize = validated.Matica.FontSize;
+                     existing.OffsetX = validated.Matica.OffsetX;
+                     existing.OffsetY = validated.Matica.OffsetY;
+-                    existing.ImagePath = validated.Matica.ImagePath;
++                    existing.ImageId = validated.Matica.ImageId;
+                     _unitOfWork.MaticaProductPrintConfigs.Update(existing);
+                 }
+ 
+@@ -182,7 +194,7 @@ namespace InfrastructureLayer.Services
+                 existingEvolis.PrintColor = validated.Evolis.PrintColor;
+                 existingEvolis.BackgroundColor = validated.Evolis.BackgroundColor;
+                 existingEvolis.FontStyle = validated.Evolis.FontStyle;
+-                existingEvolis.ImagePath = validated.Evolis.ImagePath;
++                existingEvolis.ImageId = validated.Evolis.ImageId;
+                 _unitOfWork.EvolisProductPrintConfigs.Update(existingEvolis);
+             }
+ 
+@@ -248,6 +260,27 @@ namespace InfrastructureLayer.Services
+             }
+         }
+ 
++        /// <summary>
++        /// When <paramref name="imageId"/> is supplied, confirms it references a real
++        /// <see cref="PrintImage"/> belonging to <paramref name="tenantId"/> (revision, "Print
++        /// Images &amp; Product Print Configuration" change request, point 6: <c>ImageId</c> is
++        /// now a real foreign key, not a trusted bare string, so it gets the same existence check
++        /// <see cref="ValidateAsync"/> already applies to <c>RibbonTypeId</c>). <c>null</c> is
++        /// always valid — a configuration may exist before an image is attached.
++        /// </summary>
++        private async Task<Result> ValidateImageIdAsync(long tenantId, long? imageId, CancellationToken cancellationToken)
++        {
++            if (imageId is not long id)
++            {
++                return Result.Success();
++            }
++
++            PrintImage? image = await _unitOfWork.PrintImages.GetByIdAsync(id, cancellationToken);
++            return image is null || image.TenantId != tenantId
++                ? Result.Failure(PrintingErrors.ProductPrintConfigImageNotFound(id))
++                : Result.Success();
++        }
++
+         /// <summary>
+         /// Confirms exactly one of <paramref name="matica"/> / <paramref name="evolis"/> is
+         /// supplied and matches <paramref name="usingPrinterType"/> — all four ways this can be
+diff --git a/InfrastructureLayer/Services/ProductPrintConfigurationService.cs b/InfrastructureLayer/Services/ProductPrintConfigurationService.cs
+index 6e3ee59..f1368ca 100644
+--- a/InfrastructureLayer/Services/ProductPrintConfigurationService.cs
++++ b/InfrastructureLayer/Services/ProductPrintConfigurationService.cs
+@@ -120,7 +120,7 @@ namespace InfrastructureLayer.Services
+             {
+                 var maticaResponse = new MaticaPrintConfigResponse(
+                     validated.Matica.Cpi, validated.Matica.FontSize,
+-                    validated.Matica.OffsetX, validated.Matica.OffsetY, validated.Matica.ImagePath);
++                    validated.Matica.OffsetX, validated.Matica.OffsetY, validated.Matica.ImageId);
+ 
+                 return new ProductPrintConfigResponse(productId, validated.UsingPrinterType, maticaResponse, null);
+             }
+@@ -143,7 +143,7 @@ namespace InfrastructureLayer.Services
+                 evolis.PrintColor,
+                 evolis.BackgroundColor,
+                 evolis.FontStyle,
+-                evolis.ImagePath);
++                evolis.ImageId);
+ 
+             return new ProductPrintConfigResponse(productId, validated.UsingPrinterType, null, evolisResponse);
+         }
+@@ -179,7 +179,7 @@ namespace InfrastructureLayer.Services
+                 }
+ 
+                 var maticaResponse = new MaticaPrintConfigResponse(
+-                    matica.Cpi, matica.FontSize, matica.OffsetX, matica.OffsetY, matica.ImagePath);
++                    matica.Cpi, matica.FontSize, matica.OffsetX, matica.OffsetY, matica.ImageId);
+ 
+                 return new ProductPrintConfigResponse(product.Id, product.UsingPrinterType, maticaResponse, null);
+             }
+@@ -205,7 +205,7 @@ namespace InfrastructureLayer.Services
+                 evolis.PrintColor,
+                 evolis.BackgroundColor,
+                 evolis.FontStyle,
+-                evolis.ImagePath);
++                evolis.ImageId);
+ 
+             return new ProductPrintConfigResponse(product.Id, product.UsingPrinterType, null, evolisResponse);
+         }
+diff --git a/InfrastructureLayer/Storage/FileSystemNameSanitizer.cs b/InfrastructureLayer/Storage/FileSystemNameSanitizer.cs
+new file mode 100644
+index 0000000..be3c81a
+--- /dev/null
++++ b/InfrastructureLayer/Storage/FileSystemNameSanitizer.cs
+@@ -0,0 +1,90 @@
++using System;
++using System.IO;
++using System.Text;
++
++namespace InfrastructureLayer.Storage
++{
++    /// <summary>
++    /// Filesystem-safe name sanitization shared by tenant-folder naming (point 2 of the
++    /// "Print Images &amp; Product Print Configuration" revision) and original-filename
++    /// preservation (point 3). Neither <c>Tenant.Username</c> (up to 100 chars, no server-side
++    /// character validation) nor a client-supplied file name is guaranteed safe for use as a path
++    /// segment — this class is the one place that makes them so, cross-platform, without guessing
++    /// the deployment OS: it sanitizes against the stricter Windows-invalid character set even if
++    /// the actual deployment is Linux, since a name that is safe on Windows is also safe on Linux,
++    /// but not the reverse.
++    /// </summary>
++    internal static class FileSystemNameSanitizer
++    {
++        private static readonly char[] InvalidChars = { '<', '>', ':', '"', '/', '\\', '|', '?', '*' };
++
++        // Windows-reserved device names — invalid as a file or folder name regardless of
++        // extension or case.
++        private static readonly string[] ReservedNames =
++        {
++            "CON", "PRN", "AUX", "NUL",
++            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
++            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
++        };
++
++        /// <summary>
++        /// Sanitizes <paramref name="username"/> into a folder name. Falls back to
++        /// <c>tenant-{tenantId}</c> — never empty — if sanitization strips the username down to
++        /// nothing (e.g. a username built entirely from invalid characters).
++        /// </summary>
++        public static string SanitizeTenantFolder(string username, long tenantId)
++        {
++            string sanitized = Sanitize(username, maxLength: 80);
++            return sanitized.Length == 0 ? $"tenant-{tenantId}" : sanitized;
++        }
++
++        /// <summary>
++        /// Sanitizes <paramref name="originalFileName"/>'s base name, preserving its extension.
++        /// Returns <c>null</c> (never a fallback name) when sanitization strips the base name
++        /// down to nothing — a client-supplied file name that can't be made safe should be
++        /// rejected with a validation error, not silently renamed to something the client didn't
++        /// choose.
++        /// </summary>
++        public static string? SanitizeFileName(string originalFileName)
++        {
++            string extension = Path.GetExtension(originalFileName);
++            string baseName = Path.GetFileNameWithoutExtension(originalFileName);
++
++            string sanitizedBase = Sanitize(baseName, maxLength: Math.Max(1, 200 - extension.Length));
++            return sanitizedBase.Length == 0 ? null : sanitizedBase + extension;
++        }
++
++        private static string Sanitize(string value, int maxLength)
++        {
++            var builder = new StringBuilder(value.Length);
++
++            foreach (char c in value)
++            {
++                if (char.IsControl(c) || Array.IndexOf(InvalidChars, c) >= 0)
++                {
++                    builder.Append('_');
++                }
++                else
++                {
++                    builder.Append(c);
++                }
++            }
++
++            // Windows disallows trailing dots and spaces; leading/trailing whitespace is just
++            // untidy either way.
++            string result = builder.ToString().Trim().TrimEnd('.', ' ');
++
++            if (result.Length > maxLength)
++            {
++                result = result[..maxLength].TrimEnd('.', ' ');
++            }
++
++            if (Array.Exists(ReservedNames, r => string.Equals(r, result, StringComparison.OrdinalIgnoreCase)))
++            {
++                result = "_" + result;
++            }
++
++            return result;
++        }
++    }
++}
+diff --git a/InfrastructureLayer/Storage/LocalDiskPrintImageStorage.cs b/InfrastructureLayer/Storage/LocalDiskPrintImageStorage.cs
+index 222c5e2..c17a1bb 100644
+--- a/InfrastructureLayer/Storage/LocalDiskPrintImageStorage.cs
++++ b/InfrastructureLayer/Storage/LocalDiskPrintImageStorage.cs
+@@ -15,21 +15,25 @@ using Microsoft.Extensions.Options;
+ namespace InfrastructureLayer.Storage
+ {
+     /// <summary>
+-    /// Local-disk <see cref="IPrintImageStorage"/> implementation (module requirements §5–§7,
+-    /// Printing Module decision Q-10). This is the first component in this codebase that writes
+-    /// application content to the filesystem (everything else — card files, batch reports —
+-    /// stays in memory or streams straight to the HTTP response), so it owns the full
+-    /// validate-then-save contract itself rather than following an existing file-I/O precedent.
++    /// Local-disk <see cref="IPrintImageStorage"/> implementation. This is the first component in
++    /// this codebase that writes application content to the filesystem (everything else — card
++    /// files, batch reports — stays in memory or streams straight to the HTTP response), so it
++    /// owns the full validate-then-save contract itself rather than following an existing
++    /// file-I/O precedent.
++    /// <para>
++    /// <b>Revision:</b> the physical file name is now the sanitized original client-supplied
++    /// name, not a generated GUID, and the tenant subdirectory is named after the tenant's
++    /// sanitized username, not their numeric id — see <see cref="FileSystemNameSanitizer"/>.
++    /// </para>
+     /// </summary>
+     public sealed class LocalDiskPrintImageStorage : IPrintImageStorage
+     {
+         /// <summary>
+         /// Known image-format signatures ("magic bytes"), keyed by the extension they must be
+         /// declared under. Deliberately hardcoded, not driven by
+-        /// <see cref="PrintImageOptions.AllowedExtensions"/> — see the class doc comment on
+-        /// <see cref="IPrintImageStorage"/>: an operator adding an extension to configuration
+-        /// without a matching entry here simply can never pass content validation (fails closed),
+-        /// rather than silently trusting an unverified format.
++        /// <see cref="PrintImageOptions.AllowedExtensions"/> — an operator adding an extension to
++        /// configuration without a matching entry here simply can never pass content validation
++        /// (fails closed), rather than silently trusting an unverified format.
+         /// </summary>
+         private static readonly IReadOnlyDictionary<string, byte[]> SignaturesByExtension =
+             new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+@@ -65,8 +69,6 @@ namespace InfrastructureLayer.Storage
+         /// Resolves <see cref="PrintImageOptions.RootPath"/> to an absolute path, relative to
+         /// <paramref name="environment"/>'s content root when not already absolute — the same
+         /// base Program.cs already resolves <c>LogEncryptionOptions.Directory</c> against.
+-        /// Shared between this class's constructor and Program.cs's static-file mapping so the
+-        /// two can never resolve to different physical locations.
+         /// </summary>
+         public static string ResolvePhysicalRoot(IHostEnvironment environment, PrintImageOptions options) =>
+             Path.IsPathRooted(options.RootPath)
+@@ -75,7 +77,7 @@ namespace InfrastructureLayer.Storage
+ 
+         /// <inheritdoc />
+         public async Task<Result<StoredImage>> SaveAsync(
+-            long tenantId, IFormFile file, CancellationToken cancellationToken = default)
++            string tenantFolder, IFormFile file, CancellationToken cancellationToken = default)
+         {
+             if (file is null || file.Length == 0)
+             {
+@@ -87,12 +89,10 @@ namespace InfrastructureLayer.Storage
+                 return Result.Failure<StoredImage>(PrintingErrors.PrintImageFileTooLarge(_options.MaxSizeBytes));
+             }
+ 
+-            // The client controls FileName entirely; Path.GetFileName strips any directory
+-            // component a hostile or careless client attaches, matching
+-            // BatchUploadService.SanitizeFileName's exact reasoning. Only the extension survives
+-            // into the physical name anyway (decision Q-10) — the sanitized name itself is never
+-            // persisted or written to disk.
+-            string extension = Path.GetExtension(Path.GetFileName(file.FileName));
++            // Path.GetFileName strips any directory component a hostile or careless client
++            // attaches, matching BatchUploadService.SanitizeFileName's exact reasoning.
++            string clientFileName = Path.GetFileName(file.FileName);
++            string extension = Path.GetExtension(clientFileName);
+             bool isAllowedExtension = !string.IsNullOrEmpty(extension) &&
+                 Array.Exists(_options.AllowedExtensions, e => string.Equals(e, extension, StringComparison.OrdinalIgnoreCase));
+ 
+@@ -111,13 +111,28 @@ namespace InfrastructureLayer.Storage
+                 return Result.Failure<StoredImage>(PrintingErrors.PrintImageUnsupportedContent());
+             }
+ 
+-            string storedFileName = $"{Guid.NewGuid():N}{extension.ToLowerInvariant()}";
+-            string tenantSegment = tenantId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+-            string physicalDirectory = Path.Combine(_physicalRoot, tenantSegment);
+-            string physicalPath = Path.Combine(physicalDirectory, storedFileName);
+-            // Forward slashes always, regardless of OS: this becomes a URL path segment
+-            // (PrintImageService combines it with PublicBaseUrl), never a local file path again.
+-            string storedPath = $"{tenantSegment}/{storedFileName}";
++            string? sanitizedFileName = FileSystemNameSanitizer.SanitizeFileName(clientFileName);
++            if (sanitizedFileName is null)
++            {
++                return Result.Failure<StoredImage>(PrintingErrors.PrintImageInvalidFileName());
++            }
++
++            string physicalDirectory = Path.Combine(_physicalRoot, tenantFolder);
++            string physicalPath = Path.Combine(physicalDirectory, sanitizedFileName);
++            // Forward slashes always, regardless of OS: this is stored as PrintImage.StoredPath
++            // and later re-resolved by GetPhysicalPath — never treated as a URL, since images are
++            // no longer served as static files.
++            string storedPath = $"{tenantFolder}/{sanitizedFileName}";
++
++            // Defensive: the caller (PrintImageService) already checked for a duplicate
++            // OriginalFileName in the database before calling this, but sanitization could in
++            // principle collapse two different original names to the same physical name (e.g.
++            // "café.png" and "cafe.png") — the database's uniqueness constraint is on the
++            // unsanitized name, so it would not catch that. Refuse to silently overwrite.
++            if (File.Exists(physicalPath))
++            {
++                return Result.Failure<StoredImage>(PrintingErrors.PrintImageNameConflict(sanitizedFileName));
++            }
+ 
+             try
+             {
+@@ -126,12 +141,12 @@ namespace InfrastructureLayer.Storage
+             }
+             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+             {
+-                _logger.LogError(ex, "Failed to save print image for tenant {TenantId}", tenantId);
++                _logger.LogError(ex, "Failed to save print image under tenant folder {TenantFolder}", tenantFolder);
+                 return Result.Failure<StoredImage>(PrintingErrors.PrintImageSaveFailed());
+             }
+ 
+             string contentType = ContentTypesByExtension[extension.ToLowerInvariant()];
+-            return Result.Success(new StoredImage(storedFileName, storedPath, contentType, bytes.LongLength));
++            return Result.Success(new StoredImage(sanitizedFileName, storedPath, contentType, bytes.LongLength));
+         }
+ 
+         /// <inheritdoc />
+@@ -142,10 +157,7 @@ namespace InfrastructureLayer.Storage
+                 return Task.CompletedTask;
+             }
+ 
+-            // storedPath is always a value this class generated and the caller read back from
+-            // PrintImage.StoredPath — never client input — so no path-traversal guard is needed
+-            // beyond the normal Path.Combine behavior.
+-            string physicalPath = Path.Combine(_physicalRoot, storedPath.Replace('/', Path.DirectorySeparatorChar));
++            string physicalPath = GetPhysicalPath(storedPath);
+ 
+             try
+             {
+@@ -163,6 +175,38 @@ namespace InfrastructureLayer.Storage
+             return Task.CompletedTask;
+         }
+ 
++        /// <inheritdoc />
++        public string GetPhysicalPath(string storedPath) =>
++            // storedPath is always a value this class generated (or the migration produced) and
++            // the caller read back from PrintImage.StoredPath — never client input — so no
++            // path-traversal guard is needed beyond the normal Path.Combine behavior.
++            Path.Combine(_physicalRoot, storedPath.Replace('/', Path.DirectorySeparatorChar));
++
++        /// <inheritdoc />
++        public Task<bool> MoveAsync(
++            string oldRelativePath, string newRelativePath, CancellationToken cancellationToken = default)
++        {
++            string oldPhysicalPath = GetPhysicalPath(oldRelativePath);
++            string newPhysicalPath = GetPhysicalPath(newRelativePath);
++
++            if (!File.Exists(oldPhysicalPath) || File.Exists(newPhysicalPath))
++            {
++                return Task.FromResult(false);
++            }
++
++            try
++            {
++                Directory.CreateDirectory(Path.GetDirectoryName(newPhysicalPath)!);
++                File.Move(oldPhysicalPath, newPhysicalPath);
++                return Task.FromResult(true);
++            }
++            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
++            {
++                _logger.LogWarning(ex, "Failed to move print image from {Old} to {New}", oldRelativePath, newRelativePath);
++                return Task.FromResult(false);
++            }
++        }
++
+         private static bool MatchesSignature(byte[] bytes, string extension)
+         {
+             if (!SignaturesByExtension.TryGetValue(extension, out byte[]? signature))
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/PrintImagesController.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/PrintImagesController.cs
+index 42162f3..3770a79 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/PrintImagesController.cs
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/PrintImagesController.cs
+@@ -2,6 +2,7 @@ using System.Threading;
+ using System.Threading.Tasks;
+ using ApplicationLayer.DTOs.Printing;
+ using ApplicationLayer.ServicesContracts;
++using DomainLayer.Common;
+ using InventoryManagmentAndInstanceIssuancePresentationLayer.Common;
+ using Microsoft.AspNetCore.Authorization;
+ using Microsoft.AspNetCore.Http;
+@@ -10,11 +11,11 @@ using Microsoft.AspNetCore.Mvc;
+ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+ {
+     /// <summary>
+-    /// Print-configuration image upload endpoint (module requirements §5–§7, Printing Module
+-    /// decision Q-10). Requires authentication; the uploading tenant is resolved from the
+-    /// caller's token by <see cref="IPrintImageService"/> itself, not by this controller — a
+-    /// system-admin token is rejected there, the same way <c>InventoryController.Upload</c>
+-    /// rejects one for batch uploads.
++    /// Print-image endpoints (revision, "Print Images &amp; Product Print Configuration" change
++    /// request). Upload, replace, and migration are system-admin only — reversed from the
++    /// original design, where only tenants could upload. Retrieval is open to both roles, scoped
++    /// to the caller's own tenant for a tenant caller. Every image is served through
++    /// <see cref="Get"/>; there is no public static-file path for this content any more.
+     /// </summary>
+     /// <response code="401">No valid bearer token was supplied.</response>
+     [ApiController]
+@@ -30,18 +31,88 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         public PrintImagesController(IServiceManager services) => _services = services;
+ 
+         /// <summary>
+-        /// Uploads a print-configuration image. The client stores only the returned
+-        /// <c>imagePath</c> onto a product's print configuration (module requirement §5); it
+-        /// never constructs or guesses that path itself. If a non-deleted image with the same
+-        /// original file name already exists for the caller's tenant, it is replaced and the
+-        /// response carries a non-null <c>warning</c> — this is not a failure.
++        /// Uploads a print image for a tenant (system-admin only; <c>TenantId</c> is required in
++        /// the form data). Create-only: if a non-deleted image with the same original file name
++        /// already exists for that tenant, nothing is saved and the response is
++        /// <c>409 Conflict</c> carrying the <em>existing</em> image's metadata, so the caller can
++        /// choose to keep it as-is or call <see cref="Replace"/> explicitly.
+         /// </summary>
+         [HttpPost]
+         [Consumes("multipart/form-data")]
+-        [ProducesResponseType(typeof(ApiResponse<PrintImageUploadResult>), StatusCodes.Status200OK)]
++        [ProducesResponseType(typeof(ApiResponse<PrintImageResponse>), StatusCodes.Status200OK)]
++        [ProducesResponseType(typeof(ApiResponse<PrintImageResponse>), StatusCodes.Status409Conflict)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
+         public async Task<IActionResult> Upload(
+             [FromForm] UploadPrintImageRequest request, CancellationToken cancellationToken)
+-            => (await _services.PrintImages.UploadAsync(request, cancellationToken)).ToActionResult(this);
++        {
++            Result<UploadPrintImageResult> result = await _services.PrintImages.UploadAsync(request, cancellationToken);
++            if (result.IsFailure)
++            {
++                return result.ToActionResult(this);
++            }
++
++            UploadPrintImageResult upload = result.Value;
++            if (!upload.Created)
++            {
++                // Not an Error — ToActionResult's status mapping is driven entirely by
++                // ErrorCategory and only ever applies to a failed Result, so a genuinely
++                // successful-but-not-created outcome (the existing image's own metadata) is
++                // built directly here rather than forcing it through that path.
++                var body = ApiResponse<PrintImageResponse>.Ok(upload.Image, HttpContext.TraceIdentifier);
++                return new ObjectResult(body) { StatusCode = StatusCodes.Status409Conflict };
++            }
++
++            return Result.Success(upload.Image).ToActionResult(this);
++        }
++
++        /// <summary>
++        /// Explicitly replaces an existing image's content, in place (system-admin only) — same
++        /// id, new bytes. Any product print configuration already referencing this
++        /// <c>ImageId</c> is unaffected, since the id never changes.
++        /// </summary>
++        [HttpPut("{id:long}")]
++        [Consumes("multipart/form-data")]
++        [ProducesResponseType(typeof(ApiResponse<PrintImageResponse>), StatusCodes.Status200OK)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
++        public async Task<IActionResult> Replace(
++            long id, [FromForm] ReplacePrintImageRequest request, CancellationToken cancellationToken)
++            => (await _services.PrintImages.ReplaceAsync(id, request, cancellationToken)).ToActionResult(this);
++
++        /// <summary>
++        /// Streams a print image's bytes. Both roles may call this; a tenant caller may only
++        /// retrieve images belonging to their own tenant. This is the only way to fetch an
++        /// image's content — there is no public static-file URL for it any more.
++        /// </summary>
++        [HttpGet("{id:long}")]
++        [Produces("image/png", "image/jpeg")]
++        [ProducesResponseType(StatusCodes.Status200OK)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
++        public async Task<IActionResult> Get(long id, CancellationToken cancellationToken)
++        {
++            Result<PrintImageContent> result = await _services.PrintImages.GetContentAsync(id, cancellationToken);
++            if (result.IsFailure)
++            {
++                return result.ToActionResult(this);
++            }
++
++            PrintImageContent content = result.Value;
++            return PhysicalFile(content.PhysicalPath, content.ContentType, content.FileName);
++        }
++
++        /// <summary>
++        /// One-time, admin-triggered, idempotent migration of images uploaded under the original
++        /// scheme (GUID physical name, tenant-id folder) to the current scheme (sanitized original
++        /// name, tenant-username folder). Safe to run more than once — already-migrated rows are
++        /// left alone.
++        /// </summary>
++        [HttpPost("migrate-legacy-storage")]
++        [ProducesResponseType(typeof(ApiResponse<MigrateLegacyImagesResult>), StatusCodes.Status200OK)]
++        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
++        public async Task<IActionResult> MigrateLegacyStorage(CancellationToken cancellationToken)
++            => (await _services.PrintImages.MigrateLegacyImagesAsync(cancellationToken)).ToActionResult(this);
+     }
+ }
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Program.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Program.cs
+index d05327e..4c613a4 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Program.cs
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Program.cs
+@@ -2,15 +2,12 @@ using ApplicationLayer.Options;
+ using InfrastructureLayer;
+ using InfrastructureLayer.Data;
+ using InfrastructureLayer.Logging;
+-using InfrastructureLayer.Storage;
+ using InventoryManagmentAndInstanceIssuancePresentationLayer.Common;
+ using InventoryManagmentAndInstanceIssuancePresentationLayer.Filters;
+ using InventoryManagmentAndInstanceIssuancePresentationLayer.Middleware;
+ using InventoryManagmentAndInstanceIssuancePresentationLayer.Security;
+ using InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger;
+ using Microsoft.AspNetCore.Mvc;
+-using Microsoft.Extensions.FileProviders;
+-using Microsoft.Extensions.Options;
+ using Microsoft.OpenApi.Models;
+ using Serilog;
+ using Serilog.Events;
+@@ -134,29 +131,14 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
+ 
+             app.UseHttpsRedirection();
+ 
+-            // Printing Module, Phase 4: serves uploaded print-configuration images at
+-            // PrintImageOptions.PublicBaseUrl, mapped directly to the resolved physical root -
+-            // LocalDiskPrintImageStorage.ResolvePhysicalRoot, so this can never point somewhere
+-            // different from where uploads are actually written. Deliberately its own
+-            // StaticFileOptions rather than a default app.UseStaticFiles() over wwwroot: uploaded
+-            // tenant content stays out of the wwwroot tree entirely, and this mapping still works
+-            // if the app has no wwwroot at all.
+-            // Unauthenticated by design, like any other static-file middleware - it runs outside
+-            // the MVC pipeline, before [Authorize] would apply. The physical file name is an
+-            // unguessable GUID and the path embeds no other tenant data, so this is the same
+-            // security posture as any link-shared asset. Flagged: if these images need to be
+-            // access-controlled instead, this needs a dedicated authenticated endpoint rather
+-            // than static-file middleware.
+-            PrintImageOptions printImageOptions =
+-                app.Services.GetRequiredService<IOptions<PrintImageOptions>>().Value;
+-            string printImagePhysicalRoot =
+-                LocalDiskPrintImageStorage.ResolvePhysicalRoot(app.Environment, printImageOptions);
+-            Directory.CreateDirectory(printImagePhysicalRoot);
+-            app.UseStaticFiles(new StaticFileOptions
+-            {
+-                FileProvider = new PhysicalFileProvider(printImagePhysicalRoot),
+-                RequestPath = printImageOptions.PublicBaseUrl,
+-            });
++            // Revision, "Print Images & Product Print Configuration" change request: the
++            // unauthenticated static-file mount that used to serve print images here is removed.
++            // Folders are now named after the tenant's username and files keep their original
++            // names (points 2/3 of that change request), which makes physical paths guessable in
++            // a way the previous GUID-named/tenant-id-foldered scheme wasn't - serving them
++            // without an auth check was no longer safe. Every retrieval now goes through
++            // GET /api/print-images/{id} (PrintImagesController), which checks tenant ownership
++            // server-side before streaming a single byte.
+ 
+             // Authentication must run before authorization so the principal is established first.
+             app.UseAuthentication();
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+index bdf9c45..8372539 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.ar.resx
+@@ -528,6 +528,21 @@
+   <data name="ProductPrintConfig.InvalidHexColor" xml:space="preserve">
+     <value>'{0}' مش لون HEX صحيح. استخدم الصيغة #RRGGBB أو #RRGGBBAA.</value>
+   </data>
++  <data name="ProductPrintConfig.ImageNotFound" xml:space="preserve">
++    <value>مفيش صورة طباعة بالرقم {0}.</value>
++  </data>
++  <data name="PrintImage.OnlySystemAdmin" xml:space="preserve">
++    <value>الأدمن بس اللي يقدر يرفع أو يستبدل أو يهجّر صور الطباعة.</value>
++  </data>
++  <data name="PrintImage.TenantRequired" xml:space="preserve">
++    <value>لازم تحدد رقم العميل لما ترفع صورة طباعة كأدمن.</value>
++  </data>
++  <data name="PrintImage.TargetTenantNotFound" xml:space="preserve">
++    <value>مفيش عميل بالرقم {0}.</value>
++  </data>
++  <data name="PrintImage.NotFound" xml:space="preserve">
++    <value>مفيش صورة طباعة بالرقم {0}.</value>
++  </data>
+   <data name="PrintImage.FileMissing" xml:space="preserve">
+     <value>مفيش صورة اتبعتت.</value>
+   </data>
+@@ -540,8 +555,11 @@
+   <data name="PrintImage.UnsupportedContent" xml:space="preserve">
+     <value>محتوى الملف اللي اتبعت مش متطابق مع صيغة صورة مدعومة.</value>
+   </data>
+-  <data name="PrintImage.ActorNotResolved" xml:space="preserve">
+-    <value>معرفناش مين اللي بيستخدم النظام دلوقتي.</value>
++  <data name="PrintImage.InvalidFileName" xml:space="preserve">
++    <value>اسم الملف ده مينفعش يتستخدم. غيّر اسم الملف وجرب تاني.</value>
++  </data>
++  <data name="PrintImage.NameConflict" xml:space="preserve">
++    <value>فيه صورة تانية اسمها '{0}' موجودة بالفعل للعميل ده.</value>
+   </data>
+   <data name="PrintImage.SaveFailed" xml:space="preserve">
+     <value>معرفناش نحفظ الصورة. جرب تاني.</value>
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+index 71fb159..260edc3 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Resources/Localization/Messages.resx
+@@ -528,6 +528,21 @@
+   <data name="ProductPrintConfig.InvalidHexColor" xml:space="preserve">
+     <value>'{0}' is not a valid HEX color. Use the form #RRGGBB or #RRGGBBAA.</value>
+   </data>
++  <data name="ProductPrintConfig.ImageNotFound" xml:space="preserve">
++    <value>No print image exists with id {0}.</value>
++  </data>
++  <data name="PrintImage.OnlySystemAdmin" xml:space="preserve">
++    <value>Only a system administrator can upload, replace, or migrate print images.</value>
++  </data>
++  <data name="PrintImage.TenantRequired" xml:space="preserve">
++    <value>A target tenant id is required when uploading a print image as a system administrator.</value>
++  </data>
++  <data name="PrintImage.TargetTenantNotFound" xml:space="preserve">
++    <value>No tenant exists with id {0}.</value>
++  </data>
++  <data name="PrintImage.NotFound" xml:space="preserve">
++    <value>No print image was found with id {0}.</value>
++  </data>
+   <data name="PrintImage.FileMissing" xml:space="preserve">
+     <value>No image file was supplied.</value>
+   </data>
+@@ -540,8 +555,11 @@
+   <data name="PrintImage.UnsupportedContent" xml:space="preserve">
+     <value>The uploaded file's content does not match a supported image format.</value>
+   </data>
+-  <data name="PrintImage.ActorNotResolved" xml:space="preserve">
+-    <value>The acting principal could not be resolved.</value>
++  <data name="PrintImage.InvalidFileName" xml:space="preserve">
++    <value>The file name could not be used. Please rename the file and try again.</value>
++  </data>
++  <data name="PrintImage.NameConflict" xml:space="preserve">
++    <value>Another image named '{0}' already exists for this tenant.</value>
+   </data>
+   <data name="PrintImage.SaveFailed" xml:space="preserve">
+     <value>The image could not be saved. Please try again.</value>
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/appsettings.json b/InventoryManagmentAndInstanceIssuancePresentationLayer/appsettings.json
+index 8369362..5494d27 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/appsettings.json
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/appsettings.json
+@@ -14,7 +14,6 @@
+   },
+   "PrintImages": {
+     "RootPath": "uploads/products",
+-    "PublicBaseUrl": "/uploads/products",
+     "MaxSizeBytes": 5242880,
+     "AllowedExtensions": [ ".png", ".jpg", ".jpeg" ]
+   },
+-- 
+2.43.0
+

@@ -41,14 +41,20 @@ namespace InfrastructureLayer.Services
 
             if (usingPrinterType == UsingPrinterType.Matica)
             {
+                Result imageCheck = await ValidateImageIdAsync(tenantId, matica!.ImageId, cancellationToken);
+                if (imageCheck.IsFailure)
+                {
+                    return Result.Failure<ValidatedProductPrintConfig>(imageCheck.Error);
+                }
+
                 var entity = new MaticaProductPrintConfiguration
                 {
                     TenantId = tenantId,
-                    Cpi = matica!.Cpi,
+                    Cpi = matica.Cpi,
                     FontSize = matica.FontSize,
                     OffsetX = matica.OffsetX,
                     OffsetY = matica.OffsetY,
-                    ImagePath = matica.ImagePath,
+                    ImageId = matica.ImageId,
                 };
 
                 return Result.Success(new ValidatedProductPrintConfig(usingPrinterType, entity, null));
@@ -73,6 +79,12 @@ namespace InfrastructureLayer.Services
                     PrintingErrors.ProductPrintConfigInvalidHexColor(evolis.BackgroundColor));
             }
 
+            Result evolisImageCheck = await ValidateImageIdAsync(tenantId, evolis.ImageId, cancellationToken);
+            if (evolisImageCheck.IsFailure)
+            {
+                return Result.Failure<ValidatedProductPrintConfig>(evolisImageCheck.Error);
+            }
+
             var evolisEntity = new EvolisProductPrintConfiguration
             {
                 TenantId = tenantId,
@@ -86,7 +98,7 @@ namespace InfrastructureLayer.Services
                 PrintColor = evolis.PrintColor,
                 BackgroundColor = evolis.BackgroundColor,
                 FontStyle = evolis.FontStyle,
-                ImagePath = evolis.ImagePath,
+                ImageId = evolis.ImageId,
             };
 
             return Result.Success(new ValidatedProductPrintConfig(usingPrinterType, null, evolisEntity));
@@ -144,7 +156,7 @@ namespace InfrastructureLayer.Services
                     existing.FontSize = validated.Matica.FontSize;
                     existing.OffsetX = validated.Matica.OffsetX;
                     existing.OffsetY = validated.Matica.OffsetY;
-                    existing.ImagePath = validated.Matica.ImagePath;
+                    existing.ImageId = validated.Matica.ImageId;
                     _unitOfWork.MaticaProductPrintConfigs.Update(existing);
                 }
 
@@ -182,7 +194,7 @@ namespace InfrastructureLayer.Services
                 existingEvolis.PrintColor = validated.Evolis.PrintColor;
                 existingEvolis.BackgroundColor = validated.Evolis.BackgroundColor;
                 existingEvolis.FontStyle = validated.Evolis.FontStyle;
-                existingEvolis.ImagePath = validated.Evolis.ImagePath;
+                existingEvolis.ImageId = validated.Evolis.ImageId;
                 _unitOfWork.EvolisProductPrintConfigs.Update(existingEvolis);
             }
 
@@ -246,6 +258,27 @@ namespace InfrastructureLayer.Services
                 evolis.DeletedBy = null;
                 _unitOfWork.EvolisProductPrintConfigs.Update(evolis);
             }
+        }
+
+        /// <summary>
+        /// When <paramref name="imageId"/> is supplied, confirms it references a real
+        /// <see cref="PrintImage"/> belonging to <paramref name="tenantId"/> (revision, "Print
+        /// Images &amp; Product Print Configuration" change request, point 6: <c>ImageId</c> is
+        /// now a real foreign key, not a trusted bare string, so it gets the same existence check
+        /// <see cref="ValidateAsync"/> already applies to <c>RibbonTypeId</c>). <c>null</c> is
+        /// always valid — a configuration may exist before an image is attached.
+        /// </summary>
+        private async Task<Result> ValidateImageIdAsync(long tenantId, long? imageId, CancellationToken cancellationToken)
+        {
+            if (imageId is not long id)
+            {
+                return Result.Success();
+            }
+
+            PrintImage? image = await _unitOfWork.PrintImages.GetByIdAsync(id, cancellationToken);
+            return image is null || image.TenantId != tenantId
+                ? Result.Failure(PrintingErrors.ProductPrintConfigImageNotFound(id))
+                : Result.Success();
         }
 
         /// <summary>

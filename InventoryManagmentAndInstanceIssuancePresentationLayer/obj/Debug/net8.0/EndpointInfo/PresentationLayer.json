@@ -3106,6 +3106,126 @@
                   "File": {
                     "type": "string",
                     "format": "binary"
+                  },
+                  "TenantId": {
+                    "type": "integer",
+                    "format": "int64"
+                  }
+                }
+              },
+              "encoding": {
+                "File": {
+                  "style": "form"
+                },
+                "TenantId": {
+                  "style": "form"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrintImageResponseApiResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrintImageResponseApiResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/print-images/{id}": {
+      "put": {
+        "tags": [
+          "PrintImages"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "Accept-Language",
+            "in": "header",
+            "description": "Response language: 'en' (default) or 'ar'.",
+            "schema": {
+              "enum": [
+                "en",
+                "ar"
+              ],
+              "type": "string",
+              "default": "en"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "File": {
+                    "type": "string",
+                    "format": "binary"
                   }
                 }
               },
@@ -3143,13 +3263,201 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PrintImageUploadResultApiResponse"
+                  "$ref": "#/components/schemas/PrintImageResponseApiResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
                 }
               }
             }
           },
           "422": {
             "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "PrintImages"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "Accept-Language",
+            "in": "header",
+            "description": "Response language: 'en' (default) or 'ar'.",
+            "schema": {
+              "enum": [
+                "en",
+                "ar"
+              ],
+              "type": "string",
+              "default": "en"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/print-images/migrate-legacy-storage": {
+      "post": {
+        "tags": [
+          "PrintImages"
+        ],
+        "parameters": [
+          {
+            "name": "Accept-Language",
+            "in": "header",
+            "description": "Response language: 'en' (default) or 'ar'.",
+            "schema": {
+              "enum": [
+                "en",
+                "ar"
+              ],
+              "type": "string",
+              "default": "en"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MigrateLegacyImagesResultApiResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
             "content": {
               "application/json": {
                 "schema": {
@@ -6916,8 +7224,9 @@
             "type": "string",
             "nullable": true
           },
-          "imagePath": {
-            "type": "string",
+          "imageId": {
+            "type": "integer",
+            "format": "int64",
             "nullable": true
           }
         },
@@ -6968,8 +7277,9 @@
             "type": "string",
             "nullable": true
           },
-          "imagePath": {
-            "type": "string",
+          "imageId": {
+            "type": "integer",
+            "format": "int64",
             "nullable": true
           }
         },
@@ -7004,8 +7314,9 @@
             "type": "integer",
             "format": "int32"
           },
-          "imagePath": {
-            "type": "string",
+          "imageId": {
+            "type": "integer",
+            "format": "int64",
             "nullable": true
           }
         },
@@ -7030,8 +7341,9 @@
             "type": "integer",
             "format": "int32"
           },
-          "imagePath": {
-            "type": "string",
+          "imageId": {
+            "type": "integer",
+            "format": "int64",
             "nullable": true
           }
         },
@@ -7081,6 +7393,46 @@
         },
         "additionalProperties": false
       },
+      "MigrateLegacyImagesResult": {
+        "type": "object",
+        "properties": {
+          "migrated": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "alreadyCurrent": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "MigrateLegacyImagesResultApiResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MigrateLegacyImagesResult"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
       "ObjectApiResponse": {
         "type": "object",
         "properties": {
@@ -7096,28 +7448,44 @@
         },
         "additionalProperties": false
       },
-      "PrintImageUploadResult": {
+      "PrintImageResponse": {
         "type": "object",
         "properties": {
-          "imagePath": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "tenantId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "originalFileName": {
             "type": "string",
             "nullable": true
           },
-          "warning": {
+          "contentType": {
             "type": "string",
             "nullable": true
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "uploadedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "additionalProperties": false
       },
-      "PrintImageUploadResultApiResponse": {
+      "PrintImageResponseApiResponse": {
         "type": "object",
         "properties": {
           "success": {
             "type": "boolean"
           },
           "data": {
-            "$ref": "#/components/schemas/PrintImageUploadResult"
+            "$ref": "#/components/schemas/PrintImageResponse"
           },
           "error": {
             "$ref": "#/components/schemas/ApiError"

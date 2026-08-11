@@ -120,7 +120,7 @@ namespace InfrastructureLayer.Services
             {
                 var maticaResponse = new MaticaPrintConfigResponse(
                     validated.Matica.Cpi, validated.Matica.FontSize,
-                    validated.Matica.OffsetX, validated.Matica.OffsetY, validated.Matica.ImagePath);
+                    validated.Matica.OffsetX, validated.Matica.OffsetY, validated.Matica.ImageId);
 
                 return new ProductPrintConfigResponse(productId, validated.UsingPrinterType, maticaResponse, null);
             }
@@ -143,7 +143,7 @@ namespace InfrastructureLayer.Services
                 evolis.PrintColor,
                 evolis.BackgroundColor,
                 evolis.FontStyle,
-                evolis.ImagePath);
+                evolis.ImageId);
 
             return new ProductPrintConfigResponse(productId, validated.UsingPrinterType, null, evolisResponse);
         }
@@ -179,7 +179,7 @@ namespace InfrastructureLayer.Services
                 }
 
                 var maticaResponse = new MaticaPrintConfigResponse(
-                    matica.Cpi, matica.FontSize, matica.OffsetX, matica.OffsetY, matica.ImagePath);
+                    matica.Cpi, matica.FontSize, matica.OffsetX, matica.OffsetY, matica.ImageId);
 
                 return new ProductPrintConfigResponse(product.Id, product.UsingPrinterType, maticaResponse, null);
             }
@@ -205,7 +205,7 @@ namespace InfrastructureLayer.Services
                 evolis.PrintColor,
                 evolis.BackgroundColor,
                 evolis.FontStyle,
-                evolis.ImagePath);
+                evolis.ImageId);
 
             return new ProductPrintConfigResponse(product.Id, product.UsingPrinterType, null, evolisResponse);
         }

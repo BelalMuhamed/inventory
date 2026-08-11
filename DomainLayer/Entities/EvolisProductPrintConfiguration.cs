@@ -65,10 +65,11 @@ namespace DomainLayer.Entities
         public string FontStyle { get; set; } = string.Empty;
 
         /// <summary>
-        /// Server-local path to the print image (app-pool readable), returned by the image-upload
-        /// endpoint (module requirement §5). Null until an image has been uploaded and attached
-        /// to this configuration.
+        /// The print image for this configuration (FK → PrintImages.Id). Null until an image has
+        /// been uploaded and attached. Replaces the earlier bare <c>ImagePath</c> string (single
+        /// source of truth: <see cref="PrintImage"/> owns the image's metadata and physical
+        /// location; this table only references it by id).
         /// </summary>
-        public string? ImagePath { get; set; }
+        public long? ImageId { get; set; }
     }
 }

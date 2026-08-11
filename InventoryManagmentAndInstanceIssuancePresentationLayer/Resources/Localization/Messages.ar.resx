@@ -528,6 +528,21 @@
   <data name="ProductPrintConfig.InvalidHexColor" xml:space="preserve">
     <value>'{0}' مش لون HEX صحيح. استخدم الصيغة #RRGGBB أو #RRGGBBAA.</value>
   </data>
+  <data name="ProductPrintConfig.ImageNotFound" xml:space="preserve">
+    <value>مفيش صورة طباعة بالرقم {0}.</value>
+  </data>
+  <data name="PrintImage.OnlySystemAdmin" xml:space="preserve">
+    <value>الأدمن بس اللي يقدر يرفع أو يستبدل أو يهجّر صور الطباعة.</value>
+  </data>
+  <data name="PrintImage.TenantRequired" xml:space="preserve">
+    <value>لازم تحدد رقم العميل لما ترفع صورة طباعة كأدمن.</value>
+  </data>
+  <data name="PrintImage.TargetTenantNotFound" xml:space="preserve">
+    <value>مفيش عميل بالرقم {0}.</value>
+  </data>
+  <data name="PrintImage.NotFound" xml:space="preserve">
+    <value>مفيش صورة طباعة بالرقم {0}.</value>
+  </data>
   <data name="PrintImage.FileMissing" xml:space="preserve">
     <value>مفيش صورة اتبعتت.</value>
   </data>
@@ -540,8 +555,11 @@
   <data name="PrintImage.UnsupportedContent" xml:space="preserve">
     <value>محتوى الملف اللي اتبعت مش متطابق مع صيغة صورة مدعومة.</value>
   </data>
-  <data name="PrintImage.ActorNotResolved" xml:space="preserve">
-    <value>معرفناش مين اللي بيستخدم النظام دلوقتي.</value>
+  <data name="PrintImage.InvalidFileName" xml:space="preserve">
+    <value>اسم الملف ده مينفعش يتستخدم. غيّر اسم الملف وجرب تاني.</value>
+  </data>
+  <data name="PrintImage.NameConflict" xml:space="preserve">
+    <value>فيه صورة تانية اسمها '{0}' موجودة بالفعل للعميل ده.</value>
   </data>
   <data name="PrintImage.SaveFailed" xml:space="preserve">
     <value>معرفناش نحفظ الصورة. جرب تاني.</value>
