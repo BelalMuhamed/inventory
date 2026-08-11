@@ -29,5 +29,7 @@
         IBranchRequestService BranchRequests { get; }
         /// <summary>Print-configuration image upload use case (module requirements §5–§7, Printing Module Q-10).</summary>
         IPrintImageService PrintImages { get; }
+        /// <summary>Printer registry management use cases (ERD §6, Printing Module Q-01/Q-09).</summary>
+        IPrinterConfigurationService Printers { get; }
     }
 }

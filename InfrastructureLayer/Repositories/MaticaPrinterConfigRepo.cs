@@ -18,6 +18,11 @@ namespace InfrastructureLayer.Repositories
             long printerId, CancellationToken cancellationToken = default) =>
             Set.FirstOrDefaultAsync(m => m.PrinterId == printerId, cancellationToken);
 
+        public Task<MaticaPrinterConfiguration?> GetByPrinterIdIncludingDeletedAsync(
+            long printerId, CancellationToken cancellationToken = default) =>
+            Context.Set<MaticaPrinterConfiguration>().IgnoreQueryFilters()
+                .FirstOrDefaultAsync(m => m.PrinterId == printerId, cancellationToken);
+
         public async Task<IReadOnlyDictionary<long, MaticaPrinterConfiguration>> GetByPrinterIdsAsync(
             IEnumerable<long> printerIds, CancellationToken cancellationToken = default)
         {

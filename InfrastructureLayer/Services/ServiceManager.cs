@@ -21,6 +21,7 @@ namespace InfrastructureLayer.Services
         private readonly Lazy<IDisposalService> _disposals;
         private readonly Lazy<IBranchRequestService> _branchRequests;
         private readonly Lazy<IPrintImageService> _printImages;
+        private readonly Lazy<IPrinterConfigurationService> _printers;
 
         public ServiceManager(
             Func<IAuthService> authFactory,
@@ -34,7 +35,8 @@ namespace InfrastructureLayer.Services
             Func<ITransferService> transferFactory,
             Func<IDisposalService> disposalFactory,
             Func<IBranchRequestService> branchRequestFactory,
-            Func<IPrintImageService> printImageFactory)
+            Func<IPrintImageService> printImageFactory,
+            Func<IPrinterConfigurationService> printerFactory)
         {
             _auth = new Lazy<IAuthService>(authFactory);
             _tenants = new Lazy<ITenantService>(tenantFactory);
@@ -48,6 +50,7 @@ namespace InfrastructureLayer.Services
             _disposals = new Lazy<IDisposalService>(disposalFactory);
             _branchRequests = new Lazy<IBranchRequestService>(branchRequestFactory);
             _printImages = new Lazy<IPrintImageService>(printImageFactory);
+            _printers = new Lazy<IPrinterConfigurationService>(printerFactory);
         }
 
         public IAuthService Auth => _auth.Value;
@@ -62,5 +65,6 @@ namespace InfrastructureLayer.Services
         public IDisposalService Disposals => _disposals.Value;
         public IBranchRequestService BranchRequests => _branchRequests.Value;
         public IPrintImageService PrintImages => _printImages.Value;
+        public IPrinterConfigurationService Printers => _printers.Value;
     }
 }

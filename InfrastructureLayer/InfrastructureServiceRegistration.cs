@@ -129,6 +129,10 @@ namespace InfrastructureLayer
             services.AddScoped<IPrintImageService, PrintImageService>();
             services.AddScoped<System.Func<IPrintImageService>>(sp => sp.GetRequiredService<IPrintImageService>);
 
+            // Printing Module, Phase 5.
+            services.AddScoped<IPrinterConfigurationService, PrinterConfigurationService>();
+            services.AddScoped<System.Func<IPrinterConfigurationService>>(sp => sp.GetRequiredService<IPrinterConfigurationService>);
+
             return services;
 
            

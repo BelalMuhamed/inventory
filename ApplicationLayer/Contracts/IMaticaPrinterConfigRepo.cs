@@ -15,6 +15,17 @@ namespace ApplicationLayer.Contracts
         Task<MaticaPrinterConfiguration?> GetByPrinterIdAsync(long printerId, CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// Finds the Matica configuration for one printer, including a soft-deleted row (unlike
+        /// <see cref="GetByPrinterIdAsync"/>, which respects the standard IsDeleted query
+        /// filter). <c>PrinterId</c> is uniquely constrained unconditionally — even a
+        /// soft-deleted row still occupies it — so restoring a printer, or self-healing an
+        /// inconsistent update, must find that row rather than risk inserting a duplicate that
+        /// would fail the unique constraint.
+        /// </summary>
+        Task<MaticaPrinterConfiguration?> GetByPrinterIdIncludingDeletedAsync(
+            long printerId, CancellationToken cancellationToken = default);
+
+        /// <summary>
         /// Bulk-loads Matica configurations for a set of printers in one query, keyed by
         /// <see cref="MaticaPrinterConfiguration.PrinterId"/> — backs
         /// <see cref="IPrinterRepo.GetPagedAsync"/>'s response assembly without an N+1 query per

@@ -21,6 +21,19 @@ namespace DomainLayer.Entities
         /// <summary>Owning printer id (FK → Printers.Id). Unique — enforces the 1:1 relationship.</summary>
         public long PrinterId { get; set; }
 
+        /// <summary>
+        /// Navigation to the owning printer. Added in P5: <c>PrinterConfigurationService</c>
+        /// inserts a new printer and its Matica configuration in the same
+        /// <c>ExecuteInTransactionAsync</c> call, so <see cref="PrinterId"/> does not exist yet
+        /// when the configuration object is built — EF Core needs this navigation to fix up the
+        /// foreign key from the printer's generated identity once the single <c>SaveChanges</c>
+        /// call actually runs. Set <see cref="Printer"/> (not <see cref="PrinterId"/> directly)
+        /// when creating a new Matica printer; the reverse is fine once the printer already has a
+        /// real id. Metadata only: no new column, no migration required beyond what P1 already
+        /// produced.
+        /// </summary>
+        public Printer Printer { get; set; } = null!;
+
         /// <summary>Matica feeder identifier.</summary>
         public int FeederId { get; set; }
 

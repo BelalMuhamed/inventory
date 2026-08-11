@@ -785,6 +785,15 @@ namespace InfrastructureLayer.Data
         /// aggregate (the Matica row is a detail extension of its printer, not a reference to a
         /// separate aggregate root) — the same reasoning already applied to
         /// <c>BranchRequestItem.RequestId</c> and <c>CardDisposalItem.CardDisposalId</c>.
+        /// <para>
+        /// <b>P5 addition:</b> <see cref="Printer.Branch"/> and
+        /// <see cref="MaticaPrinterConfiguration.Printer"/> are navigation properties added after
+        /// P1 shipped, to let <c>PrinterRepo</c> eager-load branch names and to let
+        /// <c>PrinterConfigurationService</c> insert a printer and its Matica configuration in
+        /// one <c>SaveChanges</c> call (EF Core fixes up the configuration's FK from the
+        /// printer's generated identity via the navigation). Both foreign keys already existed as
+        /// scalar columns since P1 — this changes only in-memory relationship metadata, not the
+        /// schema, so it produces no new migration.
         /// </para>
         /// </summary>
         private static void ConfigurePrinterRegistry(ModelBuilder modelBuilder)
@@ -804,7 +813,7 @@ namespace InfrastructureLayer.Data
                       .HasForeignKey(p => p.TenantId)
                       .OnDelete(DeleteBehavior.NoAction);
 
-                entity.HasOne<Branch>()
+                entity.HasOne(p => p.Branch)
                       .WithMany()
                       .HasForeignKey(p => p.BranchId)
                       .OnDelete(DeleteBehavior.NoAction);
@@ -833,7 +842,7 @@ namespace InfrastructureLayer.Data
 
                 entity.Property(m => m.Port).IsRequired().HasMaxLength(50);
 
-                entity.HasOne<Printer>()
+                entity.HasOne(m => m.Printer)
                       .WithOne()
                       .HasForeignKey<MaticaPrinterConfiguration>(m => m.PrinterId)
                       .OnDelete(DeleteBehavior.Cascade);

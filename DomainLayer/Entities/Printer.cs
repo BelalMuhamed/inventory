@@ -27,6 +27,14 @@ namespace DomainLayer.Entities
         /// <summary>Branch this printer is physically located at (FK → Branches.Id).</summary>
         public long BranchId { get; set; }
 
+        /// <summary>
+        /// Navigation to the owning branch. Added in P5 (Printer registry service) so
+        /// <c>PrinterRepo</c> can eager-load it for <c>PrinterResponse.BranchName</c> — the same
+        /// reasoning as <see cref="BranchRequestItem.Product"/>. Metadata only: no new column, no
+        /// migration required beyond what P1 already produced.
+        /// </summary>
+        public Branch Branch { get; set; } = null!;
+
         /// <summary>Printer family (ERD §6.1, §8). Drives which extension table, if any, applies.</summary>
         public UsingPrinterType UsingPrinterType { get; set; }
 

@@ -21,8 +21,11 @@ namespace InfrastructureLayer.Repositories
         public async Task<(IReadOnlyList<Printer> Items, int TotalCount)> GetPagedAsync(
             long? tenantScopeId, PrinterListFilter filter, CancellationToken cancellationToken = default)
         {
-            // Ignore the global soft-delete filter so the tri-state IsDeleted can be applied explicitly.
-            IQueryable<Printer> query = _context.Set<Printer>().IgnoreQueryFilters().AsNoTracking();
+            // Ignore the global soft-delete filter so the tri-state IsDeleted can be applied
+            // explicitly. Includes Branch (P5 addition) so PrinterResponse.BranchName never
+            // costs an extra query per row.
+            IQueryable<Printer> query = _context.Set<Printer>().IgnoreQueryFilters().AsNoTracking()
+                .Include(p => p.Branch);
 
             if (tenantScopeId is long scope)
             {
@@ -71,7 +74,8 @@ namespace InfrastructureLayer.Repositories
         }
 
         public Task<Printer?> GetByIdIncludingDeletedAsync(long id, CancellationToken cancellationToken = default) =>
-            _context.Set<Printer>().IgnoreQueryFilters().FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
+            _context.Set<Printer>().IgnoreQueryFilters().Include(p => p.Branch)
+                .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
 
         public Task<bool> UniqueNumberExistsAsync(
             long tenantId, string uniqueNumber, long? excludeId, CancellationToken cancellationToken = default) =>
