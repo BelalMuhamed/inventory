@@ -18,7 +18,12 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
     /// authentication; the uploading tenant is resolved from the caller's token by
     /// <see cref="IBatchUploadService"/> itself, not by this controller.
     /// </summary>
-    /// <response code="401">No valid bearer token was supplied.</response>
+    /// <response code="401">
+    /// No valid bearer token was supplied. Typically the authorization middleware's empty-body
+    /// rejection before this action runs. <see cref="Upload"/> can additionally return this code
+    /// with the standard envelope (<c>Batch.ActorNotResolved</c>) when the caller has no
+    /// resolvable tenant context — e.g. a system-admin token, which this endpoint doesn't support.
+    /// </response>
     [ApiController]
     [Route("api/inventory")]
     [Authorize]
@@ -41,6 +46,13 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// existing card on re-sight); invalid rows never fail the whole upload — they are
         /// collected and returned as a failed-rows Excel report alongside the counts.
         /// </summary>
+        /// <response code="200">
+        /// The upload completed — importedCount/failedCount always sum to the file's row count.
+        /// Invalid rows never fail the whole upload; failureReportBase64 carries a failed-rows
+        /// Excel report (masked PANs only) when failedCount is greater than zero, and is null otherwise.
+        /// </response>
+        /// <response code="409">A file with this exact fingerprint (FileMac) was already uploaded for this tenant — no rows are written.</response>
+        /// <response code="422">The declared ExpectedRowCount doesn't match the file's actual row count, the file isn't a .dat file, is empty, or couldn't be decrypted (wrong key or tampered/corrupted ciphertext).</response>
         [HttpPost("upload")]
         [Consumes("multipart/form-data")]
         [ProducesResponseType(typeof(ApiResponse<BatchUploadResult>), StatusCodes.Status200OK)]

@@ -23,8 +23,17 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
     /// legal and confusing.
     /// </para>
     /// </summary>
-    /// <response code="401">No valid bearer token was supplied.</response>
-    /// <response code="403">The token is valid but is not a system-admin token.</response>
+    /// <response code="401">
+    /// No valid bearer token was supplied. Typically the authorization middleware's empty-body
+    /// rejection before this action runs — same as <c>TenantsController</c> (S1). <see cref="Generate"/>
+    /// can additionally return this code with the standard envelope (<c>CardFile.ActorNotResolved</c>)
+    /// in the rare edge case where a token passes the system-admin policy check but the acting
+    /// principal still can't be resolved from it — a defensive re-check, not an expected scenario.
+    /// </response>
+    /// <response code="403">
+    /// The token is valid but is not a system-admin token. Always the authorization middleware's
+    /// empty-body rejection.
+    /// </response>
     [ApiController]
     [Route("api/card-files")]
     [Authorize(Policy = AuthorizationPolicies.SystemAdminOnly)]
@@ -78,6 +87,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// <c>Content-Disposition: attachment</c> naming it. <c>X-File-Mac</c>,
         /// <c>X-Card-Count</c>, and <c>X-Expected-Row-Count</c> headers carry the hand-off
         /// metadata previously returned in the JSON body.
+        /// </response>
+        /// <response code="401">
+        /// Beyond the usual empty-body middleware rejection (see the controller-level 401 doc),
+        /// this action can also return 401 <em>with</em> the standard envelope
+        /// (<c>CardFile.ActorNotResolved</c>) in the rare edge case described there.
         /// </response>
         /// <response code="404">No tenant exists with the supplied id.</response>
         /// <response code="409">The tenant is inactive or deleted.</response>

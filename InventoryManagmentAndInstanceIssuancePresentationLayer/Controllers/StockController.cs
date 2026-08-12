@@ -13,7 +13,10 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
     /// Stock read endpoints (API Spec §4.7). Requires authentication; tenant callers see their own
     /// tenant's stock across all branches, a system admin sees any tenant's stock.
     /// </summary>
-    /// <response code="401">No valid bearer token was supplied.</response>
+    /// <response code="401">
+    /// No valid bearer token was supplied. Typically the authorization middleware's empty-body
+    /// rejection before this action runs — neither action here has a service-level 401 path.
+    /// </response>
     [ApiController]
     [Route("api/stock")]
     [Authorize]
@@ -27,12 +30,14 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         public StockController(IServiceManager services) => _services = services;
 
         /// <summary>Lists stock levels (Product × Branch) with paging and filters.</summary>
+        /// <response code="200">A page of stock rows.</response>
         [HttpGet]
         [ProducesResponseType(typeof(ApiResponse<PaginatedResponse<StockRowResponse>>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetAll([FromQuery] StockListFilter filter, CancellationToken cancellationToken)
             => (await _services.Stocks.GetAllAsync(filter, cancellationToken)).ToActionResult(this);
 
         /// <summary>Lists all stock rows for a single branch.</summary>
+        /// <response code="200">A page of stock rows for the branch. An unknown or out-of-scope branchId yields an empty page — this endpoint does not 404.</response>
         [HttpGet("branches/{branchId:long}")]
         [ProducesResponseType(typeof(ApiResponse<PaginatedResponse<StockRowResponse>>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetByBranch(

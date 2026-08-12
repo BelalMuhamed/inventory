@@ -37,6 +37,13 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger
             Merge(catalog, PrintersExamples.Build());
             Merge(catalog, PrintImagesExamples.Build());
 
+            // Phase S3 — Stock & Cards.
+            Merge(catalog, StockExamples.Build());
+            Merge(catalog, ProductItemExamples.Build());
+            Merge(catalog, InventoryExamples.Build());
+            Merge(catalog, InventoryHistoryExamples.Build());
+            Merge(catalog, CardFileExamples.Build());
+
             return catalog;
         }
 
