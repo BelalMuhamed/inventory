@@ -1,0 +1,768 @@
+From e9991679ec95d2140fc0d7a5fef6c6d3ef8060ef Mon Sep 17 00:00:00 2001
+From: AI Pairing <ai-pairing@calimly.local>
+Date: Wed, 12 Aug 2026 09:30:38 +0000
+Subject: [PATCH] S4: Full Swagger documentation for Transfers & Disposal
+ modules
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Covers TransactionsController, CardDisposalsController (8 endpoints
+— the most complex business rules in the API; TransferErrors.cs
+alone has 30+ codes).
+
+- Add Swagger/Examples/TransactionsExamples.cs, CardDisposalExamples.cs
+  and register them in ExampleCatalog.
+- Backfill missing <response> XML doc tags on all 8 actions.
+- Fix a real pre-existing doc-comment bug: CardDisposalsController's
+  class doc claimed no read-only admin path exists at all on this
+  controller. Confirmed by reading DisposalService.ResolveReadScope
+  directly that GetAll/GetById DO give a system admin cross-tenant
+  read access, exactly like TransactionsController's reads -- only
+  the write path (Dispose) rejects an admin token. Corrected.
+- Confirm Transfer.ActorNotResolved is, per its own doc comment,
+  unreachable behind [Authorize] with a valid tenant token --
+  documented as such rather than given a misleading 'reachable'
+  example, unlike the genuinely-reachable ActorNotResolved variants
+  on other controllers (S1-S3).
+- Continue the SystemAdminNotAllowed (Forbidden, enveloped) pattern
+  from S2 on Transfer.SystemAdminNotAllowed / Disposal.SystemAdminNotAllowed.
+- Given TransferErrors.cs's size, examples cover only the most
+  illustrative scenario per response code, not an exhaustive
+  enumeration -- the source file remains authoritative for the full
+  catalogue.
+- Update Docs/PROJECT_KNOWLEDGE.md (§3, §18, metadata trailer) with
+  S4 coverage and both new findings.
+
+Only BranchRequestsController remains, planned for S5.
+---
+ Docs/PROJECT_KNOWLEDGE.md                     |  19 +-
+ .../Controllers/CardDisposalsController.cs    |  24 +-
+ .../Controllers/TransactionsController.cs     |  25 +-
+ .../Swagger/ExampleCatalog.cs                 |   4 +
+ .../Swagger/Examples/CardDisposalExamples.cs  | 150 +++++++
+ .../Swagger/Examples/TransactionsExamples.cs  | 367 ++++++++++++++++++
+ 6 files changed, 577 insertions(+), 12 deletions(-)
+ create mode 100644 InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/CardDisposalExamples.cs
+ create mode 100644 InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/TransactionsExamples.cs
+
+diff --git a/Docs/PROJECT_KNOWLEDGE.md b/Docs/PROJECT_KNOWLEDGE.md
+index 5eb39db..f8625e2 100644
+--- a/Docs/PROJECT_KNOWLEDGE.md
++++ b/Docs/PROJECT_KNOWLEDGE.md
+@@ -80,7 +80,8 @@ InventoryManagmentAndInstanceIssuanceSolution.sln
+     │                         EnumSchemaDescriptionsFilter, ExampleCatalog, Examples/*.cs — one
+     │                         file per module (Auth/Tenant S1; Branch/Product/
+     │                         ProductPrintConfig/Printers/PrintImages S2; Stock/ProductItem/
+-    │                         Inventory-upload/InventoryHistory/CardFile S3) (§3, "Swagger / API documentation")
++    │                         Inventory-upload/InventoryHistory/CardFile S3; Transactions/
++    │                         CardDisposal S4) (§3, "Swagger / API documentation")
+     ├── Resources/Localization/ Messages.resx (EN) + Messages.ar.resx (AR), Messages.cs bundle
+     └── Program.cs            Composition root
+ ```
+@@ -122,11 +123,12 @@ Root of the repo also holds a sequence of `git format-patch` files (`R1..R6-*.pa
+   - `IncludeXmlComments` is now wired for all three XML-doc-producing assemblies (Presentation, ApplicationLayer, DomainLayer — the latter two had `GenerateDocumentationFile` enabled for the first time in this pass). Every layer's existing `<summary>`/`<param>`/`<response>` doc comments now reach Swagger UI; previously none of them did, regardless of how complete they were in source.
+   - `EnumSchemaDescriptionsFilter` (`ISchemaFilter`) appends each enum's numeric wire value + member doc to its schema description, reading the same XML doc files via `XmlDocIndex` — needed because no `JsonStringEnumConverter` is registered anywhere (enums serialize as plain integers; see §12 enum persistence decision) and Swashbuckle's built-in XML support documents the enum type, not each member.
+   - `ExamplesOperationFilter` attaches named, multi-scenario request/response examples per action, looked up from `ExampleCatalog.All` by `(Controller, Action)`. **To extend for a new controller:** add one `Swagger/Examples/{Module}Examples.cs` file (mirrors `Errors/{Module}Errors.cs` — one file per module) building an `EndpointExampleSet` per action via `EndpointExampleSetBuilder`, then add one `Merge(catalog, {Module}Examples.Build());` line in `ExampleCatalog.Build()`. Examples are plain C# objects (anonymous types), not hand-built `IOpenApiAny` graphs — `OpenApiAnyFactory` does that conversion.
+-  - **Coverage as of this pass:** foundation (XML comments, enum filter, examples filter/catalog) applies to every controller already. Full example content exists for `AuthController`, `TenantsController` (S1); `BranchController`, `ProductController`, `ProductPrintConfigController`, `PrintersController`, `PrintImagesController` (S2); and `StockController`, `ProductItemsController`, `InventoryController` (batch upload), `InventoryHistoryController`, `CardFilesController` (S3). Remaining controllers are planned in S4 (Transactions/CardDisposals) and S5 (BranchRequests) — same one-module-per-file convention.
+-  - **A genuine finding from this pass, not a bug fix:** `[Authorize]`/`[Authorize(Policy=...)]` failures (missing/invalid token, wrong policy) are handled by ASP.NET Core's authorization middleware *before* an action runs, and return an **empty body** — not the `ApiResponse<T>` envelope. Several controllers' `[ProducesResponseType]` on 401/403 previously claimed a typed envelope body for these regardless. Corrected on `AuthController`/`TenantsController` (S1), `BranchController`/`ProductController`/`PrintersController`/`ProductPrintConfigController`/`PrintImagesController` (S2), and `StockController`/`ProductItemsController`/`InventoryController`/`InventoryHistoryController`/`CardFilesController` (S3) — the last two continue the "rare enveloped-401 edge case" pattern (`Batch.ActorNotResolved` on upload; `CardFile.ActorNotResolved` on generation), same shape as `Tenant.ActorNotResolved`. **The same audit is still needed on the remaining controllers** as S4-S5 land — check each 401/403 against its actual service code before trusting the existing `[ProducesResponseType]` type.
+-  - **A second finding, S2:** the Printing module's admin-only write actions (`PrintersController`'s Create/Update/Delete/Restore, `ProductPrintConfigController`'s Update/GetFull, `PrintImagesController`'s Upload/Replace/MigrateLegacyStorage) enforce "system-admin only" in the *service* (`PrintingErrors.*OnlySystemAdmin()`, `ErrorCategory.Forbidden`), not via an authorization policy — so unlike `TenantsController`'s 403, these ones genuinely *are* the standard enveloped `ApiResponse<T>` body. `BranchController`/`ProductController` similarly have a rare enveloped-401 edge case (`Branch.ActorNotResolved` / reused `Auth.ActorNotResolved`) reachable from `Create`/`Delete`/`Restore` when a token passes authentication but the acting identity can't be resolved from its claims — same shape and same rarity as `Tenant.ActorNotResolved` from S1.
+-  - **A third finding, S2:** `PrintImagesController.Upload`'s `409 Conflict` is not a failure envelope at all — on a duplicate file name it returns a normal *success* envelope (`ApiResponse<PrintImageResponse>.Ok(...)`) carrying the **existing** image's metadata, with the status code forced to 409. This is the only endpoint found so far where a non-2xx status doesn't carry an `ApiError`; documented explicitly in its Swagger example and XML doc so a client doesn't try to parse an `error` field that isn't there.
+-  - **A finding from S3:** `CardFilesController.Generate`'s success response (200) is a raw binary file (`application/octet-stream`), not JSON — the hand-off metadata a JSON response would normally carry (`fileMac`, `cardCount`, `expectedRowCount`) travels in `X-File-Mac`/`X-Card-Count`/`X-Expected-Row-Count` response headers instead. No 200 Swagger example is registered for this action for that reason; the headers are documented in its `<response code="200">` doc instead. `StockController.GetByBranch` was also confirmed (by reading `StockService`) to never 404 on an unknown/out-of-scope `branchId` — it returns an empty page, since a branch-scoped list is inherently "whatever matches," not "the one thing at this id."
++  - **Coverage as of this pass:** foundation (XML comments, enum filter, examples filter/catalog) applies to every controller already. Full example content exists for `AuthController`, `TenantsController` (S1); `BranchController`, `ProductController`, `ProductPrintConfigController`, `PrintersController`, `PrintImagesController` (S2); `StockController`, `ProductItemsController`, `InventoryController` (batch upload), `InventoryHistoryController`, `CardFilesController` (S3); and `TransactionsController`, `CardDisposalsController` (S4). Only `BranchRequestsController` remains, planned for S5.
++  - **A genuine finding from this pass, not a bug fix:** `[Authorize]`/`[Authorize(Policy=...)]` failures (missing/invalid token, wrong policy) are handled by ASP.NET Core's authorization middleware *before* an action runs, and return an **empty body** — not the `ApiResponse<T>` envelope. Corrected on every controller documented so far (S1-S4) — the rare enveloped-401 edge case (`*.ActorNotResolved`) recurs on `TransactionsController` (present in the catalogue but confirmed unreachable per its own doc comment) and `CardDisposalsController.Dispose` (`Disposal.ActorNotResolved`, reachable). **The same audit is still needed on `BranchRequestsController`** in S5.
++  - **A second finding, S2:** the Printing module's admin-only write actions enforce "system-admin only" in the *service* (`Forbidden` category), not via an authorization policy — so their 403 genuinely *is* the standard enveloped `ApiResponse<T>` body, unlike `TenantsController`'s policy-driven empty-body 403. Recurs in S4: `TransactionsController`'s Create/Receive/Dispose and `CardDisposalsController.Dispose` all reject a system-admin token the same enveloped way (`Transfer.SystemAdminNotAllowed` / `Disposal.SystemAdminNotAllowed`).
++  - **A third finding, S2:** `PrintImagesController.Upload`'s `409 Conflict` is not a failure envelope at all — it returns a normal success envelope (the existing image's metadata) with the status forced to 409. Still the only endpoint found so far with that specific shape.
++  - **A finding from S3:** `CardFilesController.Generate`'s success response (200) is a raw binary file, not JSON — hand-off metadata travels in response headers instead. `StockController.GetByBranch` never 404s on an unknown branch (confirmed by reading `StockService`) — it returns an empty page.
++  - **A finding from S4, and a real doc-comment bug caught and fixed:** `CardDisposalsController`'s class-level doc previously claimed "unlike `TransactionsController`, there is no read-only admin path here at all" — false. Reading `DisposalService.ResolveReadScope` directly confirms `GetAll`/`GetById` return no tenant filter (i.e. cross-tenant read access) for a system-admin caller, exactly like `TransactionsController`'s reads; only `Dispose` (the write path) rejects an admin token. Corrected in this pass. Also: `TransactionsController`'s catalogue includes `Transfer.ActorNotResolved`, but per its own doc comment it's unreachable behind `[Authorize]` with a valid tenant token — documented as such rather than given a misleading "reachable" example, unlike the genuinely-reachable `ActorNotResolved` variants on other controllers (S1-S3). `TransferErrors.cs` is the largest catalogue in the API (30+ codes for `Create`/`Receive` alone) — Swagger examples show only the most illustrative scenario per response code, not an exhaustive enumeration; the source file remains the authoritative full list.
+ 
+ ---
+ 
+@@ -479,11 +481,12 @@ Keep this section SHORT — only major architectural or behavioral changes.
+ - **2026-08-12 (Swagger documentation, Phase S1 of a 5-phase plan):** Wired `IncludeXmlComments` for the first time across all three XML-doc-producing assemblies (previously only the Presentation project had `GenerateDocumentationFile` enabled, and `IncludeXmlComments` was never called at all — no existing XML doc comment, however complete, ever reached Swagger UI). Added `EnumSchemaDescriptionsFilter` and `ExamplesOperationFilter`/`ExampleCatalog` (see §3, "Swagger / API documentation" — no new NuGet package, extends the existing hand-written-filter pattern). Full example content delivered for `AuthController` and `TenantsController` only; S2-S5 cover the remaining 13 controllers. Found and corrected a real inaccuracy while building this: several `[ProducesResponseType]` declarations for 401/403 claimed a typed `ApiResponse<T>` envelope body for responses that the ASP.NET Core authorization middleware actually returns empty — fixed on Auth/Tenants, flagged as an open per-controller audit item for S2-S5 (§3). Also fixed a stale `<param name="TenantId">` doc on `CurrentPrincipalResponse` (ApplicationLayer/DTOs/Auth/AuthDtos.cs) that documented a parameter the record doesn't have. **Verification note:** same sandbox constraint as the entry above — no .NET SDK/NuGet access, verified by manual cross-check of every new file (brace balance, using statements, cref resolution, exact codes/messages against the real `*Service`/`*Errors` source) rather than a real build; a real `dotnet build` is recommended before merging.
+ - **2026-08-12 (same day, Swagger documentation Phase S2):** Full example content delivered for the Catalog & Printing modules: `BranchController`, `ProductController`, `ProductPrintConfigController`, `PrintersController`, `PrintImagesController` (29 endpoints). Continued the per-controller 401/403 accuracy audit from S1 (§3) — found the opposite issue this time: the Printing module's admin-only write actions enforce "system-admin only" in the service (`Forbidden` category), not via an authorization policy, so their 403 genuinely *is* the enveloped body (unlike `TenantsController`'s policy-driven empty-body 403 from S1) — documented explicitly so the distinction doesn't get flattened into a blanket rule. Also found and documented `PrintImagesController.Upload`'s 409, which uniquely returns a *success* envelope (the existing image's metadata) with the status forced to 409, not an `ApiError` — the only non-2xx-without-ApiError response found in the API so far. Backfilled missing `<response>` XML doc tags on all 29 actions across these 5 controllers (same "attributes present but no descriptive text" gap flagged, but not yet fully closed, in S1). **Verification note:** same sandbox constraint — no .NET SDK/NuGet access; every new/edited file was manually cross-checked (brace/paren balance via script, exact codes/messages against `BranchErrors`/`ProductErrors`/`PrintingErrors` and the corresponding `*Service` classes) rather than a real build.
+ - **2026-08-12 (same day, Swagger documentation Phase S3):** Full example content delivered for Stock & Cards: `StockController`, `ProductItemsController`, `InventoryController` (batch upload), `InventoryHistoryController`, `CardFilesController` (13 endpoints — the smallest phase by count, but the most varied response shapes). Confirmed via `StockService` that `GetByBranch` never 404s on an unknown branch (returns an empty page). Documented `CardFilesController.Generate`'s success response as the second confirmed non-JSON 200 in the API (the file itself, with hand-off metadata in `X-File-Mac`/`X-Card-Count`/`X-Expected-Row-Count` headers — mirrors `PrintImagesController.Get`'s raw-bytes 200 from S2, though that one has no metadata headers to speak of). Continued the enveloped-401-edge-case pattern from S1/S2 on `InventoryController.Upload` (`Batch.ActorNotResolved`) and `CardFilesController.Generate` (`CardFile.ActorNotResolved`). Backfilled missing `<response>` XML doc tags on all 13 actions. **Verification note:** same sandbox constraint — no .NET SDK/NuGet access; every new/edited file was manually cross-checked (brace/paren balance via script, exact codes/messages against `StockErrors`/`ProductItemErrors`/`BatchErrors`/`CardFileErrors` and the corresponding `*Service` classes) rather than a real build.
++- **2026-08-12 (same day, Swagger documentation Phase S4):** Full example content delivered for Transfers & Disposal: `TransactionsController`, `CardDisposalsController` (8 endpoints, the most complex business rules in the API — `TransferErrors.cs` alone has 30+ codes). Caught and fixed a real pre-existing doc-comment bug while reading `DisposalService` directly: `CardDisposalsController`'s class doc claimed no read-only admin path exists on this controller at all, but `ResolveReadScope` confirms `GetAll`/`GetById` do give a system admin cross-tenant read access, exactly like `TransactionsController` — only the write path (`Dispose`) rejects an admin token. Also confirmed `Transfer.ActorNotResolved` is, per its own doc comment, unreachable behind `[Authorize]` with a valid tenant token, and documented it as such rather than manufacturing a misleading "reachable" example. Given the size of `TransferErrors.cs`, Swagger examples cover only the most illustrative scenario per response code (e.g. one representative 422 per action, not all ~10 possible ones) — the source file remains authoritative for the full catalogue. Backfilled missing `<response>` XML doc tags on all 8 actions. **Verification note:** same sandbox constraint — no .NET SDK/NuGet access; every new/edited file was manually cross-checked (brace/paren balance via script, exact codes/messages against `TransferErrors`/`DisposalErrors` and the corresponding `*Service`/`ITransferComposer` classes) rather than a real build.
+ 
+ ---
+ 
+ ## Documentation Metadata
+ 
+-- Last verified against code: 2026-08-12 (Swagger documentation Phase S3 pass — Stock/ProductItems/Inventory-upload/InventoryHistory/CardFiles controllers, DTOs, services, and error catalogues re-read; other modules not re-verified this pass, see 2026-08-10 entries for their last verification)
+-- Last significant update: 2026-08-12 (Swagger/API documentation: S1 foundation + Auth/Tenants, S2 Catalog & Printing, S3 Stock & Cards)
++- Last verified against code: 2026-08-12 (Swagger documentation Phase S4 pass — Transactions/CardDisposals controllers, DTOs, services, and error catalogues re-read; other modules not re-verified this pass, see 2026-08-10 entries for their last verification)
++- Last significant update: 2026-08-12 (Swagger/API documentation: S1 foundation + Auth/Tenants, S2 Catalog & Printing, S3 Stock & Cards, S4 Transfers & Disposal)
+ - Maintained by: AI + Project Developers
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/CardDisposalsController.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/CardDisposalsController.cs
+index 1a27998..a1f058c 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/CardDisposalsController.cs
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/CardDisposalsController.cs
+@@ -21,10 +21,20 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+     /// is its own resource (<c>disposals</c>). Routes are given in full on each action rather than
+     /// composed from a single class-level prefix, since the two don't share a parent segment.
+     /// </para>
+-    /// <b>Never available to a system admin</b> — unlike <c>TransactionsController</c>, there is no
+-    /// read-only admin path here at all; disposal is a tenant-only concept end to end.
++    /// <b>Writing a disposal is never available to a system admin</b> — <see cref="Dispose"/>
++    /// rejects an admin token outright, since disposal is a tenant-only concept end to end.
++    /// <see cref="GetAll"/> and <see cref="GetById"/> are the exception: like
++    /// <c>TransactionsController</c>'s reads, a system admin gets cross-tenant read access there
++    /// (confirmed against <c>DisposalService.ResolveReadScope</c>, which returns no tenant filter
++    /// for an admin caller) — a correction to this doc comment's earlier claim that no read-only
++    /// admin path exists here at all.
+     /// </summary>
+-    /// <response code="401">No valid bearer token was supplied.</response>
++    /// <response code="401">
++    /// No valid bearer token was supplied. Typically the authorization middleware's empty-body
++    /// rejection before this action runs. <see cref="Dispose"/> can additionally return this code
++    /// with the standard envelope (<c>Disposal.ActorNotResolved</c>) in the rare edge case where a
++    /// token passes authentication but the acting tenant identity can't be resolved from it.
++    /// </response>
+     [ApiController]
+     [Route("api/inventory")]
+     [Authorize]
+@@ -41,6 +51,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         /// Writes off cards at a branch, named either by explicit id or by per-product quantity
+         /// (FIFO selection). Requires a non-empty reason; rejects a system-admin caller outright.
+         /// </summary>
++        /// <response code="200">The disposal record, including every card written off under it.</response>
++        /// <response code="403">A system-admin token attempted this — never permitted.</response>
++        /// <response code="404">The disposing branch, or a named card, doesn't exist (or belongs to another tenant).</response>
++        /// <response code="409">A named card is already disposed, already issued, or committed to an in-flight transfer; or the branch lacks enough available cards of a named product.</response>
++        /// <response code="422">The request body failed validation — no reason, no cards identified, or both a card list and a quantity list supplied. See DisposalErrors.cs for the full catalogue.</response>
+         [HttpPost("cards/dispose")]
+         [ProducesResponseType(typeof(ApiResponse<DisposalDetailResponse>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+@@ -51,12 +66,15 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+             => (await _services.Disposals.CreateAsync(request, cancellationToken)).ToActionResult(this);
+ 
+         /// <summary>Lists disposals with paging and filters.</summary>
++        /// <response code="200">A page of disposals, scoped to the caller's tenant (or any tenant, for a system admin).</response>
+         [HttpGet("disposals")]
+         [ProducesResponseType(typeof(ApiResponse<PaginatedResponse<DisposalListItemResponse>>), StatusCodes.Status200OK)]
+         public async Task<IActionResult> GetAll([FromQuery] DisposalListFilter filter, CancellationToken cancellationToken)
+             => (await _services.Disposals.GetAllAsync(filter, cancellationToken)).ToActionResult(this);
+ 
+         /// <summary>Gets one disposal's full detail, including every card written off under it.</summary>
++        /// <response code="200">The disposal.</response>
++        /// <response code="404">No disposal exists with the supplied id.</response>
+         [HttpGet("disposals/{id:long}")]
+         [ProducesResponseType(typeof(ApiResponse<DisposalDetailResponse>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/TransactionsController.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/TransactionsController.cs
+index 9395406..86e3f5c 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/TransactionsController.cs
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/TransactionsController.cs
+@@ -30,7 +30,12 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+     /// physical card to write off.
+     /// </para>
+     /// </summary>
+-    /// <response code="401">No valid bearer token was supplied.</response>
++    /// <response code="401">
++    /// No valid bearer token was supplied. Typically the authorization middleware's empty-body
++    /// rejection before this action runs — no action here has a service-level 401 path
++    /// (<c>Transfer.ActorNotResolved</c> exists in the catalogue but is, per its own doc comment,
++    /// unreachable behind <c>[Authorize]</c> with a valid tenant token).
++    /// </response>
+     [ApiController]
+     [Route("api/inventory/transactions")]
+     [Authorize]
+@@ -44,12 +49,15 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         public TransactionsController(IServiceManager services) => _services = services;
+ 
+         /// <summary>Lists transfers with paging and filters.</summary>
++        /// <response code="200">A page of transfers, scoped to the caller's tenant (or any tenant, for a system admin).</response>
+         [HttpGet]
+         [ProducesResponseType(typeof(ApiResponse<PaginatedResponse<TransferListItemResponse>>), StatusCodes.Status200OK)]
+         public async Task<IActionResult> GetAll([FromQuery] TransferListFilter filter, CancellationToken cancellationToken)
+             => (await _services.Transfers.GetAllAsync(filter, cancellationToken)).ToActionResult(this);
+ 
+         /// <summary>Gets one transfer's full detail, including product lines and card-level items.</summary>
++        /// <response code="200">The transfer. Items is empty for a transfer carrying only Unknown-way lines.</response>
++        /// <response code="404">No transfer exists with the supplied id.</response>
+         [HttpGet("{id:long}")]
+         [ProducesResponseType(typeof(ApiResponse<TransferDetailResponse>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+@@ -60,6 +68,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         /// Creates a direct transfer between two branches of the caller's tenant. Known-way
+         /// product lines must name the exact cards being sent; Unknown-way lines must not.
+         /// </summary>
++        /// <response code="200">The created transfer — opens InProgress; no stock has moved yet.</response>
++        /// <response code="403">A system-admin token attempted this — admin access to this module is read-only (decision Q7).</response>
++        /// <response code="404">The source/target branch or a named product doesn't exist.</response>
++        /// <response code="409">A named card isn't currently available to move (already in flight, printed, expired, spoiled, or disposed).</response>
++        /// <response code="422">The request body failed validation — see TransferErrors.cs for the full catalogue (same/different branch, no lines, duplicate product, wrong card-id shape for the product's transaction way, etc.).</response>
+         [HttpPost]
+         [ProducesResponseType(typeof(ApiResponse<TransferDetailResponse>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+@@ -77,6 +90,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         /// Known-way case, while <c>KeptAtDestination</c> credits the full quantity to the target
+         /// immediately and spawns nothing.
+         /// </summary>
++        /// <response code="200">Settlement outcome — returnTransferId/disposalId are set only when a remainder actually moved/was written off.</response>
++        /// <response code="403">A system-admin token attempted this.</response>
++        /// <response code="404">No transfer exists with the supplied id.</response>
++        /// <response code="409">The transfer was already settled — settlement cannot run twice.</response>
++        /// <response code="422">The request body failed validation — a product was omitted, a Known-way line is missing per-card dispositions, an Unknown-way line's remainder has no difference action, etc. See TransferErrors.cs for the full catalogue.</response>
+         [HttpPost("{id:long}/receive")]
+         [ProducesResponseType(typeof(ApiResponse<SettleTransferResult>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+@@ -91,6 +109,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         /// Writes off everything an in-progress transfer still carries, in one step, without
+         /// receiving any of it. Equivalent to <see cref="Receive"/> with every line fully disposed.
+         /// </summary>
++        /// <response code="200">Equivalent to Receive with every line fully disposed.</response>
++        /// <response code="403">A system-admin token attempted this.</response>
++        /// <response code="404">No transfer exists with the supplied id.</response>
++        /// <response code="409">The transfer was already settled.</response>
++        /// <response code="422">The disposing branch was omitted, or the request body otherwise failed validation.</response>
+         [HttpPost("{id:long}/dispose")]
+         [ProducesResponseType(typeof(ApiResponse<SettleTransferResult>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/ExampleCatalog.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/ExampleCatalog.cs
+index cd7587e..8dbd253 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/ExampleCatalog.cs
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/ExampleCatalog.cs
+@@ -44,6 +44,10 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger
+             Merge(catalog, InventoryHistoryExamples.Build());
+             Merge(catalog, CardFileExamples.Build());
+ 
++            // Phase S4 — Transfers & Disposal.
++            Merge(catalog, TransactionsExamples.Build());
++            Merge(catalog, CardDisposalExamples.Build());
++
+             return catalog;
+         }
+ 
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/CardDisposalExamples.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/CardDisposalExamples.cs
+new file mode 100644
+index 0000000..2b2aae8
+--- /dev/null
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/CardDisposalExamples.cs
+@@ -0,0 +1,150 @@
++using System.Collections.Generic;
++
++namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger.Examples
++{
++    /// <summary>
++    /// Swagger examples for <c>CardDisposalsController</c> (<c>api/inventory/cards/dispose</c>,
++    /// <c>api/inventory/disposals/*</c>). Bodies mirror <c>DisposalDtos.cs</c> and the outcomes
++    /// actually returned by <c>DisposalService</c> and <c>DisposalErrors</c>.
++    /// </summary>
++    internal static class CardDisposalExamples
++    {
++        private static readonly object SampleDisposal = new
++        {
++            id = 12,
++            tenantId = 42,
++            branchId = 7,
++            branchName = "Downtown Branch",
++            cardTransferId = (long?)null,
++            disposedByTenantId = 42,
++            reason = "Water damage discovered during quarterly audit.",
++            disposedAt = "2026-08-12T10:00:00Z",
++            items = new object[]
++            {
++                new { productItemId = 601, maskedPan = "**********112233", productId = 15, productName = "Gold Debit Card" },
++                new { productItemId = 602, maskedPan = "**********445566", productId = 15, productName = "Gold Debit Card" }
++            }
++        };
++
++        private static readonly object SampleDisposalListItem = new
++        {
++            id = 12,
++            tenantId = 42,
++            branchId = 7,
++            branchName = "Downtown Branch",
++            cardTransferId = (long?)null,
++            reason = "Water damage discovered during quarterly audit.",
++            cardCount = 2,
++            disposedAt = "2026-08-12T10:00:00Z"
++        };
++
++        public static IReadOnlyDictionary<EndpointKey, EndpointExampleSet> Build() =>
++            new Dictionary<EndpointKey, EndpointExampleSet>
++            {
++                [new EndpointKey("CardDisposalsController", "Dispose")] = Dispose(),
++                [new EndpointKey("CardDisposalsController", "GetAll")] = GetAll(),
++                [new EndpointKey("CardDisposalsController", "GetById")] = GetById()
++            };
++
++        private static EndpointExampleSet Dispose() => new EndpointExampleSetBuilder()
++            .Request("byExplicitCards", "Writing off specific, named cards.",
++                new
++                {
++                    branchId = 7,
++                    reason = "Water damage discovered during quarterly audit.",
++                    productItemIds = new long[] { 601, 602 },
++                    items = (object?)null
++                })
++            .Request("byQuantityFifo", "Writing off a quantity per product — the system picks the " +
++                "oldest available cards first, but still records exactly which ones on the disposal.",
++                new
++                {
++                    branchId = 7,
++                    reason = "End-of-life stock, discontinued product line.",
++                    productItemIds = (object?)null,
++                    items = new object[]
++                    {
++                        new { productId = 15, quantity = 10 }
++                    }
++                })
++            .Response(200, "success", "The disposal record, including every card written off under it.",
++                new { success = true, data = SampleDisposal, error = (object?)null })
++            .Response(403, "systemAdminNotAllowed", "A system-admin token attempted to dispose of " +
++                "cards — never permitted; disposal is a tenant-only concept end to end (unlike " +
++                "GetAll/GetById on this same controller, which do allow a read-only admin path).",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Disposal.SystemAdminNotAllowed", message = "A system administrator cannot dispose of cards.", category = "Forbidden" }
++                })
++            .Response(404, "branchNotFound", "The disposing branch doesn't exist (or belongs to another tenant).",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Disposal.BranchNotFound", message = "No branch was found with id 999.", category = "NotFound" }
++                })
++            .Response(409, "alreadyDisposed", "One of the named cards has already been written off.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Disposal.AlreadyDisposed", message = "Card **********112233 has already been disposed.", category = "Conflict" }
++                })
++            .Response(409, "cardInTransfer", "One of the named cards is committed to an in-flight " +
++                "transfer — it must be disposed of when that transfer is settled, not standalone.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Disposal.CardInTransfer", message = "Card **********112233 is part of an active transfer and must be disposed of when that transfer is settled.", category = "Conflict" }
++                })
++            .Response(422, "selectionAmbiguous", "Both productItemIds and items were supplied — refused rather than resolved by precedence.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Disposal.SelectionAmbiguous", message = "Specify either the cards to dispose of or the quantities per product, not both.", category = "Validation" }
++                })
++            .Response(422, "reasonRequired", "The reason was empty or omitted — mandatory by design; disposal cannot be undone.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Disposal.ReasonRequired", message = "A reason is required in order to dispose of cards.", category = "Validation" }
++                })
++            .Build();
++
++        private static EndpointExampleSet GetAll() => new EndpointExampleSetBuilder()
++            .Response(200, "page", "Newest-first disposal list.",
++                new
++                {
++                    success = true,
++                    data = new
++                    {
++                        data = new[] { SampleDisposalListItem },
++                        pageNumber = 1,
++                        pageSize = 20,
++                        totalCount = 1,
++                        totalPages = 1,
++                        hasNextPage = false,
++                        hasPreviousPage = false
++                    },
++                    error = (object?)null
++                })
++            .Build();
++
++        private static EndpointExampleSet GetById() => new EndpointExampleSetBuilder()
++            .Response(200, "found", "A standalone disposal (cardTransferId is null) with two cards written off.",
++                new { success = true, data = SampleDisposal, error = (object?)null })
++            .Response(404, "notFound", "No disposal exists with that id (or it belongs to another tenant).",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Disposal.NotFound", message = "No disposal was found with id 999.", category = "NotFound" }
++                })
++            .Build();
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/TransactionsExamples.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/TransactionsExamples.cs
+new file mode 100644
+index 0000000..5bcd3ed
+--- /dev/null
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/TransactionsExamples.cs
+@@ -0,0 +1,367 @@
++using System.Collections.Generic;
++
++namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger.Examples
++{
++    /// <summary>
++    /// Swagger examples for <c>TransactionsController</c> (<c>api/inventory/transactions/*</c>).
++    /// Bodies mirror <c>TransferDtos.cs</c> and the outcomes actually returned by
++    /// <c>TransferService</c>/<c>ITransferComposer</c> and <c>TransferErrors</c> — the largest
++    /// error catalogue in the API (30+ codes; only the most illustrative scenario per response
++    /// code is shown here, not an exhaustive enumeration — see TransferErrors.cs source for the
++    /// full list).
++    /// </summary>
++    internal static class TransactionsExamples
++    {
++        private static readonly object KnownWayTransferDetail = new
++        {
++            id = 88,
++            tenantId = 42,
++            sourceBranchId = 7,
++            sourceBranchName = "Downtown Branch",
++            targetBranchId = 9,
++            targetBranchName = "Airport Branch",
++            transactionStatus = 0,
++            origin = 0,
++            parentTransferId = (long?)null,
++            branchRequestId = (long?)null,
++            actionNotes = "Restocking ahead of the holiday weekend.",
++            createdAt = "2026-08-10T09:00:00Z",
++            createdByTenantId = 42,
++            createdByUsername = "acme-bank",
++            statusChangedAt = (string?)null,
++            checkedByUsername = (string?)null,
++            rowVersion = "AAAAAAAAB9E=",
++            products = new object[]
++            {
++                new
++                {
++                    productId = 15,
++                    productName = "Gold Debit Card",
++                    transactedQuantity = 50,
++                    realQuantityReceived = (int?)null,
++                    disposedQuantity = (int?)null,
++                    returnedQuantity = 0,
++                    productTransactionWay = 0,
++                    outcome = 0,
++                    differenceAction = (int?)null
++                }
++            },
++            items = new object[]
++            {
++                new { productItemId = 501, maskedPan = "**********123456", productId = 15, receiveStatus = 0 },
++                new { productItemId = 502, maskedPan = "**********654321", productId = 15, receiveStatus = 0 }
++            }
++        };
++
++        private static readonly object UnknownWayTransferDetail = new
++        {
++            id = 90,
++            tenantId = 42,
++            sourceBranchId = 7,
++            sourceBranchName = "Downtown Branch",
++            targetBranchId = 9,
++            targetBranchName = "Airport Branch",
++            transactionStatus = 0,
++            origin = 0,
++            parentTransferId = (long?)null,
++            branchRequestId = (long?)null,
++            actionNotes = (string?)null,
++            createdAt = "2026-08-11T10:00:00Z",
++            createdByTenantId = 42,
++            createdByUsername = "acme-bank",
++            statusChangedAt = (string?)null,
++            checkedByUsername = (string?)null,
++            rowVersion = "AAAAAAAAB9F=",
++            products = new object[]
++            {
++                new
++                {
++                    productId = 16,
++                    productName = "Silver Prepaid Card",
++                    transactedQuantity = 100,
++                    realQuantityReceived = (int?)null,
++                    disposedQuantity = (int?)null,
++                    returnedQuantity = 0,
++                    productTransactionWay = 1,
++                    outcome = 0,
++                    differenceAction = (int?)null
++                }
++            },
++            // Unknown-way lines never get item rows — the transfer moves entitlement, not
++            // individually tracked cards.
++            items = new object[0]
++        };
++
++        public static IReadOnlyDictionary<EndpointKey, EndpointExampleSet> Build() =>
++            new Dictionary<EndpointKey, EndpointExampleSet>
++            {
++                [new EndpointKey("TransactionsController", "GetAll")] = GetAll(),
++                [new EndpointKey("TransactionsController", "GetById")] = GetById(),
++                [new EndpointKey("TransactionsController", "Create")] = Create(),
++                [new EndpointKey("TransactionsController", "Receive")] = Receive(),
++                [new EndpointKey("TransactionsController", "Dispose")] = Dispose()
++            };
++
++        private static EndpointExampleSet GetAll() => new EndpointExampleSetBuilder()
++            .Response(200, "page", "Newest-first transfer list — identical shape/scope to InventoryHistoryController.GetAll.",
++                new
++                {
++                    success = true,
++                    data = new
++                    {
++                        data = new[]
++                        {
++                            new
++                            {
++                                id = 88, tenantId = 42, sourceBranchId = 7, sourceBranchName = "Downtown Branch",
++                                targetBranchId = 9, targetBranchName = "Airport Branch", transactionStatus = 0,
++                                origin = 0, parentTransferId = (long?)null, branchRequestId = (long?)null,
++                                productLineCount = 1, totalTransactedQuantity = 50,
++                                createdAt = "2026-08-10T09:00:00Z", statusChangedAt = (string?)null
++                            }
++                        },
++                        pageNumber = 1, pageSize = 20, totalCount = 1, totalPages = 1,
++                        hasNextPage = false, hasPreviousPage = false
++                    },
++                    error = (object?)null
++                })
++            .Build();
++
++        private static EndpointExampleSet GetById() => new EndpointExampleSetBuilder()
++            .Response(200, "knownWay", "A Known-way transfer, still in progress — items lists the exact cards in flight.",
++                new { success = true, data = KnownWayTransferDetail, error = (object?)null })
++            .Response(200, "unknownWay", "An Unknown-way transfer, still in progress — items is always empty for Unknown-way lines.",
++                new { success = true, data = UnknownWayTransferDetail, error = (object?)null })
++            .Response(404, "notFound", "No transfer exists with that id (or it belongs to another tenant).",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Transfer.NotFound", message = "No transfer was found with id 999.", category = "NotFound" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Create() => new EndpointExampleSetBuilder()
++            .Request("knownWayLine", "Moving two specific, individually-tracked cards — Known-way " +
++                "products must name the exact cards being sent, and the count must match TransactedQuantity.",
++                new
++                {
++                    sourceBranchId = 7,
++                    targetBranchId = 9,
++                    items = new object[]
++                    {
++                        new { productId = 15, transactedQuantity = 2, productItemIds = new long[] { 501, 502 } }
++                    },
++                    actionNotes = "Restocking ahead of the holiday weekend."
++                })
++            .Request("unknownWayLine", "Moving a quantity of an Unknown-way product — no card ids: " +
++                "the system selects which cards back the entitlement.",
++                new
++                {
++                    sourceBranchId = 7,
++                    targetBranchId = 9,
++                    items = new object[]
++                    {
++                        new { productId = 16, transactedQuantity = 100 }
++                    },
++                    actionNotes = (string?)null
++                })
++            .Response(200, "success", "The created transfer — opens InProgress; no stock has moved yet.",
++                new { success = true, data = KnownWayTransferDetail, error = (object?)null })
++            .Response(403, "systemAdminNotAllowed", "A system-admin token attempted to create a " +
++                "transfer — admin access to this module is read-only (decision Q7).",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Transfer.SystemAdminNotAllowed", message = "A system administrator cannot create or settle transfers.", category = "Forbidden" }
++                })
++            .Response(404, "branchNotFound", "The source or target branch doesn't exist (or belongs to another tenant).",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Transfer.BranchNotFound", message = "No branch was found with id 999.", category = "NotFound" }
++                })
++            .Response(409, "itemNotAvailable", "One of the named cards is already in flight, printed, expired, spoiled, or written off.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Transfer.ItemNotAvailable", message = "Card **********123456 is not available to transfer.", category = "Conflict" }
++                })
++            .Response(422, "itemIdsRequired", "A Known-way line was submitted with no productItemIds — the exact cards must be named.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Transfer.ItemIdsRequired", message = "Product 15 is tracked per card, so the specific cards being transferred must be listed.", category = "Validation" }
++                })
++            .Response(422, "itemIdsNotAllowedForUnknown", "productItemIds were supplied for an Unknown-way line — rejected rather than silently ignored.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Transfer.ItemIdsNotAllowedForUnknown", message = "Product 16 is not tracked per card, so individual cards cannot be selected for it.", category = "Validation" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Receive() => new EndpointExampleSetBuilder()
++            .Request("knownWayFullyReceived", "Every card on a Known-way line received cleanly.",
++                new
++                {
++                    items = new object[]
++                    {
++                        new
++                        {
++                            productId = 15,
++                            realQuantityReceived = 2,
++                            disposedQuantity = 0,
++                            itemDispositions = new object[]
++                            {
++                                new { productItemId = 501, disposition = 1 },
++                                new { productItemId = 502, disposition = 1 }
++                            },
++                            differenceAction = (int?)null
++                        }
++                    },
++                    disposeReason = (string?)null,
++                    disposingBranchId = (long?)null,
++                    actionNotes = "All cards received in good condition."
++                })
++            .Request("unknownWayReturnedToSource", "An Unknown-way line partially received; the " +
++                "remainder is credited straight back to the source via an auto-generated return.",
++                new
++                {
++                    items = new object[]
++                    {
++                        new { productId = 16, realQuantityReceived = 80, disposedQuantity = 0, itemDispositions = (object?)null, differenceAction = 0 }
++                    },
++                    disposeReason = (string?)null,
++                    disposingBranchId = (long?)null,
++                    actionNotes = (string?)null
++                })
++            .Request("unknownWayKeptAtDestination", "An Unknown-way line partially received; the " +
++                "target is credited in full anyway (e.g. the rest was verbally confirmed on-site) — " +
++                "the gap stays visible via differenceAction rather than being expressed as stock in transit.",
++                new
++                {
++                    items = new object[]
++                    {
++                        new { productId = 16, realQuantityReceived = 80, disposedQuantity = 0, itemDispositions = (object?)null, differenceAction = 1 }
++                    },
++                    disposeReason = (string?)null,
++                    disposingBranchId = (long?)null,
++                    actionNotes = "Remaining 20 confirmed by phone; kept at destination pending paperwork."
++                })
++            .Response(200, "success", "Settlement outcome — returnTransferId is set only when a remainder actually moved.",
++                new
++                {
++                    success = true,
++                    data = new
++                    {
++                        transferId = 88,
++                        transactionStatus = 1,
++                        returnTransferId = (long?)null,
++                        disposalId = (long?)null,
++                        totalReceived = 2,
++                        totalDisposed = 0,
++                        totalReturned = 0
++                    },
++                    error = (object?)null
++                })
++            .Response(403, "systemAdminNotAllowed", "A system-admin token attempted to settle a transfer.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Transfer.SystemAdminNotAllowed", message = "A system administrator cannot create or settle transfers.", category = "Forbidden" }
++                })
++            .Response(404, "notFound", "No transfer exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Transfer.NotFound", message = "No transfer was found with id 999.", category = "NotFound" }
++                })
++            .Response(409, "notInProgress", "The transfer was already settled — settlement cannot run twice.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Transfer.NotInProgress", message = "Transfer 88 has already been settled.", category = "Conflict" }
++                })
++            .Response(422, "missingProductInSettlement", "A product carried by the transfer was left " +
++                "out of the settlement — omission is never read as an implicit zero.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Transfer.MissingProductInSettlement", message = "Product 15 is part of this transfer and must be settled explicitly.", category = "Validation" }
++                })
++            .Response(422, "differenceActionRequired", "An Unknown-way line has a remainder but no differenceAction was supplied.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Transfer.DifferenceActionRequired", message = "Product 16 was not fully received, so a difference action must be specified.", category = "Validation" }
++                })
++            .Response(422, "dispositionsRequired", "A Known-way line was settled without a per-card outcome for every card.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Transfer.DispositionsRequired", message = "Product 15 is tracked per card, so every card must be settled individually.", category = "Validation" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Dispose() => new EndpointExampleSetBuilder()
++            .Request("writeOffRemainder", "Writing off everything the transfer still carries, without receiving any of it.",
++                new { branchId = 9, reason = "Cards damaged in transit; entire shipment written off." })
++            .Response(200, "success", "Equivalent to Receive with every line fully disposed.",
++                new
++                {
++                    success = true,
++                    data = new
++                    {
++                        transferId = 88,
++                        transactionStatus = 4,
++                        returnTransferId = (long?)null,
++                        disposalId = 12,
++                        totalReceived = 0,
++                        totalDisposed = 2,
++                        totalReturned = 0
++                    },
++                    error = (object?)null
++                })
++            .Response(403, "systemAdminNotAllowed", "A system-admin token attempted to dispose of a transfer's cards.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Transfer.SystemAdminNotAllowed", message = "A system administrator cannot create or settle transfers.", category = "Forbidden" }
++                })
++            .Response(404, "notFound", "No transfer exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Transfer.NotFound", message = "No transfer was found with id 999.", category = "NotFound" }
++                })
++            .Response(409, "notInProgress", "The transfer was already settled.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Transfer.NotInProgress", message = "Transfer 88 has already been settled.", category = "Conflict" }
++                })
++            .Response(422, "disposingBranchRequired", "The branchId was omitted — required because settled cards sit at no branch of their own.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Transfer.DisposingBranchRequired", message = "A disposing branch is required when any quantity is disposed of.", category = "Validation" }
++                })
++            .Build();
++    }
++}
+-- 
+2.43.0
+

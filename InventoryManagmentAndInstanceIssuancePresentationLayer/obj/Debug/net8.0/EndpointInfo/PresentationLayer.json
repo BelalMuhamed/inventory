@@ -2760,6 +2760,26 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CardFileGenerationRequest"
+              },
+              "examples": {
+                "twoCards": {
+                  "summary": "Generating a small file for two cards, matched against the target tenant's catalog by name.",
+                  "value": {
+                    "tenantId": 42,
+                    "cards": [
+                      {
+                        "clearPan": "4111111111111111",
+                        "productName": "Gold Debit Card",
+                        "branchName": "Downtown Branch"
+                      },
+                      {
+                        "clearPan": "4222222222222222",
+                        "productName": "Gold Debit Card",
+                        "branchName": "Downtown Branch"
+                      }
+                    ]
+                  }
+                }
               }
             },
             "text/json": {
@@ -2776,17 +2796,31 @@
         },
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "Beyond the usual empty-body middleware rejection (see the controller-level 401 doc),\r\nthis action can also return 401 <em>with</em> the standard envelope\r\n(`CardFile.ActorNotResolved`) in the rare edge case described there.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "actorNotResolved": {
+                    "summary": "Rare edge case: the token passed the system-admin policy check but the acting principal couldn't be resolved from it — a defensive re-check, not an expected client-facing scenario. See the controller-level 401 doc for the far more common empty-body case (no/invalid token).",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "CardFile.ActorNotResolved",
+                        "message": "The acting principal could not be resolved.",
+                        "category": "Unauthorized"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "403": {
-            "description": "The token is valid but is not a system-admin token.",
+            "description": "The token is valid but is not a system-admin token. Always the authorization middleware's\r\nempty-body rejection.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2822,6 +2856,20 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "tenantNotFound": {
+                    "summary": "No tenant exists with the supplied id (reuses Tenant.NotFound rather than a separate code).",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Tenant.NotFound",
+                        "message": "No tenant was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -2832,6 +2880,20 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "tenantUnavailable": {
+                    "summary": "The target tenant is inactive or soft-deleted and cannot be issued a card file.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "CardFile.TenantUnavailable",
+                        "message": "Tenant 42 is inactive or deleted and cannot be issued a card file.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -2842,6 +2904,40 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "noCards": {
+                    "summary": "The cards array is empty.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "CardFile.NoCards",
+                        "message": "At least one card is required.",
+                        "category": "Validation"
+                      }
+                    }
+                  },
+                  "cardsRejected": {
+                    "summary": "One or more cards failed validation — all-or-nothing, so nothing is generated. Per-card reasons ride in error.validationErrors, keyed by each card's index in the request (machine-readable enum names — this caller is an admin tool, not an end user).",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "CardFile.CardsRejected",
+                        "message": "2 card(s) failed validation. No file was generated.",
+                        "category": "Validation",
+                        "validationErrors": {
+                          "cards[0]": [
+                            "InvalidPan"
+                          ],
+                          "cards[1]": [
+                            "UnknownProduct"
+                          ]
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -2908,11 +3004,25 @@
         },
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs. M:InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.InventoryController.Upload(ApplicationLayer.DTOs.Batches.BatchUploadRequest,System.Threading.CancellationToken) can additionally return this code\r\nwith the standard envelope (`Batch.ActorNotResolved`) when the caller has no\r\nresolvable tenant context — e.g. a system-admin token, which this endpoint doesn't support.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "actorNotResolved": {
+                    "summary": "The caller has no resolvable tenant context — e.g. a system-admin token, which this endpoint doesn't support since there's no tenant to upload cards for. Distinct from the far more common empty-body case (no/invalid token), which the controller-level 401 covers.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Batch.ActorNotResolved",
+                        "message": "The acting principal could not be resolved.",
+                        "category": "Unauthorized"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -2928,31 +3038,99 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The upload completed — importedCount/failedCount always sum to the file's row count.\r\nInvalid rows never fail the whole upload; failureReportBase64 carries a failed-rows\r\nExcel report (masked PANs only) when failedCount is greater than zero, and is null otherwise.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BatchUploadResultApiResponse"
+                },
+                "examples": {
+                  "allImported": {
+                    "summary": "Every row imported or updated successfully — no failed-rows report.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "importedCount": 500,
+                        "failedCount": 0,
+                        "failureReportFileName": null,
+                        "failureReportBase64": null
+                      },
+                      "error": null
+                    }
+                  },
+                  "partialFailure": {
+                    "summary": "Some rows failed (unknown product/branch, invalid PAN, etc.) — the whole upload still succeeds with 200; failed rows never fail the batch, they're collected into an Excel report instead.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "importedCount": 487,
+                        "failedCount": 13,
+                        "failureReportFileName": "spring-batch-2026-08-12-failed-rows.xlsx",
+                        "failureReportBase64": "UEsDBBQAAAAIAA=="
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "A file with this exact fingerprint (FileMac) was already uploaded for this tenant — no rows are written.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "duplicateFile": {
+                    "summary": "A file with this exact fingerprint (FileMac) was already uploaded for this tenant — no rows are written on a duplicate.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Batch.DuplicateFile",
+                        "message": "This exact file has already been uploaded.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "The declared ExpectedRowCount doesn't match the file's actual row count, the file isn't a .dat file, is empty, or couldn't be decrypted (wrong key or tampered/corrupted ciphertext).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "rowCountMismatch": {
+                    "summary": "The caller-declared ExpectedRowCount doesn't match the file's actual row count — the whole file is rejected before any row is processed.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Batch.ExpectedRowCountMismatch",
+                        "message": "Expected 500 rows but the file contains 487.",
+                        "category": "Validation"
+                      }
+                    }
+                  },
+                  "decryptionFailed": {
+                    "summary": "The file could not be authenticated/decrypted — wrong key, or corrupted/tampered ciphertext (AES-GCM tag check failed). A whole-file failure, not a per-row one.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Batch.DecryptionFailed",
+                        "message": "The file could not be decrypted. It may be corrupted or encrypted with the wrong key.",
+                        "category": "Validation"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -3114,7 +3292,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3134,11 +3312,62 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "A page of transfer history, newest first by default.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TransferListItemResponsePaginatedResponseApiResponse"
+                },
+                "examples": {
+                  "page": {
+                    "summary": "Newest-first transfer history, including a settled direct transfer and the auto-generated return it produced.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "data": [
+                          {
+                            "id": 88,
+                            "tenantId": 42,
+                            "sourceBranchId": 7,
+                            "sourceBranchName": "Downtown Branch",
+                            "targetBranchId": 9,
+                            "targetBranchName": "Airport Branch",
+                            "transactionStatus": 3,
+                            "origin": 0,
+                            "parentTransferId": null,
+                            "branchRequestId": null,
+                            "productLineCount": 1,
+                            "totalTransactedQuantity": 50,
+                            "createdAt": "2026-08-10T09:00:00Z",
+                            "statusChangedAt": "2026-08-10T15:20:00Z"
+                          },
+                          {
+                            "id": 89,
+                            "tenantId": 42,
+                            "sourceBranchId": 9,
+                            "sourceBranchName": "Airport Branch",
+                            "targetBranchId": 7,
+                            "targetBranchName": "Downtown Branch",
+                            "transactionStatus": 0,
+                            "origin": 1,
+                            "parentTransferId": 88,
+                            "branchRequestId": null,
+                            "productLineCount": 1,
+                            "totalTransactedQuantity": 5,
+                            "createdAt": "2026-08-10T15:20:00Z",
+                            "statusChangedAt": null
+                          }
+                        ],
+                        "pageNumber": 1,
+                        "pageSize": 20,
+                        "totalCount": 2,
+                        "totalPages": 1,
+                        "hasNextPage": false,
+                        "hasPreviousPage": false
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
@@ -5932,7 +6161,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs — no action here has a service-level 401 path.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5952,11 +6181,60 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "A page of product items.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProductItemResponsePaginatedResponseApiResponse"
+                },
+                "examples": {
+                  "page": {
+                    "summary": "A page of product items, including one currently in transit (branchId: null, status: OnHold).",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "data": [
+                          {
+                            "id": 501,
+                            "tenantId": 42,
+                            "maskedPan": "**********123456",
+                            "productId": 15,
+                            "productName": "Gold Debit Card",
+                            "branchId": 7,
+                            "batchId": 3,
+                            "status": 1,
+                            "holderName": null,
+                            "notes": null,
+                            "isDeleted": false,
+                            "createdAt": "2026-03-01T08:00:00Z",
+                            "updatedAt": null
+                          },
+                          {
+                            "id": 502,
+                            "tenantId": 42,
+                            "maskedPan": "**********654321",
+                            "productId": 15,
+                            "productName": "Gold Debit Card",
+                            "branchId": null,
+                            "batchId": 3,
+                            "status": 0,
+                            "holderName": null,
+                            "notes": null,
+                            "isDeleted": false,
+                            "createdAt": "2026-03-01T08:00:00Z",
+                            "updatedAt": "2026-08-10T11:00:00Z"
+                          }
+                        ],
+                        "pageNumber": 1,
+                        "pageSize": 20,
+                        "totalCount": 2,
+                        "totalPages": 1,
+                        "hasNextPage": false,
+                        "hasPreviousPage": false
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
@@ -5996,7 +6274,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs — no action here has a service-level 401 path.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6016,21 +6294,59 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The product item.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProductItemResponseApiResponse"
+                },
+                "examples": {
+                  "found": {
+                    "summary": "A card pinned to a branch and available for issue.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 501,
+                        "tenantId": 42,
+                        "maskedPan": "**********123456",
+                        "productId": 15,
+                        "productName": "Gold Debit Card",
+                        "branchId": 7,
+                        "batchId": 3,
+                        "status": 1,
+                        "holderName": null,
+                        "notes": null,
+                        "isDeleted": false,
+                        "createdAt": "2026-03-01T08:00:00Z",
+                        "updatedAt": null
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No product item exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No product item exists with that id (or it belongs to another tenant).",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "ProductItem.NotFound",
+                        "message": "No product item was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -6071,6 +6387,24 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/UpdateProductItemRequest"
+              },
+              "examples": {
+                "markPrinted": {
+                  "summary": "Recording that a card was successfully printed and issued.",
+                  "value": {
+                    "status": 2,
+                    "holderName": "Jane Doe",
+                    "notes": null
+                  }
+                },
+                "markFailedPrinting": {
+                  "summary": "Recording a spoiled card.",
+                  "value": {
+                    "status": 3,
+                    "holderName": null,
+                    "notes": "Ribbon jam during print, card discarded."
+                  }
+                }
               }
             },
             "text/json": {
@@ -6087,7 +6421,7 @@
         },
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs — no action here has a service-level 401 path.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6107,41 +6441,119 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The updated item.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProductItemResponseApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The updated item; branch stock was recomputed transactionally.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 501,
+                        "tenantId": 42,
+                        "maskedPan": "**********123456",
+                        "productId": 15,
+                        "productName": "Gold Debit Card",
+                        "branchId": 7,
+                        "batchId": 3,
+                        "status": 1,
+                        "holderName": null,
+                        "notes": null,
+                        "isDeleted": false,
+                        "createdAt": "2026-03-01T08:00:00Z",
+                        "updatedAt": null
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No product item exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No product item exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "ProductItem.NotFound",
+                        "message": "No product item was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "The card is in transit/unassigned (branchId is null) and can't be modified here, or is already disposed (terminal).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "inTransit": {
+                    "summary": "The card is currently in transit or unassigned (branchId is null) and cannot be modified outside the Transactions module until the transfer settles.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "ProductItem.InTransit",
+                        "message": "Product item 502 is in transit or unassigned and cannot be modified until the transfer is settled.",
+                        "category": "Conflict"
+                      }
+                    }
+                  },
+                  "alreadyDisposed": {
+                    "summary": "The card was already written off — disposal is terminal.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "ProductItem.Disposed",
+                        "message": "Product item 501 has been disposed and can no longer be modified.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "The request body failed validation, or attempted to set status to Disposed through this endpoint — use the dedicated dispose endpoint instead.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "disposeNotAllowedHere": {
+                    "summary": "Attempted to set status to Disposed through this generic endpoint — disposal requires a mandatory reason and disposing branch, so it must go through the dispose endpoints instead (POST /api/inventory/cards/dispose).",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "ProductItem.DisposeNotAllowedHere",
+                        "message": "Cards cannot be disposed through the status endpoint. Use the dispose endpoint, which requires a reason and a branch.",
+                        "category": "Validation"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -6786,7 +7198,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs — neither action here has a service-level 401 path.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6806,11 +7218,86 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "A page of stock rows.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StockRowResponsePaginatedResponseApiResponse"
+                },
+                "examples": {
+                  "page": {
+                    "summary": "First page of stock rows across all of the tenant's branches, including one below its low-stock threshold.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "data": [
+                          {
+                            "tenantId": 42,
+                            "branchId": 7,
+                            "branchName": "Downtown Branch",
+                            "productId": 15,
+                            "productName": "Gold Debit Card",
+                            "availableQuantity": 120,
+                            "holdQuantity": 15,
+                            "lowProductThreshold": 50,
+                            "isLow": false,
+                            "rowVersion": "AAAAAAAAB9E=",
+                            "updatedAt": "2026-08-01T14:30:00Z"
+                          },
+                          {
+                            "tenantId": 42,
+                            "branchId": 7,
+                            "branchName": "Downtown Branch",
+                            "productId": 16,
+                            "productName": "Silver Prepaid Card",
+                            "availableQuantity": 8,
+                            "holdQuantity": 0,
+                            "lowProductThreshold": 25,
+                            "isLow": true,
+                            "rowVersion": "AAAAAAAAB9F=",
+                            "updatedAt": "2026-08-05T09:00:00Z"
+                          }
+                        ],
+                        "pageNumber": 1,
+                        "pageSize": 20,
+                        "totalCount": 2,
+                        "totalPages": 1,
+                        "hasNextPage": false,
+                        "hasPreviousPage": false
+                      },
+                      "error": null
+                    }
+                  },
+                  "lowStockOnly": {
+                    "summary": "Filtered with ?lowStockOnly=true — only rows where availableQuantity <= lowProductThreshold.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "data": [
+                          {
+                            "tenantId": 42,
+                            "branchId": 7,
+                            "branchName": "Downtown Branch",
+                            "productId": 16,
+                            "productName": "Silver Prepaid Card",
+                            "availableQuantity": 8,
+                            "holdQuantity": 0,
+                            "lowProductThreshold": 25,
+                            "isLow": true,
+                            "rowVersion": "AAAAAAAAB9F=",
+                            "updatedAt": "2026-08-05T09:00:00Z"
+                          }
+                        ],
+                        "pageNumber": 1,
+                        "pageSize": 20,
+                        "totalCount": 1,
+                        "totalPages": 1,
+                        "hasNextPage": false,
+                        "hasPreviousPage": false
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
@@ -6919,7 +7406,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs — neither action here has a service-level 401 path.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6939,11 +7426,56 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "A page of stock rows for the branch. An unknown or out-of-scope branchId yields an empty page — this endpoint does not 404.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StockRowResponsePaginatedResponseApiResponse"
+                },
+                "examples": {
+                  "page": {
+                    "summary": "All stock rows for one branch. An unknown or out-of-scope branchId simply yields an empty page — this endpoint does not 404.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "data": [
+                          {
+                            "tenantId": 42,
+                            "branchId": 7,
+                            "branchName": "Downtown Branch",
+                            "productId": 15,
+                            "productName": "Gold Debit Card",
+                            "availableQuantity": 120,
+                            "holdQuantity": 15,
+                            "lowProductThreshold": 50,
+                            "isLow": false,
+                            "rowVersion": "AAAAAAAAB9E=",
+                            "updatedAt": "2026-08-01T14:30:00Z"
+                          },
+                          {
+                            "tenantId": 42,
+                            "branchId": 7,
+                            "branchName": "Downtown Branch",
+                            "productId": 16,
+                            "productName": "Silver Prepaid Card",
+                            "availableQuantity": 8,
+                            "holdQuantity": 0,
+                            "lowProductThreshold": 25,
+                            "isLow": true,
+                            "rowVersion": "AAAAAAAAB9F=",
+                            "updatedAt": "2026-08-05T09:00:00Z"
+                          }
+                        ],
+                        "pageNumber": 1,
+                        "pageSize": 20,
+                        "totalCount": 2,
+                        "totalPages": 1,
+                        "hasNextPage": false,
+                        "hasPreviousPage": false
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
