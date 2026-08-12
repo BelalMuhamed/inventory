@@ -48,7 +48,7 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
             builder.Host.UseSerilog();
             try
             {
-               
+
 
                 // Add services to the container.
 
@@ -65,9 +65,28 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
                 builder.Services.AddEndpointsApiExplorer();
                 builder.Services.AddSwaggerGen(op =>
                 {
-
+                    op.SwaggerDoc("v1", new OpenApiInfo
+                    {
+                        Title = "calimly Inventory Management & Card Issuance API",
+                        Version = "v1",
+                        Description =
+                            "Multi-tenant inventory management and card issuance platform: card SKUs, " +
+                            "physical card instances, stock, batch uploads, card-file generation, " +
+                            "transfers, disposals, branch requests, and printing configuration. " +
+                            "Every endpoint responds with the same envelope - " +
+                            "{ success, data, error } - on both success and failure; see each " +
+                            "endpoint's response examples for the shape of 'error' on that path."
+                    });
 
                     op.OperationFilter<AcceptLanguageHeaderOperationFilter>();
+
+                    // Swagger enhancement (Phase S1): attaches the named, multi-scenario examples
+                    // registered in ExampleCatalog to each operation's request/response bodies.
+                    op.OperationFilter<ExamplesOperationFilter>();
+
+                    // Swagger enhancement (Phase S1): documents each enum's numeric wire values,
+                    // since no JsonStringEnumConverter is registered (Docs/PROJECT_KNOWLEDGE.md section 12).
+                    op.SchemaFilter<EnumSchemaDescriptionsFilter>();
 
                     // PresentationServiceRegistration.AddPresentation — inside services.AddSwaggerGen(options => { ... })
                     op.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -95,12 +114,25 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
     }
     });
 
-                    // PresentationServiceRegistration.AddPresentation — inside services.AddSwaggerGen(options => { ... })
-
-
-
-
-
+                    // Swagger enhancement (Phase S1): surfaces every layer's <summary>/<param>/
+                    // <response> XML doc comments in Swagger UI. GenerateDocumentationFile is now
+                    // enabled on all three projects (Presentation already had it; DomainLayer and
+                    // ApplicationLayer were added alongside this change) - without this call, none
+                    // of those comments ever reached the generated spec, regardless of how complete
+                    // they were in source.
+                    foreach (string xmlFile in new[]
+                    {
+                        $"{Assembly.GetExecutingAssembly().GetName().Name}.xml",
+                        "ApplicationLayer.xml",
+                        "DomainLayer.xml"
+                    })
+                    {
+                        string xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+                        if (File.Exists(xmlPath))
+                        {
+                            op.IncludeXmlComments(xmlPath, includeControllerXmlComments: true);
+                        }
+                    }
                 });
 
                 // Fail fast if the JWT signing key is missing: a misconfigured secret should surface

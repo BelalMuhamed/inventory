@@ -20,14 +20,23 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
     /// the <see cref="AuthorizationPolicies.SystemAdminOnly"/> policy. Hard delete is intentionally
     /// not exposed; only soft delete and restore are available.
     /// </summary>
-    /// <response code="401">No valid bearer token was supplied.</response>
-    /// <response code="403">The token is valid but is not a system-admin token.</response>
+    /// <response code="401">
+    /// No valid bearer token was supplied. On every action here this is the authorization
+    /// middleware rejecting the request before it runs — the body is empty, not the standard
+    /// <see cref="ApiResponse{T}"/> envelope. The sole exception is <c>DELETE /{id}</c>, which can
+    /// additionally return this code <em>with</em> the envelope in one rare edge case — see that
+    /// action's own documentation.
+    /// </response>
+    /// <response code="403">
+    /// The token is valid but is not a system-admin token. Always the authorization middleware's
+    /// empty-body rejection — no action in this controller returns a Forbidden result itself.
+    /// </response>
     [ApiController]
     [Route("api/tenants")]
     [Authorize(Policy = AuthorizationPolicies.SystemAdminOnly)]
     [Produces("application/json")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
     public sealed class TenantsController : ControllerBase
     {
@@ -114,6 +123,13 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// <param name="id">Tenant id.</param>
         /// <param name="cancellationToken">Request cancellation token.</param>
         /// <response code="200">The tenant was soft-deleted; the payload is null.</response>
+        /// <response code="401">
+        /// Beyond the usual empty-body middleware rejection (see the controller-level 401 doc),
+        /// this action can also return 401 <em>with</em> the standard envelope
+        /// (<c>Tenant.ActorNotResolved</c>) in the edge case where the bearer token passed the
+        /// system-admin policy check but the acting admin's identity could not be resolved from
+        /// it — a defensive check, not an expected client-facing scenario.
+        /// </response>
         /// <response code="404">No tenant exists with the supplied id.</response>
         /// <response code="409">The tenant is already deleted.</response>
         [HttpDelete("{id:long}")]

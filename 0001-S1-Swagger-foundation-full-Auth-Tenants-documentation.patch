@@ -1,0 +1,1359 @@
+From 8f2a6e16ff2e399d7c517da7a6e7f3f7fbb188ab Mon Sep 17 00:00:00 2001
+From: AI Pairing <ai-pairing@calimly.local>
+Date: Wed, 12 Aug 2026 08:16:06 +0000
+Subject: [PATCH] S1: Swagger foundation + full Auth/Tenants documentation
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Wire IncludeXmlComments for Presentation, ApplicationLayer, and
+  DomainLayer assemblies (GenerateDocumentationFile enabled on the
+  latter two) — previously GenerateDocumentationFile was only set on
+  the Presentation project and IncludeXmlComments was never called at
+  all, so none of the existing <summary>/<param>/<response> XML docs
+  reached Swagger UI regardless of how complete they were in source.
+- Add OpenApiInfo (title/version/description).
+- Add EnumSchemaDescriptionsFilter (ISchemaFilter): documents every
+  enum's numeric wire value + member docs on its schema, since no
+  JsonStringEnumConverter is registered anywhere (enums serialize as
+  plain integers).
+- Add ExamplesOperationFilter + ExampleCatalog + EndpointExampleSet
+  (IOperationFilter, same hand-written-filter pattern as the existing
+  AcceptLanguageHeaderOperationFilter — no new NuGet package):
+  attaches named, multi-scenario request/response examples per
+  action, keyed by (Controller, Action).
+- Add Swagger/Examples/AuthExamples.cs and TenantExamples.cs: full
+  named examples for all 12 Auth + Tenants endpoints, grounded in the
+  actual AuthService/TenantService/*Errors code (exact codes,
+  messages, categories).
+- Correct AuthController/TenantsController XML docs and
+  [ProducesResponseType] to distinguish the two different 401/403
+  shapes in this codebase: the empty-body kind the auth middleware
+  returns before an action runs, vs. the enveloped ApiResponse<T> kind
+  a Result-based failure returns (e.g. Tenant.ActorNotResolved on
+  SoftDelete). Some actions previously declared a typed envelope body
+  for a response that is actually always empty at runtime.
+- Fix a doc-comment drift on CurrentPrincipalResponse: documented a
+  TenantId parameter that doesn't exist on the record.
+
+Foundation (XML comments, enum filter, examples filter/catalog) now
+applies to every controller; only Auth + Tenants have full example
+content so far. Remaining controllers land in phases S2-S5 per the
+agreed module grouping.
+---
+ ApplicationLayer/ApplicationLayer.csproj      |   4 +
+ ApplicationLayer/DTOs/Auth/AuthDtos.cs        |   4 +-
+ Docs/PROJECT_KNOWLEDGE.md                     |  14 +-
+ DomainLayer/DomainLayer.csproj                |   4 +
+ .../Controllers/AuthController.cs             |  27 +-
+ .../Controllers/TenantsController.cs          |  22 +-
+ .../Program.cs                                |  48 ++-
+ .../Swagger/EndpointExampleSet.cs             |  66 ++++
+ .../Swagger/EnumSchemaDescriptionsFilter.cs   |  81 +++++
+ .../Swagger/ExampleCatalog.cs                 |  51 +++
+ .../Swagger/Examples/AuthExamples.cs          | 213 ++++++++++++
+ .../Swagger/Examples/TenantExamples.cs        | 318 ++++++++++++++++++
+ .../Swagger/ExamplesOperationFilter.cs        |  92 +++++
+ .../Swagger/OpenApiAnyFactory.cs              |  79 +++++
+ .../Swagger/XmlDocIndex.cs                    |  72 ++++
+ 15 files changed, 1073 insertions(+), 22 deletions(-)
+ create mode 100644 InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/EndpointExampleSet.cs
+ create mode 100644 InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/EnumSchemaDescriptionsFilter.cs
+ create mode 100644 InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/ExampleCatalog.cs
+ create mode 100644 InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/AuthExamples.cs
+ create mode 100644 InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/TenantExamples.cs
+ create mode 100644 InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/ExamplesOperationFilter.cs
+ create mode 100644 InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/OpenApiAnyFactory.cs
+ create mode 100644 InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/XmlDocIndex.cs
+
+diff --git a/ApplicationLayer/ApplicationLayer.csproj b/ApplicationLayer/ApplicationLayer.csproj
+index b909a39..baa868f 100644
+--- a/ApplicationLayer/ApplicationLayer.csproj
++++ b/ApplicationLayer/ApplicationLayer.csproj
+@@ -4,6 +4,10 @@
+     <TargetFramework>net8.0</TargetFramework>
+     <ImplicitUsings>enable</ImplicitUsings>
+     <Nullable>enable</Nullable>
++    <!-- Swagger enhancement (Phase S1): DTO/record <summary>/<param> docs live here and are
++         wired into SwaggerGen via IncludeXmlComments in Program.cs. -->
++    <GenerateDocumentationFile>true</GenerateDocumentationFile>
++    <NoWarn>$(NoWarn);1591</NoWarn>
+   </PropertyGroup>
+ 
+   <ItemGroup>
+diff --git a/ApplicationLayer/DTOs/Auth/AuthDtos.cs b/ApplicationLayer/DTOs/Auth/AuthDtos.cs
+index 14ce4d7..f85d90f 100644
+--- a/ApplicationLayer/DTOs/Auth/AuthDtos.cs
++++ b/ApplicationLayer/DTOs/Auth/AuthDtos.cs
+@@ -37,9 +37,9 @@ namespace ApplicationLayer.DTOs.Auth
+     /// <summary>
+     /// Current-principal projection returned by <c>GET /api/auth/me</c>, used by clients to
+     /// bootstrap UI state. Reflects only the claims the spec permits (no role/permissions/branch).
++    /// Carries no tenant id — a caller who needs it decodes the JWT's own <c>tenantId</c> claim.
+     /// </summary>
+-    /// <param name="TenantId">Authenticated tenant id, or <c>null</c> for a system admin.</param>
+     /// <param name="Username">Login username of the authenticated principal.</param>
+     /// <param name="IsSystemAdmin">True when the caller is the bootstrap system admin.</param>
+-    public sealed record CurrentPrincipalResponse( string Username, bool IsSystemAdmin);
++    public sealed record CurrentPrincipalResponse(string Username, bool IsSystemAdmin);
+ }
+diff --git a/Docs/PROJECT_KNOWLEDGE.md b/Docs/PROJECT_KNOWLEDGE.md
+index c9006bc..be6b0b5 100644
+--- a/Docs/PROJECT_KNOWLEDGE.md
++++ b/Docs/PROJECT_KNOWLEDGE.md
+@@ -76,7 +76,8 @@ InventoryManagmentAndInstanceIssuanceSolution.sln
+     ├── MiddleWares/         GlobalExceptionMiddleware
+     ├── Security/             AuthorizationPolicies, CurrentTenant (ICurrentTenant impl from JWT claims)
+     ├── Filters/              LocalizeErrorResultFilter (Error.Code → IStringLocalizer message)
+-    ├── Swagger/              AcceptLanguageHeaderOperationFilter
++    ├── Swagger/              AcceptLanguageHeaderOperationFilter, ExamplesOperationFilter,
++    │                         EnumSchemaDescriptionsFilter, ExampleCatalog, Examples/*.cs (§3, "Swagger / API documentation")
+     ├── Resources/Localization/ Messages.resx (EN) + Messages.ar.resx (AR), Messages.cs bundle
+     └── Program.cs            Composition root
+ ```
+@@ -114,6 +115,12 @@ Root of the repo also holds a sequence of `git format-patch` files (`R1..R6-*.pa
+ - **Model validation:** `ApiBehaviorOptions.InvalidModelStateResponseFactory` replaced with `ValidationResponseFactory.Build`, so `[ApiController]`'s automatic 400 becomes a 422 in the same envelope shape as business validation failures.
+ - **Localization:** `LocalizeErrorResultFilter` (an `IAsyncResultFilter`, registered as `options.Filters.Add<LocalizeErrorResultFilter>()`) rewrites `ApiError.Message` by looking up `Error.Code` in `IStringLocalizer`-backed `Messages.resx`/`Messages.ar.resx`, using the incoming `Accept-Language` header (`app.UseRequestLocalization()`).
+ - **Audit logging:** Two mechanisms, not one — (1) `AuditSaveChangesInterceptor` (EF `SaveChangesInterceptor`) automatically writes one `AuditLog` row per `Added`/`Modified`/`Deleted` change to any `AuditableEntity`-derived type, discovering the owning tenant by convention off a `TenantId` property; (2) `IAuditLogger.StageAction(...)`, called explicitly by services for non-CRUD or non-`AuditableEntity` actions (Login, branch-request Confirm/Refuse/Cancel, transfer creation/settlement, disposal) since those aggregates (`CardTransfer`, `BranchRequest`, `CardDisposal`, etc.) are deliberately **not** `AuditableEntity`.
++- **Swagger / API documentation (added Phase S1, 2026-08-12):** No new NuGet package — extends the existing hand-written-`IOperationFilter` pattern (`AcceptLanguageHeaderOperationFilter` was already doing this). Three pieces, all in `Presentation/Swagger/`:
++  - `IncludeXmlComments` is now wired for all three XML-doc-producing assemblies (Presentation, ApplicationLayer, DomainLayer — the latter two had `GenerateDocumentationFile` enabled for the first time in this pass). Every layer's existing `<summary>`/`<param>`/`<response>` doc comments now reach Swagger UI; previously none of them did, regardless of how complete they were in source.
++  - `EnumSchemaDescriptionsFilter` (`ISchemaFilter`) appends each enum's numeric wire value + member doc to its schema description, reading the same XML doc files via `XmlDocIndex` — needed because no `JsonStringEnumConverter` is registered anywhere (enums serialize as plain integers; see §12 enum persistence decision) and Swashbuckle's built-in XML support documents the enum type, not each member.
++  - `ExamplesOperationFilter` attaches named, multi-scenario request/response examples per action, looked up from `ExampleCatalog.All` by `(Controller, Action)`. **To extend for a new controller:** add one `Swagger/Examples/{Module}Examples.cs` file (mirrors `Errors/{Module}Errors.cs` — one file per module) building an `EndpointExampleSet` per action via `EndpointExampleSetBuilder`, then add one `Merge(catalog, {Module}Examples.Build());` line in `ExampleCatalog.Build()`. Examples are plain C# objects (anonymous types), not hand-built `IOpenApiAny` graphs — `OpenApiAnyFactory` does that conversion.
++  - **Coverage as of this pass:** foundation (XML comments, enum filter, examples filter/catalog) applies to every controller already. Full example content exists only for `AuthController` and `TenantsController` (Phase S1). Remaining controllers are planned in phases S2 (Branches/Products/PrintConfig/Printers/PrintImages), S3 (Stock/ProductItems/Inventory upload/InventoryHistory/CardFiles), S4 (Transactions/CardDisposals), S5 (BranchRequests) — same one-module-per-file convention.
++  - **A genuine finding from this pass, not a bug fix:** `[Authorize]`/`[Authorize(Policy=...)]` failures (missing/invalid token, wrong policy) are handled by ASP.NET Core's authorization middleware *before* an action runs, and return an **empty body** — not the `ApiResponse<T>` envelope. Several controllers' `[ProducesResponseType]` on 401/403 previously claimed a typed envelope body for these regardless. `AuthController`/`TenantsController` were corrected in Phase S1 (untyped `[ProducesResponseType(StatusCodes.Status401Unauthorized)]` where the body really is empty, XML docs explaining which shape applies where — some actions/status codes can hit *either* shape depending on whether the failure is middleware-level or a `Result`-based service error, e.g. `Tenant.ActorNotResolved` on `TenantsController.SoftDelete`). **The same audit is still needed on every other controller** as S2-S5 land — check each 401/403 against its actual service code before trusting the existing `[ProducesResponseType]` type.
+ 
+ ---
+ 
+@@ -463,11 +470,12 @@ Keep this section SHORT — only major architectural or behavioral changes.
+ 
+ - **2026-08-10:** Initial creation of this document via full repository read (entities, DbContext, contracts, repositories, services, controllers, DI wiring, security, options/config, migrations, localization). Confirmed README's "not yet implemented" closing paragraph is stale — entities, DbContext, repositories, services, and controllers are all implemented; flagged for the repo owner to update or remove. Branch Requests module (API §4.9) confirmed fully implemented end-to-end (R1–R6 committed), superseding an earlier "service/controller pending" status.
+ - **2026-08-10 (same day, follow-up pass):** Unknown-way Maker-Checker workflow implemented (migration `U1-UnknownTransferMakerChecker`). Unknown-way transfer lines no longer settle immediately at creation/confirm — they now follow the same create → pending → settle lifecycle Known-way lines already had, with remainder resolution via a new per-line `DifferenceAction` (`ReturnedToSource`/`KeptAtDestination`) instead of per-card dispositions, and no disposal support. `CardTransfer.CreatedByUsername`/`.CheckedByUsername` record Maker/Checker identity on every transfer — same account for both is explicitly acceptable, since this system has one account per tenant (§7) and there is no per-user identity to compare. This also changes Branch Requests (§4.9) behavior: an Unknown-way line confirmed via a branch request no longer credits `ReceivedQuantity` inline at confirm time — `BranchRequestFulfilment.ApplyReceiptAsync` is now the credit path for every settled line, Known or Unknown. Corrected two pre-existing stale claims found during this pass: `CardTransferItem`'s doc comment and this document's own §4 previously (incorrectly) stated Unknown-way lines get item rows — they never have, in code. **Verification note:** this pass had no .NET SDK or NuGet access in the working sandbox, so changes were verified by careful manual re-read rather than the usual Roslyn semantic compile — a real build pass is recommended before merging.
++- **2026-08-12 (Swagger documentation, Phase S1 of a 5-phase plan):** Wired `IncludeXmlComments` for the first time across all three XML-doc-producing assemblies (previously only the Presentation project had `GenerateDocumentationFile` enabled, and `IncludeXmlComments` was never called at all — no existing XML doc comment, however complete, ever reached Swagger UI). Added `EnumSchemaDescriptionsFilter` and `ExamplesOperationFilter`/`ExampleCatalog` (see §3, "Swagger / API documentation" — no new NuGet package, extends the existing hand-written-filter pattern). Full example content delivered for `AuthController` and `TenantsController` only; S2-S5 cover the remaining 13 controllers. Found and corrected a real inaccuracy while building this: several `[ProducesResponseType]` declarations for 401/403 claimed a typed `ApiResponse<T>` envelope body for responses that the ASP.NET Core authorization middleware actually returns empty — fixed on Auth/Tenants, flagged as an open per-controller audit item for S2-S5 (§3). Also fixed a stale `<param name="TenantId">` doc on `CurrentPrincipalResponse` (ApplicationLayer/DTOs/Auth/AuthDtos.cs) that documented a parameter the record doesn't have. **Verification note:** same sandbox constraint as the entry above — no .NET SDK/NuGet access, verified by manual cross-check of every new file (brace balance, using statements, cref resolution, exact codes/messages against the real `*Service`/`*Errors` source) rather than a real build; a real `dotnet build` is recommended before merging.
+ 
+ ---
+ 
+ ## Documentation Metadata
+ 
+-- Last verified against code: 2026-08-10 (Unknown-way Maker-Checker workflow pass)
+-- Last significant update: 2026-08-10 (Unknown-way Maker-Checker workflow)
++- Last verified against code: 2026-08-12 (Swagger documentation Phase S1 pass — Auth/Tenants controllers and DTOs re-read; other modules not re-verified this pass, see 2026-08-10 entries for their last verification)
++- Last significant update: 2026-08-12 (Swagger/API documentation foundation + Auth/Tenants full coverage)
+ - Maintained by: AI + Project Developers
+diff --git a/DomainLayer/DomainLayer.csproj b/DomainLayer/DomainLayer.csproj
+index 9dfb18f..1229edd 100644
+--- a/DomainLayer/DomainLayer.csproj
++++ b/DomainLayer/DomainLayer.csproj
+@@ -4,6 +4,10 @@
+     <TargetFramework>net8.0</TargetFramework>
+     <ImplicitUsings>enable</ImplicitUsings>
+     <Nullable>enable</Nullable>
++    <!-- Swagger enhancement (Phase S1): enum member docs (Active/Inactive/etc.) live here and
++         are read by EnumSchemaDescriptionsFilter to annotate Swagger's enum schemas. -->
++    <GenerateDocumentationFile>true</GenerateDocumentationFile>
++    <NoWarn>$(NoWarn);1591</NoWarn>
+   </PropertyGroup>
+ 
+   <ItemGroup>
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/AuthController.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/AuthController.cs
+index 9ff5119..c97edd1 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/AuthController.cs
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/AuthController.cs
+@@ -40,7 +40,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         /// <param name="request">Tenant credentials.</param>
+         /// <param name="cancellationToken">Request cancellation token.</param>
+         /// <response code="200">Authentication succeeded; returns the access/refresh token pair.</response>
+-        /// <response code="401">The username or password is incorrect, or the tenant is inactive.</response>
++        /// <response code="401">
++        /// The username or password is incorrect, or the tenant is inactive
++        /// (<c>Auth.InvalidCredentials</c>) — same code either way, so the response never reveals
++        /// which. Returned by the service as the standard <see cref="ApiResponse{T}"/> envelope.
++        /// </response>
+         /// <response code="422">The request body failed validation.</response>
+         [HttpPost("tenant")]
+         [AllowAnonymous]
+@@ -58,7 +62,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         /// <param name="request">Administrator credentials.</param>
+         /// <param name="cancellationToken">Request cancellation token.</param>
+         /// <response code="200">Authentication succeeded; returns the access/refresh token pair.</response>
+-        /// <response code="401">The username or password is incorrect, or the admin is inactive.</response>
++        /// <response code="401">
++        /// The username or password is incorrect, or the admin is inactive
++        /// (<c>Auth.InvalidCredentials</c> — the same code <c>POST /api/auth/tenant</c> uses).
++        /// Returned by the service as the standard <see cref="ApiResponse{T}"/> envelope.
++        /// </response>
+         /// <response code="422">The request body failed validation.</response>
+         [HttpPost("admin")]
+         [AllowAnonymous]
+@@ -88,12 +96,16 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         /// <param name="request">The refresh token to revoke.</param>
+         /// <param name="cancellationToken">Request cancellation token.</param>
+         /// <response code="200">Logout succeeded (idempotent); the payload is null.</response>
+-        /// <response code="401">No valid bearer token was supplied.</response>
++        /// <response code="401">
++        /// No valid bearer token was supplied. Returned by the authentication middleware before
++        /// this action runs — the response body is empty (no <see cref="ApiResponse{T}"/>
++        /// envelope), since <c>LogoutAsync</c> itself never fails.
++        /// </response>
+         /// <response code="422">The request body failed validation.</response>
+         [HttpPost("logout")]
+         [Authorize]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
++        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
+         public async Task<IActionResult> Logout(
+             [FromBody] LogoutRequest request, CancellationToken cancellationToken)
+@@ -103,11 +115,14 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         /// Returns the current principal (username, admin flag) to bootstrap UI state.
+         /// </summary>
+         /// <response code="200">The authenticated principal.</response>
+-        /// <response code="401">No valid bearer token was supplied.</response>
++        /// <response code="401">
++        /// No valid bearer token was supplied. Returned by the authentication middleware before
++        /// this action runs — the response body is empty (no <see cref="ApiResponse{T}"/> envelope).
++        /// </response>
+         [HttpGet("me")]
+         [Authorize]
+         [ProducesResponseType(typeof(ApiResponse<CurrentPrincipalResponse>), StatusCodes.Status200OK)]
+-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
++        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+         public IActionResult Me()
+         {
+             var profile = new CurrentPrincipalResponse(_currentTenant.Username, _currentTenant.IsSystemAdmin);
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/TenantsController.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/TenantsController.cs
+index 0eb5ed3..3297d93 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/TenantsController.cs
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/TenantsController.cs
+@@ -20,14 +20,23 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+     /// the <see cref="AuthorizationPolicies.SystemAdminOnly"/> policy. Hard delete is intentionally
+     /// not exposed; only soft delete and restore are available.
+     /// </summary>
+-    /// <response code="401">No valid bearer token was supplied.</response>
+-    /// <response code="403">The token is valid but is not a system-admin token.</response>
++    /// <response code="401">
++    /// No valid bearer token was supplied. On every action here this is the authorization
++    /// middleware rejecting the request before it runs — the body is empty, not the standard
++    /// <see cref="ApiResponse{T}"/> envelope. The sole exception is <c>DELETE /{id}</c>, which can
++    /// additionally return this code <em>with</em> the envelope in one rare edge case — see that
++    /// action's own documentation.
++    /// </response>
++    /// <response code="403">
++    /// The token is valid but is not a system-admin token. Always the authorization middleware's
++    /// empty-body rejection — no action in this controller returns a Forbidden result itself.
++    /// </response>
+     [ApiController]
+     [Route("api/tenants")]
+     [Authorize(Policy = AuthorizationPolicies.SystemAdminOnly)]
+     [Produces("application/json")]
+     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
++    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+     public sealed class TenantsController : ControllerBase
+     {
+@@ -114,6 +123,13 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         /// <param name="id">Tenant id.</param>
+         /// <param name="cancellationToken">Request cancellation token.</param>
+         /// <response code="200">The tenant was soft-deleted; the payload is null.</response>
++        /// <response code="401">
++        /// Beyond the usual empty-body middleware rejection (see the controller-level 401 doc),
++        /// this action can also return 401 <em>with</em> the standard envelope
++        /// (<c>Tenant.ActorNotResolved</c>) in the edge case where the bearer token passed the
++        /// system-admin policy check but the acting admin's identity could not be resolved from
++        /// it — a defensive check, not an expected client-facing scenario.
++        /// </response>
+         /// <response code="404">No tenant exists with the supplied id.</response>
+         /// <response code="409">The tenant is already deleted.</response>
+         [HttpDelete("{id:long}")]
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Program.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Program.cs
+index 4d3e364..6daf55a 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Program.cs
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Program.cs
+@@ -60,11 +60,30 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
+             builder.Services.AddEndpointsApiExplorer();
+             builder.Services.AddSwaggerGen(op =>
+             {
+-                
++                op.SwaggerDoc("v1", new OpenApiInfo
++                {
++                    Title = "calimly Inventory Management & Card Issuance API",
++                    Version = "v1",
++                    Description =
++                        "Multi-tenant inventory management and card issuance platform: card SKUs, " +
++                        "physical card instances, stock, batch uploads, card-file generation, " +
++                        "transfers, disposals, branch requests, and printing configuration. " +
++                        "Every endpoint responds with the same envelope - " +
++                        "{ success, data, error } - on both success and failure; see each " +
++                        "endpoint's response examples for the shape of 'error' on that path."
++                });
+ 
+                 op.OperationFilter<AcceptLanguageHeaderOperationFilter>();
+ 
+-                // PresentationServiceRegistration.AddPresentation � inside services.AddSwaggerGen(options => { ... })
++                // Swagger enhancement (Phase S1): attaches the named, multi-scenario examples
++                // registered in ExampleCatalog to each operation's request/response bodies.
++                op.OperationFilter<ExamplesOperationFilter>();
++
++                // Swagger enhancement (Phase S1): documents each enum's numeric wire values,
++                // since no JsonStringEnumConverter is registered (Docs/PROJECT_KNOWLEDGE.md section 12).
++                op.SchemaFilter<EnumSchemaDescriptionsFilter>();
++
++                // PresentationServiceRegistration.AddPresentation - inside services.AddSwaggerGen(options => { ... })
+                 op.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+                 {
+                     Name = "Authorization",
+@@ -90,12 +109,25 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
+     }
+ });
+ 
+-                // PresentationServiceRegistration.AddPresentation � inside services.AddSwaggerGen(options => { ... })
+-              
+-
+-               
+-                
+-
++                // Swagger enhancement (Phase S1): surfaces every layer's <summary>/<param>/
++                // <response> XML doc comments in Swagger UI. GenerateDocumentationFile is now
++                // enabled on all three projects (Presentation already had it; DomainLayer and
++                // ApplicationLayer were added alongside this change) - without this call, none
++                // of those comments ever reached the generated spec, regardless of how complete
++                // they were in source.
++                foreach (string xmlFile in new[]
++                {
++                    $"{Assembly.GetExecutingAssembly().GetName().Name}.xml",
++                    "ApplicationLayer.xml",
++                    "DomainLayer.xml"
++                })
++                {
++                    string xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
++                    if (File.Exists(xmlPath))
++                    {
++                        op.IncludeXmlComments(xmlPath, includeControllerXmlComments: true);
++                    }
++                }
+             });
+ 
+             // Fail fast if the JWT signing key is missing: a misconfigured secret should surface
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/EndpointExampleSet.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/EndpointExampleSet.cs
+new file mode 100644
+index 0000000..fc96cfd
+--- /dev/null
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/EndpointExampleSet.cs
+@@ -0,0 +1,66 @@
++using System.Collections.Generic;
++using System.Linq;
++
++namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger
++{
++    /// <summary>
++    /// One named example: <paramref name="Key"/> is the short identifier Swagger UI's dropdown
++    /// shows (e.g. <c>"knownWayLine"</c>), <paramref name="Summary"/> is the one-line business
++    /// explanation shown next to it, and <paramref name="Value"/> is the example payload — an
++    /// ordinary object shaped like the real DTO, converted by <see cref="OpenApiAnyFactory"/>.
++    /// </summary>
++    public sealed record NamedExample(string Key, string Summary, object Value);
++
++    /// <summary>
++    /// All the examples for a single controller action: zero-or-more named request-body examples
++    /// (for endpoints with distinct business scenarios), plus zero-or-more named examples per
++    /// response status code (success, validation, business-rule failures, etc.).
++    /// </summary>
++    public sealed class EndpointExampleSet
++    {
++        /// <summary>Named request-body examples. Empty for endpoints with no body (GET, etc.).</summary>
++        public IReadOnlyList<NamedExample> RequestExamples { get; init; } = new List<NamedExample>();
++
++        /// <summary>Named examples per HTTP status code.</summary>
++        public IReadOnlyDictionary<int, IReadOnlyList<NamedExample>> ResponseExamples { get; init; } =
++            new Dictionary<int, IReadOnlyList<NamedExample>>();
++    }
++
++    /// <summary>
++    /// Fluent builder for <see cref="EndpointExampleSet"/>, used by the per-module files under
++    /// <c>Swagger/Examples/</c> so each endpoint's examples read as a short, declarative block
++    /// rather than raw dictionary construction.
++    /// </summary>
++    public sealed class EndpointExampleSetBuilder
++    {
++        private readonly List<NamedExample> _requestExamples = new();
++        private readonly Dictionary<int, List<NamedExample>> _responseExamples = new();
++
++        /// <summary>Adds a named request-body example.</summary>
++        public EndpointExampleSetBuilder Request(string key, string summary, object value)
++        {
++            _requestExamples.Add(new NamedExample(key, summary, value));
++            return this;
++        }
++
++        /// <summary>Adds a named example for a given HTTP status code.</summary>
++        public EndpointExampleSetBuilder Response(int statusCode, string key, string summary, object value)
++        {
++            if (!_responseExamples.TryGetValue(statusCode, out List<NamedExample>? list))
++            {
++                list = new List<NamedExample>();
++                _responseExamples[statusCode] = list;
++            }
++            list.Add(new NamedExample(key, summary, value));
++            return this;
++        }
++
++        /// <summary>Builds the immutable <see cref="EndpointExampleSet"/>.</summary>
++        public EndpointExampleSet Build() => new()
++        {
++            RequestExamples = _requestExamples,
++            ResponseExamples = _responseExamples.ToDictionary(
++                kvp => kvp.Key, kvp => (IReadOnlyList<NamedExample>)kvp.Value)
++        };
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/EnumSchemaDescriptionsFilter.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/EnumSchemaDescriptionsFilter.cs
+new file mode 100644
+index 0000000..5af710f
+--- /dev/null
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/EnumSchemaDescriptionsFilter.cs
+@@ -0,0 +1,81 @@
++using System;
++using System.Collections.Generic;
++using System.Linq;
++using Microsoft.OpenApi.Any;
++using Microsoft.OpenApi.Models;
++using Swashbuckle.AspNetCore.SwaggerGen;
++
++namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger
++{
++    /// <summary>
++    /// Documents every available enum value directly on its Swagger schema. Every persisted enum
++    /// in this codebase serializes over the wire as its numeric value (no
++    /// <c>JsonStringEnumConverter</c> is registered — see Docs/PROJECT_KNOWLEDGE.md §12, enum
++    /// persistence), and Swashbuckle's own XML-comment support annotates the enum <em>type</em>
++    /// (from <c>IncludeXmlComments</c>) but not each individual member. This filter closes that
++    /// gap by reading the same XML doc comments already on every enum member
++    /// (<c>DomainLayer/Enums/*.cs</c>) via <see cref="XmlDocIndex"/> and listing "value = Name:
++    /// summary" for each one, so a consumer never has to open the source to know what <c>2</c>
++    /// means on a given field.
++    /// <para>
++    /// Runs after Swashbuckle's built-in XML-comments schema filter (registration order in
++    /// <c>Program.cs</c>), so it appends to — rather than overwrites — the enum type's own
++    /// <c>&lt;summary&gt;</c>, which that filter has already placed in <see cref="OpenApiSchema.Description"/>.
++    /// </para>
++    /// </summary>
++    public sealed class EnumSchemaDescriptionsFilter : ISchemaFilter
++    {
++        /// <inheritdoc />
++        public void Apply(OpenApiSchema schema, SchemaFilterContext context)
++        {
++            Type type = Nullable.GetUnderlyingType(context.Type) ?? context.Type;
++            if (!type.IsEnum)
++            {
++                return;
++            }
++
++            IReadOnlyList<string> valueLines = DescribeMembers(type);
++            if (valueLines.Count == 0)
++            {
++                return;
++            }
++
++            string enumDescription = "Values: " + string.Join("; ", valueLines) + ".";
++            schema.Description = string.IsNullOrWhiteSpace(schema.Description)
++                ? enumDescription
++                : $"{schema.Description} {enumDescription}";
++
++            // Codegen-tool convenience (NSwag/OpenAPI-Generator convention): a parallel array of
++            // member names alongside the numeric x-enum values Swashbuckle already emits, so
++            // generated clients can produce a named enum instead of a bare int.
++            schema.Extensions["x-enumNames"] = BuildNameArray(type);
++        }
++
++        private static IReadOnlyList<string> DescribeMembers(Type enumType)
++        {
++            var lines = new List<string>();
++            foreach (string name in Enum.GetNames(enumType))
++            {
++                object rawValue = Enum.Parse(enumType, name);
++                long numericValue = System.Convert.ToInt64(rawValue);
++                string memberId = $"F:{enumType.FullName}.{name}";
++                string? summary = XmlDocIndex.Instance.GetSummary(memberId);
++
++                lines.Add(summary is null
++                    ? $"{numericValue} = {name}"
++                    : $"{numericValue} = {name} ({summary})");
++            }
++            return lines;
++        }
++
++        private static OpenApiArray BuildNameArray(Type enumType)
++        {
++            var array = new OpenApiArray();
++            foreach (string name in Enum.GetNames(enumType).OrderBy(n => System.Convert.ToInt64(Enum.Parse(enumType, n))))
++            {
++                array.Add(new OpenApiString(name));
++            }
++            return array;
++        }
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/ExampleCatalog.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/ExampleCatalog.cs
+new file mode 100644
+index 0000000..e683091
+--- /dev/null
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/ExampleCatalog.cs
+@@ -0,0 +1,51 @@
++using System;
++using System.Collections.Generic;
++using InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger.Examples;
++
++namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger
++{
++    /// <summary>
++    /// Identifies one controller action by its controller and method name — matches how
++    /// <see cref="ExamplesOperationFilter"/> looks entries up from <c>MethodInfo</c>.
++    /// </summary>
++    public readonly record struct EndpointKey(string Controller, string Action);
++
++    /// <summary>
++    /// Merges every module's example provider into one lookup table consumed by
++    /// <see cref="ExamplesOperationFilter"/>. Each Swagger documentation phase (S1, S2, ...) adds
++    /// exactly one line here for the module(s) it covers — the per-endpoint content itself lives
++    /// in the matching <c>Swagger/Examples/{Module}Examples.cs</c> file, mirroring how
++    /// <c>Errors/{Module}Errors.cs</c> is organized one file per module.
++    /// </summary>
++    public static class ExampleCatalog
++    {
++        /// <summary>All registered endpoint example sets, keyed by controller + action name.</summary>
++        public static IReadOnlyDictionary<EndpointKey, EndpointExampleSet> All { get; } = Build();
++
++        private static IReadOnlyDictionary<EndpointKey, EndpointExampleSet> Build()
++        {
++            var catalog = new Dictionary<EndpointKey, EndpointExampleSet>();
++
++            // Phase S1 — Auth & Tenants.
++            Merge(catalog, AuthExamples.Build());
++            Merge(catalog, TenantExamples.Build());
++
++            return catalog;
++        }
++
++        private static void Merge(
++            Dictionary<EndpointKey, EndpointExampleSet> catalog,
++            IReadOnlyDictionary<EndpointKey, EndpointExampleSet> module)
++        {
++            foreach (KeyValuePair<EndpointKey, EndpointExampleSet> entry in module)
++            {
++                if (!catalog.TryAdd(entry.Key, entry.Value))
++                {
++                    throw new InvalidOperationException(
++                        $"Duplicate Swagger example registration for {entry.Key.Controller}.{entry.Key.Action} — " +
++                        "each action must be registered by exactly one module's Examples file.");
++                }
++            }
++        }
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/AuthExamples.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/AuthExamples.cs
+new file mode 100644
+index 0000000..07e4c99
+--- /dev/null
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/AuthExamples.cs
+@@ -0,0 +1,213 @@
++using System.Collections.Generic;
++
++namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger.Examples
++{
++    /// <summary>
++    /// Swagger examples for <c>AuthController</c> (<c>api/auth/*</c>). Bodies mirror
++    /// <c>AuthDtos.cs</c> and the outcomes actually returned by <c>AuthService</c>
++    /// (InfrastructureLayer/Services/AuthService.cs) and <c>AuthErrors</c>
++    /// (ApplicationLayer/Errors/AuthErrors.cs) — there is no separate error code for a bad
++    /// tenant login vs. a bad admin login; both use <c>Auth.InvalidCredentials</c>.
++    /// </summary>
++    internal static class AuthExamples
++    {
++        private const string AccessTokenSample =
++            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9." +
++            "eyJ1c2VybmFtZSI6ImFjbWUtYmFuayIsInRlbmFudElkIjoiNDIiLCJpc1N5c3RlbUFkbWluIjoiZmFsc2UiLCJleHAiOjE3ODY1NTUyMDB9." +
++            "3f5a8c1e6b9d2f4a7c0e3b6d9f2a5c8e1b4d7f0a3c6e9b2d5f8a1c4e7b0d3f6a";
++
++        public static IReadOnlyDictionary<EndpointKey, EndpointExampleSet> Build() =>
++            new Dictionary<EndpointKey, EndpointExampleSet>
++            {
++                [new EndpointKey("AuthController", "LoginTenant")] = LoginTenant(),
++                [new EndpointKey("AuthController", "LoginAdmin")] = LoginAdmin(),
++                [new EndpointKey("AuthController", "Refresh")] = Refresh(),
++                [new EndpointKey("AuthController", "Logout")] = Logout(),
++                [new EndpointKey("AuthController", "Me")] = Me()
++            };
++
++        private static EndpointExampleSet LoginTenant() => new EndpointExampleSetBuilder()
++            .Request("tenantCredentials", "A tenant logging in with its username and password.",
++                new { username = "acme-bank", password = "P@ssw0rd!23" })
++            .Response(200, "success", "Login succeeded; a fresh access/refresh token pair.",
++                new
++                {
++                    success = true,
++                    data = new
++                    {
++                        accessToken = AccessTokenSample,
++                        accessTokenExpiresAt = "2026-08-12T16:00:00Z",
++                        refreshToken = "Kj8mQ2xN0pLr6vTs4wYb1cZaFhGdEeUu3iOoPpAqBbCc=",
++                        refreshTokenExpiresAt = "2026-08-19T08:00:00Z"
++                    },
++                    error = (object?)null
++                })
++            .Response(401, "invalidCredentials", "Wrong username/password, or the tenant is inactive.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Auth.InvalidCredentials",
++                        message = "Invalid username or password.",
++                        category = "Unauthorized"
++                    }
++                })
++            .Response(422, "missingField", "A required field was omitted. Exact key casing/wording " +
++                "comes from ASP.NET Core's default model binder; this shows the envelope shape.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Validation.Failed",
++                        message = "One or more validation errors occurred.",
++                        category = "Validation",
++                        validationErrors = new Dictionary<string, string[]>
++                        {
++                            ["Password"] = new[] { "The Password field is required." }
++                        }
++                    }
++                })
++            .Build();
++
++        private static EndpointExampleSet LoginAdmin() => new EndpointExampleSetBuilder()
++            .Request("adminCredentials", "The bootstrap system admin logging in.",
++                new { username = "sysadmin", password = "Adm!nSecret456" })
++            .Response(200, "success", "Login succeeded; the JWT carries isSystemAdmin=true and no tenantId claim.",
++                new
++                {
++                    success = true,
++                    data = new
++                    {
++                        accessToken = AccessTokenSample,
++                        accessTokenExpiresAt = "2026-08-12T16:00:00Z",
++                        refreshToken = "Wq4nR7yM1oKp5uTr3vXa0bYcGiHfDdVv2jNnOoBpAaCc=",
++                        refreshTokenExpiresAt = "2026-08-19T08:00:00Z"
++                    },
++                    error = (object?)null
++                })
++            .Response(401, "invalidCredentials", "Wrong username/password, or the admin is inactive " +
++                "(same Auth.InvalidCredentials code as a failed tenant login).",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Auth.InvalidCredentials",
++                        message = "Invalid username or password.",
++                        category = "Unauthorized"
++                    }
++                })
++            .Response(422, "missingField", "A required field was omitted.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Validation.Failed",
++                        message = "One or more validation errors occurred.",
++                        category = "Validation",
++                        validationErrors = new Dictionary<string, string[]>
++                        {
++                            ["Username"] = new[] { "The Username field is required." }
++                        }
++                    }
++                })
++            .Build();
++
++        private static EndpointExampleSet Refresh() => new EndpointExampleSetBuilder()
++            .Request("refresh", "Exchanging a still-valid refresh token for a new pair.",
++                new { refreshToken = "Kj8mQ2xN0pLr6vTs4wYb1cZaFhGdEeUu3iOoPpAqBbCc=" })
++            .Response(200, "success", "Rotation succeeded; the old refresh token is now revoked " +
++                "and this new one replaces it.",
++                new
++                {
++                    success = true,
++                    data = new
++                    {
++                        accessToken = AccessTokenSample,
++                        accessTokenExpiresAt = "2026-08-12T20:00:00Z",
++                        refreshToken = "Nn3pQ8xW2oJr7vZs5wYc1dAbHiGfEeUu4jOoPpBqCaDd=",
++                        refreshTokenExpiresAt = "2026-08-19T12:00:00Z"
++                    },
++                    error = (object?)null
++                })
++            .Response(401, "invalidRefreshToken", "The token is unknown, expired, already-rotated, " +
++                "or revoked (e.g. after logout).",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Auth.InvalidRefreshToken",
++                        message = "The refresh token is invalid or expired.",
++                        category = "Unauthorized"
++                    }
++                })
++            .Response(422, "missingField", "The refresh token was omitted from the body.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Validation.Failed",
++                        message = "One or more validation errors occurred.",
++                        category = "Validation",
++                        validationErrors = new Dictionary<string, string[]>
++                        {
++                            ["RefreshToken"] = new[] { "The RefreshToken field is required." }
++                        }
++                    }
++                })
++            .Build();
++
++        private static EndpointExampleSet Logout() => new EndpointExampleSetBuilder()
++            .Request("logout", "Revoking the refresh token issued at login. Requires " +
++                "Authorization: Bearer <accessToken> as well — see the endpoint's security requirement.",
++                new { refreshToken = "Kj8mQ2xN0pLr6vTs4wYb1cZaFhGdEeUu3iOoPpAqBbCc=" })
++            .Response(200, "success", "Logout is idempotent: succeeds whether or not the token " +
++                "was still active.",
++                new { success = true, data = (object?)null, error = (object?)null })
++            .Response(422, "missingField", "The refresh token was omitted from the body.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Validation.Failed",
++                        message = "One or more validation errors occurred.",
++                        category = "Validation",
++                        validationErrors = new Dictionary<string, string[]>
++                        {
++                            ["RefreshToken"] = new[] { "The RefreshToken field is required." }
++                        }
++                    }
++                })
++            .Build();
++
++        private static EndpointExampleSet Me() => new EndpointExampleSetBuilder()
++            .Response(200, "tenant", "Caller is an authenticated tenant.",
++                new
++                {
++                    success = true,
++                    data = new { username = "acme-bank", isSystemAdmin = false },
++                    error = (object?)null
++                })
++            .Response(200, "systemAdmin", "Caller is the bootstrap system admin.",
++                new
++                {
++                    success = true,
++                    data = new { username = "sysadmin", isSystemAdmin = true },
++                    error = (object?)null
++                })
++            .Build();
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/TenantExamples.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/TenantExamples.cs
+new file mode 100644
+index 0000000..1706e86
+--- /dev/null
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/TenantExamples.cs
+@@ -0,0 +1,318 @@
++using System.Collections.Generic;
++
++namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger.Examples
++{
++    /// <summary>
++    /// Swagger examples for <c>TenantsController</c> (<c>api/tenants/*</c>). Bodies mirror
++    /// <c>TenantDtos.cs</c> and the outcomes actually returned by <c>TenantService</c>
++    /// (InfrastructureLayer/Services/TenantService.cs) and <c>TenantErrors</c>
++    /// (ApplicationLayer/Errors/TenantErrors.cs). Every action here also requires a
++    /// system-admin bearer token (<c>AuthorizationPolicies.SystemAdminOnly</c>) — see the
++    /// 401/403 notes on the controller itself for why those two codes carry no example body on
++    /// this module.
++    /// </summary>
++    internal static class TenantExamples
++    {
++        private static readonly object SampleTenant = new
++        {
++            id = 42,
++            username = "acme-bank",
++            code = "acme-bank",
++            isActive = true,
++            isDeleted = false,
++            createdAt = "2026-01-15T09:30:00Z",
++            updatedAt = (string?)null,
++            deletedAt = (string?)null
++        };
++
++        private static readonly object SampleDeletedTenant = new
++        {
++            id = 43,
++            username = "legacy-bank",
++            code = "legacy-bank",
++            isActive = false,
++            isDeleted = true,
++            createdAt = "2025-11-02T10:00:00Z",
++            updatedAt = "2026-02-01T08:00:00Z",
++            deletedAt = "2026-06-30T17:45:00Z"
++        };
++
++        public static IReadOnlyDictionary<EndpointKey, EndpointExampleSet> Build() =>
++            new Dictionary<EndpointKey, EndpointExampleSet>
++            {
++                [new EndpointKey("TenantsController", "GetAll")] = GetAll(),
++                [new EndpointKey("TenantsController", "GetById")] = GetById(),
++                [new EndpointKey("TenantsController", "Create")] = Create(),
++                [new EndpointKey("TenantsController", "Update")] = Update(),
++                [new EndpointKey("TenantsController", "ChangePassword")] = ChangePassword(),
++                [new EndpointKey("TenantsController", "SoftDelete")] = SoftDelete(),
++                [new EndpointKey("TenantsController", "Restore")] = Restore()
++            };
++
++        private static EndpointExampleSet GetAll() => new EndpointExampleSetBuilder()
++            .Response(200, "page", "First page of tenants, default page size.",
++                new
++                {
++                    success = true,
++                    data = new
++                    {
++                        data = new[] { SampleTenant, SampleDeletedTenant },
++                        pageNumber = 1,
++                        pageSize = 20,
++                        totalCount = 2,
++                        totalPages = 1,
++                        hasNextPage = false,
++                        hasPreviousPage = false
++                    },
++                    error = (object?)null
++                })
++            .Response(422, "badQueryValue", "A query parameter couldn't be bound (e.g. " +
++                "?page=abc). Exact key casing/wording comes from ASP.NET Core's default query " +
++                "binder; this shows the envelope shape.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Validation.Failed",
++                        message = "One or more validation errors occurred.",
++                        category = "Validation",
++                        validationErrors = new Dictionary<string, string[]>
++                        {
++                            ["Page"] = new[] { "The value 'abc' is not valid for Page." }
++                        }
++                    }
++                })
++            .Build();
++
++        private static EndpointExampleSet GetById() => new EndpointExampleSetBuilder()
++            .Response(200, "found", "An active tenant.", new
++            {
++                success = true,
++                data = SampleTenant,
++                error = (object?)null
++            })
++            .Response(404, "notFound", "No tenant exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Tenant.NotFound",
++                        message = "No tenant was found with id 999.",
++                        category = "NotFound"
++                    }
++                })
++            .Build();
++
++        private static EndpointExampleSet Create() => new EndpointExampleSetBuilder()
++            .Request("newTenant", "Onboarding a new bank tenant, active immediately.",
++                new { username = "acme-bank", code = "acme-bank", password = "P@ssw0rd!23", isActive = true })
++            .Request("newInactiveTenant", "Creating a tenant that starts deactivated (e.g. " +
++                "pending onboarding paperwork) — activate it later via a separate call.",
++                new { username = "acme-bank", code = "acme-bank", password = "P@ssw0rd!23", isActive = false })
++            .Response(200, "success", "The created tenant.",
++                new { success = true, data = SampleTenant, error = (object?)null })
++            .Response(409, "usernameTaken", "The username is already used by another tenant, " +
++                "including a soft-deleted one — deleted tenants' identifiers stay reserved.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Tenant.UsernameAlreadyExists",
++                        message = "A tenant with username 'acme-bank' already exists.",
++                        category = "Conflict"
++                    }
++                })
++            .Response(409, "codeTaken", "The code is already used by another tenant, including a soft-deleted one.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Tenant.CodeAlreadyExists",
++                        message = "A tenant with code 'acme-bank' already exists.",
++                        category = "Conflict"
++                    }
++                })
++            .Response(422, "missingField", "A required field was omitted.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Validation.Failed",
++                        message = "One or more validation errors occurred.",
++                        category = "Validation",
++                        validationErrors = new Dictionary<string, string[]>
++                        {
++                            ["Password"] = new[] { "The Password field is required." }
++                        }
++                    }
++                })
++            .Build();
++
++        private static EndpointExampleSet Update() => new EndpointExampleSetBuilder()
++            .Request("rename", "Renaming a tenant and flipping it active — password is untouched " +
++                "(changed only via PUT /{id}/password).",
++                new { username = "acme-bank-renamed", code = "acme-bank", isActive = true })
++            .Response(200, "success", "The updated tenant.",
++                new { success = true, data = SampleTenant, error = (object?)null })
++            .Response(404, "notFound", "No tenant exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Tenant.NotFound",
++                        message = "No tenant was found with id 999.",
++                        category = "NotFound"
++                    }
++                })
++            .Response(409, "usernameTaken", "The new username is already used by a different tenant.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Tenant.UsernameAlreadyExists",
++                        message = "A tenant with username 'acme-bank-renamed' already exists.",
++                        category = "Conflict"
++                    }
++                })
++            .Response(422, "missingField", "A required field was omitted.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Validation.Failed",
++                        message = "One or more validation errors occurred.",
++                        category = "Validation",
++                        validationErrors = new Dictionary<string, string[]>
++                        {
++                            ["Code"] = new[] { "The Code field is required." }
++                        }
++                    }
++                })
++            .Build();
++
++        private static EndpointExampleSet ChangePassword() => new EndpointExampleSetBuilder()
++            .Request("newPassword", "Resetting a tenant's password. No current-password " +
++                "confirmation is required — the system-admin token itself is the authorization.",
++                new { newPassword = "N3wStr0ngP@ss!" })
++            .Response(200, "success", "The password was changed; the payload is null.",
++                new { success = true, data = (object?)null, error = (object?)null })
++            .Response(404, "notFound", "No tenant exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Tenant.NotFound",
++                        message = "No tenant was found with id 999.",
++                        category = "NotFound"
++                    }
++                })
++            .Response(422, "missingField", "The new password was omitted.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Validation.Failed",
++                        message = "One or more validation errors occurred.",
++                        category = "Validation",
++                        validationErrors = new Dictionary<string, string[]>
++                        {
++                            ["NewPassword"] = new[] { "The NewPassword field is required." }
++                        }
++                    }
++                })
++            .Build();
++
++        private static EndpointExampleSet SoftDelete() => new EndpointExampleSetBuilder()
++            .Response(200, "success", "The tenant was soft-deleted; the payload is null.",
++                new { success = true, data = (object?)null, error = (object?)null })
++            .Response(401, "actorNotResolved", "Rare edge case: the bearer token passed the " +
++                "system-admin policy check, but the acting admin's identity couldn't be resolved " +
++                "from it. A defensive check, not an expected client-facing scenario — see the " +
++                "controller-level 401 doc for the far more common empty-body case (no/invalid token).",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Tenant.ActorNotResolved",
++                        message = "The acting administrator could not be resolved.",
++                        category = "Unauthorized"
++                    }
++                })
++            .Response(404, "notFound", "No tenant exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Tenant.NotFound",
++                        message = "No tenant was found with id 999.",
++                        category = "NotFound"
++                    }
++                })
++            .Response(409, "alreadyDeleted", "The tenant is already soft-deleted.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Tenant.AlreadyDeleted",
++                        message = "Tenant 43 is already deleted.",
++                        category = "Conflict"
++                    }
++                })
++            .Build();
++
++        private static EndpointExampleSet Restore() => new EndpointExampleSetBuilder()
++            .Response(200, "success", "The tenant was restored; the payload is null.",
++                new { success = true, data = (object?)null, error = (object?)null })
++            .Response(404, "notFound", "No tenant exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Tenant.NotFound",
++                        message = "No tenant was found with id 999.",
++                        category = "NotFound"
++                    }
++                })
++            .Response(409, "notDeleted", "The tenant is not currently deleted, so it can't be restored.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new
++                    {
++                        code = "Tenant.NotDeleted",
++                        message = "Tenant 42 is not deleted.",
++                        category = "Conflict"
++                    }
++                })
++            .Build();
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/ExamplesOperationFilter.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/ExamplesOperationFilter.cs
+new file mode 100644
+index 0000000..aed7e77
+--- /dev/null
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/ExamplesOperationFilter.cs
+@@ -0,0 +1,92 @@
++using System.Linq;
++using Microsoft.OpenApi.Models;
++using Swashbuckle.AspNetCore.SwaggerGen;
++
++namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger
++{
++    /// <summary>
++    /// Attaches the named request/response examples registered in <see cref="ExampleCatalog"/> to
++    /// each operation. An action with no catalog entry is left exactly as Swashbuckle generated it
++    /// — this filter is purely additive and never removes or alters schema-derived content.
++    /// </summary>
++    public sealed class ExamplesOperationFilter : IOperationFilter
++    {
++        private const string JsonMediaType = "application/json";
++
++        /// <inheritdoc />
++        public void Apply(OpenApiOperation operation, OperationFilterContext context)
++        {
++            var key = new EndpointKey(context.MethodInfo.DeclaringType?.Name ?? string.Empty, context.MethodInfo.Name);
++            if (!ExampleCatalog.All.TryGetValue(key, out EndpointExampleSet? examples))
++            {
++                return;
++            }
++
++            ApplyRequestExamples(operation, examples);
++            ApplyResponseExamples(operation, examples);
++        }
++
++        private static void ApplyRequestExamples(OpenApiOperation operation, EndpointExampleSet examples)
++        {
++            if (examples.RequestExamples.Count == 0 || operation.RequestBody is null)
++            {
++                return;
++            }
++
++            OpenApiMediaType? mediaType = ResolveMediaType(operation.RequestBody.Content);
++            if (mediaType is null)
++            {
++                return;
++            }
++
++            foreach (NamedExample example in examples.RequestExamples)
++            {
++                mediaType.Examples[example.Key] = new OpenApiExample
++                {
++                    Summary = example.Summary,
++                    Value = OpenApiAnyFactory.From(example.Value)
++                };
++            }
++        }
++
++        private static void ApplyResponseExamples(OpenApiOperation operation, EndpointExampleSet examples)
++        {
++            foreach ((int statusCode, var namedExamples) in examples.ResponseExamples)
++            {
++                string statusKey = statusCode.ToString();
++                if (!operation.Responses.TryGetValue(statusKey, out OpenApiResponse? response))
++                {
++                    continue;
++                }
++
++                OpenApiMediaType? mediaType = ResolveMediaType(response.Content);
++                if (mediaType is null)
++                {
++                    // A response with no declared content (e.g. a 401/403 the auth middleware
++                    // returns with an empty body, before the action or its ApiResponse<T>
++                    // envelope is ever involved) legitimately has nothing to attach an example to.
++                    continue;
++                }
++
++                foreach (NamedExample example in namedExamples)
++                {
++                    mediaType.Examples[example.Key] = new OpenApiExample
++                    {
++                        Summary = example.Summary,
++                        Value = OpenApiAnyFactory.From(example.Value)
++                    };
++                }
++            }
++        }
++
++        private static OpenApiMediaType? ResolveMediaType(System.Collections.Generic.IDictionary<string, OpenApiMediaType> content)
++        {
++            if (content.TryGetValue(JsonMediaType, out OpenApiMediaType? exact))
++            {
++                return exact;
++            }
++
++            return content.Values.FirstOrDefault();
++        }
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/OpenApiAnyFactory.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/OpenApiAnyFactory.cs
+new file mode 100644
+index 0000000..df9dbd5
+--- /dev/null
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/OpenApiAnyFactory.cs
+@@ -0,0 +1,79 @@
++using System.Text.Json;
++using Microsoft.OpenApi.Any;
++
++namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger
++{
++    /// <summary>
++    /// Converts a plain CLR object into the <see cref="IOpenApiAny"/> tree Swashbuckle needs for
++    /// <c>OpenApiExample.Value</c>. Example providers (<c>Swagger/Examples/*.cs</c>) author
++    /// examples as ordinary anonymous objects/records — the same shapes the real DTOs serialize
++    /// to — and this factory does the one-time conversion, so no example provider hand-builds
++    /// <see cref="OpenApiObject"/>/<see cref="OpenApiString"/> graphs directly.
++    /// <para>
++    /// Routes through <c>System.Text.Json</c> with the same casing ASP.NET Core's default
++    /// serializer uses (camelCase), so an example's JSON shape matches what a real response body
++    /// actually contains.
++    /// </para>
++    /// </summary>
++    internal static class OpenApiAnyFactory
++    {
++        private static readonly JsonSerializerOptions SerializerOptions = new()
++        {
++            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
++            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never
++        };
++
++        /// <summary>Serializes <paramref name="value"/> to JSON and parses it into an <see cref="IOpenApiAny"/>.</summary>
++        public static IOpenApiAny From(object? value)
++        {
++            if (value is null)
++            {
++                return new OpenApiNull();
++            }
++
++            string json = JsonSerializer.Serialize(value, SerializerOptions);
++            using JsonDocument document = JsonDocument.Parse(json);
++            return Convert(document.RootElement);
++        }
++
++        private static IOpenApiAny Convert(JsonElement element) => element.ValueKind switch
++        {
++            JsonValueKind.Object => ConvertObject(element),
++            JsonValueKind.Array => ConvertArray(element),
++            JsonValueKind.String => new OpenApiString(element.GetString()),
++            JsonValueKind.Number => ConvertNumber(element),
++            JsonValueKind.True => new OpenApiBoolean(true),
++            JsonValueKind.False => new OpenApiBoolean(false),
++            _ => new OpenApiNull()
++        };
++
++        private static IOpenApiAny ConvertObject(JsonElement element)
++        {
++            var result = new OpenApiObject();
++            foreach (JsonProperty property in element.EnumerateObject())
++            {
++                result[property.Name] = Convert(property.Value);
++            }
++            return result;
++        }
++
++        private static IOpenApiAny ConvertArray(JsonElement element)
++        {
++            var result = new OpenApiArray();
++            foreach (JsonElement item in element.EnumerateArray())
++            {
++                result.Add(Convert(item));
++            }
++            return result;
++        }
++
++        private static IOpenApiAny ConvertNumber(JsonElement element)
++        {
++            if (element.TryGetInt64(out long l))
++            {
++                return new OpenApiLong(l);
++            }
++            return new OpenApiDouble(element.GetDouble());
++        }
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/XmlDocIndex.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/XmlDocIndex.cs
+new file mode 100644
+index 0000000..bb70baf
+--- /dev/null
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/XmlDocIndex.cs
+@@ -0,0 +1,72 @@
++using System;
++using System.Collections.Generic;
++using System.IO;
++using System.Text.RegularExpressions;
++using System.Xml.Linq;
++
++namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger
++{
++    /// <summary>
++    /// Indexes every <c>&lt;member&gt;</c> summary across the solution's generated XML doc files
++    /// by its XML member-name id (<c>"T:"</c> for a type, <c>"F:"</c> for a field/enum member,
++    /// <c>"P:"</c> for a property, <c>"M:"</c> for a method). Built once, lazily, from whatever
++    /// <c>*.xml</c> files sit next to the running assembly — one per project that has
++    /// <c>GenerateDocumentationFile</c> enabled (Presentation, ApplicationLayer, DomainLayer as of
++    /// Phase S1).
++    /// </summary>
++    internal sealed class XmlDocIndex
++    {
++        private static readonly Lazy<XmlDocIndex> LazyInstance = new(Load);
++
++        /// <summary>The shared, process-wide index.</summary>
++        public static XmlDocIndex Instance => LazyInstance.Value;
++
++        private readonly IReadOnlyDictionary<string, string> _summariesByMemberId;
++
++        private XmlDocIndex(IReadOnlyDictionary<string, string> summariesByMemberId)
++        {
++            _summariesByMemberId = summariesByMemberId;
++        }
++
++        /// <summary>Looks up the plain-text summary for a member id, or null if none is documented.</summary>
++        public string? GetSummary(string memberId) =>
++            _summariesByMemberId.TryGetValue(memberId, out string? summary) ? summary : null;
++
++        private static XmlDocIndex Load()
++        {
++            var summaries = new Dictionary<string, string>();
++
++            foreach (string xmlPath in Directory.EnumerateFiles(AppContext.BaseDirectory, "*.xml"))
++            {
++                try
++                {
++                    XDocument doc = XDocument.Load(xmlPath);
++                    foreach (XElement member in doc.Descendants("member"))
++                    {
++                        string? name = member.Attribute("name")?.Value;
++                        XElement? summaryElement = member.Element("summary");
++                        if (name is null || summaryElement is null)
++                        {
++                            continue;
++                        }
++
++                        summaries[name] = NormalizeSummary(summaryElement.Value);
++                    }
++                }
++                catch (Exception)
++                {
++                    // A malformed or unrelated XML file next to the assembly must never break
++                    // Swagger generation — enum descriptions are a documentation nicety, not a
++                    // hard dependency of the app starting.
++                }
++            }
++
++            return new XmlDocIndex(summaries);
++        }
++
++        // Doc-comment text arrives with the original indentation/line breaks; collapse it to a
++        // single readable line for use inside a Swagger schema description.
++        private static string NormalizeSummary(string raw) =>
++            Regex.Replace(raw, @"\s+", " ").Trim();
++    }
++}
+-- 
+2.43.0
+

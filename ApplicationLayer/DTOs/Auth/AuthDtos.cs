@@ -37,9 +37,9 @@ namespace ApplicationLayer.DTOs.Auth
     /// <summary>
     /// Current-principal projection returned by <c>GET /api/auth/me</c>, used by clients to
     /// bootstrap UI state. Reflects only the claims the spec permits (no role/permissions/branch).
+    /// Carries no tenant id — a caller who needs it decodes the JWT's own <c>tenantId</c> claim.
     /// </summary>
-    /// <param name="TenantId">Authenticated tenant id, or <c>null</c> for a system admin.</param>
     /// <param name="Username">Login username of the authenticated principal.</param>
     /// <param name="IsSystemAdmin">True when the caller is the bootstrap system admin.</param>
-    public sealed record CurrentPrincipalResponse( string Username, bool IsSystemAdmin);
+    public sealed record CurrentPrincipalResponse(string Username, bool IsSystemAdmin);
 }
