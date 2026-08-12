@@ -14,3 +14,6 @@ C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuan
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\ApplicationLayer\obj\Debug\net8.0\refint\ApplicationLayer.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\ApplicationLayer\obj\Debug\net8.0\ApplicationLayer.pdb
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\ApplicationLayer\obj\Debug\net8.0\ref\ApplicationLayer.dll
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\ApplicationLayer\bin\Debug\net8.0\ApplicationLayer.xml
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\ApplicationLayer\bin\Debug\net8.0\DomainLayer.xml
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\ApplicationLayer\obj\Debug\net8.0\ApplicationLayer.xml

@@ -187,3 +187,5 @@ C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuan
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\obj\Debug\net8.0\PresentationLayer.pdb
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\obj\Debug\net8.0\PresentationLayer.genruntimeconfig.cache
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\obj\Debug\net8.0\ref\PresentationLayer.dll
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\ApplicationLayer.xml
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InventoryManagmentAndInstanceIssuancePresentationLayer\bin\Debug\net8.0\DomainLayer.xml

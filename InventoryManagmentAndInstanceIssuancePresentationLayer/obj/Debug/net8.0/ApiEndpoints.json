@@ -74,7 +74,7 @@
         "StatusCode": 200
       },
       {
-        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "Type": "Microsoft.AspNetCore.Mvc.ProblemDetails",
         "MediaTypes": [
           "application/json"
         ],
@@ -113,7 +113,7 @@
         "StatusCode": 200
       },
       {
-        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "Type": "Microsoft.AspNetCore.Mvc.ProblemDetails",
         "MediaTypes": [
           "application/json"
         ],
@@ -3435,7 +3435,7 @@
         "StatusCode": 401
       },
       {
-        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "Type": "Microsoft.AspNetCore.Mvc.ProblemDetails",
         "MediaTypes": [
           "application/json"
         ],
@@ -3487,7 +3487,7 @@
         "StatusCode": 401
       },
       {
-        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "Type": "Microsoft.AspNetCore.Mvc.ProblemDetails",
         "MediaTypes": [
           "application/json"
         ],
@@ -3546,7 +3546,7 @@
         "StatusCode": 401
       },
       {
-        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "Type": "Microsoft.AspNetCore.Mvc.ProblemDetails",
         "MediaTypes": [
           "application/json"
         ],
@@ -3603,7 +3603,7 @@
         "StatusCode": 401
       },
       {
-        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "Type": "Microsoft.AspNetCore.Mvc.ProblemDetails",
         "MediaTypes": [
           "application/json"
         ],
@@ -3669,7 +3669,7 @@
         "StatusCode": 401
       },
       {
-        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "Type": "Microsoft.AspNetCore.Mvc.ProblemDetails",
         "MediaTypes": [
           "application/json"
         ],
@@ -3733,7 +3733,7 @@
         "StatusCode": 401
       },
       {
-        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "Type": "Microsoft.AspNetCore.Mvc.ProblemDetails",
         "MediaTypes": [
           "application/json"
         ],
@@ -3792,7 +3792,7 @@
         "StatusCode": 401
       },
       {
-        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "Type": "Microsoft.AspNetCore.Mvc.ProblemDetails",
         "MediaTypes": [
           "application/json"
         ],
