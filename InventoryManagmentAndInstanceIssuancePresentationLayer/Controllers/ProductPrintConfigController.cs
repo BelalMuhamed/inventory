@@ -16,7 +16,16 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
     /// open to both roles; <see cref="Update"/> is system-admin only (decision Q-09, confirmed) —
     /// <see cref="IProductPrintConfigurationService"/> enforces this itself, not this controller.
     /// </summary>
-    /// <response code="401">No valid bearer token was supplied.</response>
+    /// <response code="401">
+    /// No valid bearer token was supplied. Typically the authorization middleware's empty-body
+    /// rejection before this action runs.
+    /// </response>
+    /// <response code="403">
+    /// A tenant caller called <see cref="Update"/> or <see cref="GetFull"/> (system-admin only).
+    /// Enforced in the service and returned as the standard
+    /// <see cref="InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse{T}"/>
+    /// envelope (<c>ProductPrintConfig.OnlySystemAdmin</c>), not an authorization-policy rejection.
+    /// </response>
     [ApiController]
     [Route("api/products/{productId:long}/print-config")]
     [Authorize]
@@ -30,6 +39,8 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         public ProductPrintConfigController(IServiceManager services) => _services = services;
 
         /// <summary>Gets a product's print configuration.</summary>
+        /// <response code="200">The configuration — exactly one of Matica/Evolis is populated, matching the product's UsingPrinterType.</response>
+        /// <response code="404">No product exists with the supplied id.</response>
         [HttpGet]
         [ProducesResponseType(typeof(ApiResponse<ProductPrintConfigResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
@@ -40,6 +51,10 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// Replaces a product's print configuration. Supplying a different printer type than the
         /// product currently has switches its printer family (decision Q-08). System-admin only.
         /// </summary>
+        /// <response code="200">The saved configuration.</response>
+        /// <response code="403">A tenant caller attempted this — system-admin only.</response>
+        /// <response code="404">No product exists with the supplied id.</response>
+        /// <response code="422">The request body failed validation (wrong payload for the declared UsingPrinterType, an unknown ribbon type, an unknown ImageId, or an invalid hex color).</response>
         [HttpPut]
         [ProducesResponseType(typeof(ApiResponse<ProductPrintConfigResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
@@ -55,6 +70,9 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// the product has no configuration yet — not an error, since this endpoint exists as an
         /// administrative overview.
         /// </summary>
+        /// <response code="200">Product plus configuration; printConfig is null when the product has none yet.</response>
+        /// <response code="403">A tenant caller attempted this — system-admin only.</response>
+        /// <response code="404">No product exists with the supplied id.</response>
         [HttpGet("full")]
         [ProducesResponseType(typeof(ApiResponse<ProductWithPrintConfigResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]

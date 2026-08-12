@@ -17,7 +17,16 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
     /// matching the locked "[Authorize] only, no permission attributes" convention. Hard delete
     /// is not exposed.
     /// </summary>
-    /// <response code="401">No valid bearer token was supplied.</response>
+    /// <response code="401">
+    /// No valid bearer token was supplied. Typically the authorization middleware's empty-body
+    /// rejection before this action runs.
+    /// </response>
+    /// <response code="403">
+    /// A tenant caller attempted a write action (Create/Update/Delete/Restore). Unlike
+    /// <c>TenantsController</c>'s 403 (an authorization-policy rejection), this one is enforced in
+    /// the service and returned as the standard <see cref="ApiResponse{T}"/> envelope
+    /// (<c>Printer.OnlySystemAdmin</c>) — see each write action's example.
+    /// </response>
     [ApiController]
     [Route("api/printers")]
     [Authorize]
@@ -31,12 +40,15 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         public PrintersController(IServiceManager services) => _services = services;
 
         /// <summary>Lists printers with paging and filters (type, branch).</summary>
+        /// <response code="200">A page of printers.</response>
         [HttpGet]
         [ProducesResponseType(typeof(ApiResponse<PaginatedResponse<PrinterResponse>>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetAll([FromQuery] PrinterListFilter filter, CancellationToken cancellationToken)
             => (await _services.Printers.GetAllAsync(filter, cancellationToken)).ToActionResult(this);
 
         /// <summary>Gets a printer by id.</summary>
+        /// <response code="200">The printer.</response>
+        /// <response code="404">No printer exists with the supplied id.</response>
         [HttpGet("{id:long}")]
         [ProducesResponseType(typeof(ApiResponse<PrinterResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
@@ -44,6 +56,10 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
             => (await _services.Printers.GetByIdAsync(id, cancellationToken)).ToActionResult(this);
 
         /// <summary>Registers a new printer. System-admin only; admin callers supply the target tenant id.</summary>
+        /// <response code="200">The registered printer.</response>
+        /// <response code="403">A tenant caller (not a system admin) attempted this.</response>
+        /// <response code="409">Another non-deleted printer for this tenant already has this serial/IP.</response>
+        /// <response code="422">The request body failed validation (e.g. a Matica printer missing its machine configuration, or an Evolis printer supplying one).</response>
         [HttpPost]
         [ProducesResponseType(typeof(ApiResponse<PrinterResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
@@ -53,6 +69,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
             => (await _services.Printers.CreateAsync(request, cancellationToken)).ToActionResult(this);
 
         /// <summary>Updates a printer's branch, name, model, unique number, and Matica machine configuration. System-admin only.</summary>
+        /// <response code="200">The updated printer.</response>
+        /// <response code="403">A tenant caller attempted this.</response>
+        /// <response code="404">No printer exists with the supplied id.</response>
+        /// <response code="409">The new serial/IP is already used by another printer for this tenant.</response>
+        /// <response code="422">The request body failed validation (e.g. the target branch is soft-deleted).</response>
         [HttpPut("{id:long}")]
         [ProducesResponseType(typeof(ApiResponse<PrinterResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
@@ -63,6 +84,10 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
             => (await _services.Printers.UpdateAsync(id, request, cancellationToken)).ToActionResult(this);
 
         /// <summary>Soft-deletes a printer. System-admin only.</summary>
+        /// <response code="200">The printer was soft-deleted; the payload is null.</response>
+        /// <response code="403">A tenant caller attempted this.</response>
+        /// <response code="404">No printer exists with the supplied id.</response>
+        /// <response code="409">The printer is already deleted.</response>
         [HttpDelete("{id:long}")]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
@@ -72,6 +97,10 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
             => (await _services.Printers.SoftDeleteAsync(id, cancellationToken)).ToActionResult(this);
 
         /// <summary>Restores a soft-deleted printer. System-admin only.</summary>
+        /// <response code="200">The printer was restored; the payload is null.</response>
+        /// <response code="403">A tenant caller attempted this.</response>
+        /// <response code="404">No printer exists with the supplied id.</response>
+        /// <response code="409">The printer is not currently deleted.</response>
         [HttpPost("{id:long}/restore")]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]

@@ -30,6 +30,13 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger
             Merge(catalog, AuthExamples.Build());
             Merge(catalog, TenantExamples.Build());
 
+            // Phase S2 — Catalog & Printing.
+            Merge(catalog, BranchExamples.Build());
+            Merge(catalog, ProductExamples.Build());
+            Merge(catalog, ProductPrintConfigExamples.Build());
+            Merge(catalog, PrintersExamples.Build());
+            Merge(catalog, PrintImagesExamples.Build());
+
             return catalog;
         }
 

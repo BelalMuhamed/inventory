@@ -17,7 +17,16 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
     /// to the caller's own tenant for a tenant caller. Every image is served through
     /// <see cref="Get"/>; there is no public static-file path for this content any more.
     /// </summary>
-    /// <response code="401">No valid bearer token was supplied.</response>
+    /// <response code="401">
+    /// No valid bearer token was supplied. Typically the authorization middleware's empty-body
+    /// rejection before this action runs.
+    /// </response>
+    /// <response code="403">
+    /// A tenant caller called <see cref="Upload"/>, <see cref="Replace"/>, or
+    /// <see cref="MigrateLegacyStorage"/> (all system-admin only). Enforced in the service and
+    /// returned as the standard <see cref="ApiResponse{T}"/> envelope
+    /// (<c>PrintImage.OnlySystemAdmin</c>), not an authorization-policy rejection.
+    /// </response>
     [ApiController]
     [Route("api/print-images")]
     [Authorize]
@@ -37,6 +46,15 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// <c>409 Conflict</c> carrying the <em>existing</em> image's metadata, so the caller can
         /// choose to keep it as-is or call <see cref="Replace"/> explicitly.
         /// </summary>
+        /// <response code="200">A new image was saved.</response>
+        /// <response code="409">
+        /// Create-only: a non-deleted image with this exact original file name already exists for
+        /// the target tenant, so nothing was saved. The body is a normal success envelope carrying
+        /// the EXISTING image's metadata (<see cref="PrintImageResponse"/>), not an ApiError —
+        /// this is the one 409 in this API that isn't a failure envelope.
+        /// </response>
+        /// <response code="403">A tenant caller attempted this — system-admin only.</response>
+        /// <response code="422">No file was supplied, the file is too large, its extension isn't allowed, or its actual content doesn't match a supported image format.</response>
         [HttpPost]
         [Consumes("multipart/form-data")]
         [ProducesResponseType(typeof(ApiResponse<PrintImageResponse>), StatusCodes.Status200OK)]
@@ -71,6 +89,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// id, new bytes. Any product print configuration already referencing this
         /// <c>ImageId</c> is unaffected, since the id never changes.
         /// </summary>
+        /// <response code="200">The image's content was replaced in place.</response>
+        /// <response code="403">A tenant caller attempted this — system-admin only.</response>
+        /// <response code="404">No print image exists with the supplied id.</response>
+        /// <response code="409">The replacement's file name collides with a different, existing image for the same tenant (a genuine ApiError, unlike Upload's 409).</response>
+        /// <response code="422">No file was supplied, the file is too large, its extension isn't allowed, or its actual content doesn't match a supported image format.</response>
         [HttpPut("{id:long}")]
         [Consumes("multipart/form-data")]
         [ProducesResponseType(typeof(ApiResponse<PrintImageResponse>), StatusCodes.Status200OK)]
@@ -87,6 +110,8 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// retrieve images belonging to their own tenant. This is the only way to fetch an
         /// image's content — there is no public static-file URL for it any more.
         /// </summary>
+        /// <response code="200">The raw image bytes (image/png or image/jpeg) — not a JSON envelope.</response>
+        /// <response code="404">No print image exists with the supplied id, or it belongs to another tenant.</response>
         [HttpGet("{id:long}")]
         [Produces("image/png", "image/jpeg")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -109,6 +134,8 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// name, tenant-username folder). Safe to run more than once — already-migrated rows are
         /// left alone.
         /// </summary>
+        /// <response code="200">Migration run summary. Safe to call more than once.</response>
+        /// <response code="403">A tenant caller attempted this — system-admin only.</response>
         [HttpPost("migrate-legacy-storage")]
         [ProducesResponseType(typeof(ApiResponse<MigrateLegacyImagesResult>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
