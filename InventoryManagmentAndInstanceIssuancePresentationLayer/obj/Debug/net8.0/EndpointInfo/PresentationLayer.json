@@ -1806,7 +1806,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs (`BranchRequest.ActorNotResolved` exists in the\r\ncatalogue but, per its own doc comment, is unreachable behind `[Authorize]` with a\r\nvalid tenant token — same as `Transfer.ActorNotResolved` in S4).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1826,11 +1826,42 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "A page of branch requests, scoped to the caller's tenant (or any tenant, for a system admin).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StockRequestListItemResponsePaginatedResponseApiResponse"
+                },
+                "examples": {
+                  "page": {
+                    "summary": "Newest-first branch requests, scoped to the caller's tenant (or any tenant, for a system admin).",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "data": [
+                          {
+                            "id": 21,
+                            "tenantId": 42,
+                            "requestingBranchId": 9,
+                            "requestingBranchName": "Airport Branch",
+                            "requestStatus": 5,
+                            "lineCount": 1,
+                            "totalAskedQuantity": 100,
+                            "totalReceivedQuantity": 60,
+                            "requestDateTime": "2026-08-11T08:00:00Z",
+                            "actionTakenAt": "2026-08-11T10:00:00Z"
+                          }
+                        ],
+                        "pageNumber": 1,
+                        "pageSize": 20,
+                        "totalCount": 1,
+                        "totalPages": 1,
+                        "hasNextPage": false,
+                        "hasPreviousPage": false
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
@@ -1862,6 +1893,21 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CreateStockRequest"
+              },
+              "examples": {
+                "singleProduct": {
+                  "summary": "A branch raising a need for one product. Reserves nothing and moves no stock.",
+                  "value": {
+                    "requestingBranchId": 9,
+                    "items": [
+                      {
+                        "productId": 15,
+                        "askedQuantity": 100
+                      }
+                    ],
+                    "actionNotes": "Running low ahead of the long weekend."
+                  }
+                }
               }
             },
             "text/json": {
@@ -1878,7 +1924,7 @@
         },
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs (`BranchRequest.ActorNotResolved` exists in the\r\ncatalogue but, per its own doc comment, is unreachable behind `[Authorize]` with a\r\nvalid tenant token — same as `Transfer.ActorNotResolved` in S4).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1898,51 +1944,141 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The created request — opens InProgress; reserves nothing and moves no stock.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StockRequestDetailResponseApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The created request — opens InProgress.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 21,
+                        "tenantId": 42,
+                        "requestingBranchId": 9,
+                        "requestingBranchName": "Airport Branch",
+                        "requestStatus": 0,
+                        "requestDateTime": "2026-08-11T08:00:00Z",
+                        "actionTakenByTenantId": null,
+                        "actionTakenAt": null,
+                        "actionNotes": "Running low ahead of the long weekend.",
+                        "rowVersion": "AAAAAAAACAE=",
+                        "items": [
+                          {
+                            "productId": 15,
+                            "productName": "Gold Debit Card",
+                            "askedQuantity": 100,
+                            "dispatchedQuantity": 0,
+                            "receivedQuantity": 0,
+                            "outstandingQuantity": 100,
+                            "productTransactionWay": 0
+                          }
+                        ],
+                        "unrequestedProducts": [ ],
+                        "transferIds": [ ]
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "403": {
-            "description": "Forbidden",
+            "description": "A system-admin token attempted this — admin access to this module is read-only (decision Q7).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "systemAdminNotAllowed": {
+                    "summary": "A system-admin token attempted to create a request — admin access to this module is read-only (decision Q7).",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "BranchRequest.SystemAdminNotAllowed",
+                        "message": "A system administrator cannot create, confirm, refuse, or cancel branch requests.",
+                        "category": "Forbidden"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "The requesting branch doesn't exist.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "branchNotFound": {
+                    "summary": "The requesting branch doesn't exist (or belongs to another tenant).",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "BranchRequest.BranchNotFound",
+                        "message": "No branch was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "The requesting branch already has a non-terminal request covering one of the named products (decision Q-11 / D-08).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "duplicateOpenRequest": {
+                    "summary": "The requesting branch already has a non-terminal request covering this product — add to the existing open request instead of raising a duplicate.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "BranchRequest.DuplicateOpenRequest",
+                        "message": "Product 15 already has an open request from this branch.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "The request body failed validation, or the requesting branch is inactive (a request from it could never be confirmed, so creation fails early).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "branchInactive": {
+                    "summary": "The requesting branch is inactive — a request from it could never be confirmed (an inactive branch always fails as a transfer target), so creation fails early.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "BranchRequest.BranchInactive",
+                        "message": "Branch 9 is inactive and cannot request stock.",
+                        "category": "Validation"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -1982,7 +2118,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs (`BranchRequest.ActorNotResolved` exists in the\r\ncatalogue but, per its own doc comment, is unreachable behind `[Authorize]` with a\r\nvalid tenant token — same as `Transfer.ActorNotResolved` in S4).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2002,21 +2138,110 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The request, including any products dispatched but never asked for (unrequestedProducts).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StockRequestDetailResponseApiResponse"
+                },
+                "examples": {
+                  "inProgress": {
+                    "summary": "A freshly-created request — nothing dispatched yet.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 21,
+                        "tenantId": 42,
+                        "requestingBranchId": 9,
+                        "requestingBranchName": "Airport Branch",
+                        "requestStatus": 0,
+                        "requestDateTime": "2026-08-11T08:00:00Z",
+                        "actionTakenByTenantId": null,
+                        "actionTakenAt": null,
+                        "actionNotes": "Running low ahead of the long weekend.",
+                        "rowVersion": "AAAAAAAACAE=",
+                        "items": [
+                          {
+                            "productId": 15,
+                            "productName": "Gold Debit Card",
+                            "askedQuantity": 100,
+                            "dispatchedQuantity": 0,
+                            "receivedQuantity": 0,
+                            "outstandingQuantity": 100,
+                            "productTransactionWay": 0
+                          }
+                        ],
+                        "unrequestedProducts": [ ],
+                        "transferIds": [ ]
+                      },
+                      "error": null
+                    }
+                  },
+                  "partiallyFulfilled": {
+                    "summary": "The same request after one confirm+receive cycle: 60 of 100 asked actually received, plus 20 units of a product that was never asked for (unrequestedProducts) dispatched in the same shipment.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 21,
+                        "tenantId": 42,
+                        "requestingBranchId": 9,
+                        "requestingBranchName": "Airport Branch",
+                        "requestStatus": 5,
+                        "requestDateTime": "2026-08-11T08:00:00Z",
+                        "actionTakenByTenantId": 42,
+                        "actionTakenAt": "2026-08-11T10:00:00Z",
+                        "actionNotes": "Running low ahead of the long weekend.",
+                        "rowVersion": "AAAAAAAACAI=",
+                        "items": [
+                          {
+                            "productId": 15,
+                            "productName": "Gold Debit Card",
+                            "askedQuantity": 100,
+                            "dispatchedQuantity": 100,
+                            "receivedQuantity": 60,
+                            "outstandingQuantity": 40,
+                            "productTransactionWay": 0
+                          }
+                        ],
+                        "unrequestedProducts": [
+                          {
+                            "productId": 16,
+                            "productName": "Silver Prepaid Card",
+                            "dispatchedQuantity": 20,
+                            "receivedQuantity": 20
+                          }
+                        ],
+                        "transferIds": [
+                          91
+                        ]
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No branch request exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No branch request exists with that id (or it belongs to another tenant).",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "BranchRequest.NotFound",
+                        "message": "No branch request was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -2059,6 +2284,54 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ConfirmStockRequest"
+              },
+              "examples": {
+                "singleSource": {
+                  "summary": "Fulfilling the request from one source branch — Items reuses the same shape a direct transfer create uses (Known-way lines need explicit card ids).",
+                  "value": {
+                    "transfers": [
+                      {
+                        "sourceBranchId": 7,
+                        "items": [
+                          {
+                            "productId": 15,
+                            "transactedQuantity": 100
+                          }
+                        ],
+                        "actionNotes": "Covering the Gold Debit Card shortfall."
+                      }
+                    ],
+                    "actionNotes": null
+                  }
+                },
+                "multiSource": {
+                  "summary": "Splitting one product across two source branches — a single product split across sources becomes two separate generated transfers (decision Q-14).",
+                  "value": {
+                    "transfers": [
+                      {
+                        "sourceBranchId": 7,
+                        "items": [
+                          {
+                            "productId": 15,
+                            "transactedQuantity": 60
+                          }
+                        ],
+                        "actionNotes": "Partial fulfilment from Downtown."
+                      },
+                      {
+                        "sourceBranchId": 11,
+                        "items": [
+                          {
+                            "productId": 15,
+                            "transactedQuantity": 40
+                          }
+                        ],
+                        "actionNotes": "Remaining balance from Uptown."
+                      }
+                    ],
+                    "actionNotes": "Split across two branches to fulfil in full."
+                  }
+                }
               }
             },
             "text/json": {
@@ -2075,7 +2348,7 @@
         },
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs (`BranchRequest.ActorNotResolved` exists in the\r\ncatalogue but, per its own doc comment, is unreachable behind `[Authorize]` with a\r\nvalid tenant token — same as `Transfer.ActorNotResolved` in S4).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2095,51 +2368,199 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "Confirm succeeded — carries every generated transfer's full detail, not just its id. Callable repeatedly against the same request from any non-terminal status (decision Q-04, incremental fulfilment).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ConfirmStockRequestResultApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "Confirm succeeded — carries the full detail of every generated transfer, not just their ids, so no second round trip is needed.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "request": {
+                          "id": 21,
+                          "tenantId": 42,
+                          "requestingBranchId": 9,
+                          "requestingBranchName": "Airport Branch",
+                          "requestStatus": 5,
+                          "requestDateTime": "2026-08-11T08:00:00Z",
+                          "actionTakenByTenantId": 42,
+                          "actionTakenAt": "2026-08-11T10:00:00Z",
+                          "actionNotes": "Running low ahead of the long weekend.",
+                          "rowVersion": "AAAAAAAACAI=",
+                          "items": [
+                            {
+                              "productId": 15,
+                              "productName": "Gold Debit Card",
+                              "askedQuantity": 100,
+                              "dispatchedQuantity": 100,
+                              "receivedQuantity": 60,
+                              "outstandingQuantity": 40,
+                              "productTransactionWay": 0
+                            }
+                          ],
+                          "unrequestedProducts": [
+                            {
+                              "productId": 16,
+                              "productName": "Silver Prepaid Card",
+                              "dispatchedQuantity": 20,
+                              "receivedQuantity": 20
+                            }
+                          ],
+                          "transferIds": [
+                            91
+                          ]
+                        },
+                        "transfers": [
+                          {
+                            "id": 91,
+                            "tenantId": 42,
+                            "sourceBranchId": 7,
+                            "sourceBranchName": "Downtown Branch",
+                            "targetBranchId": 9,
+                            "targetBranchName": "Airport Branch",
+                            "transactionStatus": 0,
+                            "origin": 0,
+                            "parentTransferId": null,
+                            "branchRequestId": 21,
+                            "actionNotes": "Covering the Gold Debit Card shortfall.",
+                            "createdAt": "2026-08-11T10:00:00Z",
+                            "createdByTenantId": 42,
+                            "createdByUsername": "acme-bank",
+                            "statusChangedAt": null,
+                            "checkedByUsername": null,
+                            "rowVersion": "AAAAAAAACAM=",
+                            "products": [
+                              {
+                                "productId": 15,
+                                "productName": "Gold Debit Card",
+                                "transactedQuantity": 100,
+                                "realQuantityReceived": null,
+                                "disposedQuantity": null,
+                                "returnedQuantity": 0,
+                                "productTransactionWay": 0,
+                                "outcome": 0,
+                                "differenceAction": null
+                              }
+                            ],
+                            "items": [ ]
+                          }
+                        ]
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "403": {
-            "description": "Forbidden",
+            "description": "A system-admin token attempted this.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "systemAdminNotAllowed": {
+                    "summary": "A system-admin token attempted to confirm a request.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "BranchRequest.SystemAdminNotAllowed",
+                        "message": "A system administrator cannot create, confirm, refuse, or cancel branch requests.",
+                        "category": "Forbidden"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No branch request exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No branch request exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "BranchRequest.NotFound",
+                        "message": "No branch request was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "The request is already Fulfilled, Refused, or Cancelled.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notOpenForConfirmation": {
+                    "summary": "The request is already Fulfilled, Refused, or Cancelled.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "BranchRequest.NotOpenForConfirmation",
+                        "message": "Branch request 21 is not open for confirmation.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "The request body failed validation — no transfer plans, a plan's source is the request's own requesting branch, or the generated transfer itself fails validation (reuses TransferErrors — see TransactionsController.Create).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "sourceIsRequestingBranch": {
+                    "summary": "A plan named the request's own requesting branch as its source — checked here rather than left to fail later as a database constraint violation.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "BranchRequest.SourceIsRequestingBranch",
+                        "message": "Branch 9 is the requesting branch and cannot also be the source of a transfer that fulfils it.",
+                        "category": "Validation"
+                      }
+                    }
+                  },
+                  "itemIdsRequired": {
+                    "summary": "One plan's line is for a Known-way product but named no cards — reuses Transfer.ItemIdsRequired since the generated transfer follows the same rule a direct create would.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Transfer.ItemIdsRequired",
+                        "message": "Product 15 is tracked per card, so the specific cards being transferred must be listed.",
+                        "category": "Validation"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -2182,6 +2603,14 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/RefuseStockRequest"
+              },
+              "examples": {
+                "withReason": {
+                  "summary": "Closing the request without generating anything.",
+                  "value": {
+                    "actionNotes": "Product discontinued; requesting branch notified to substitute."
+                  }
+                }
               }
             },
             "text/json": {
@@ -2198,7 +2627,7 @@
         },
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs (`BranchRequest.ActorNotResolved` exists in the\r\ncatalogue but, per its own doc comment, is unreachable behind `[Authorize]` with a\r\nvalid tenant token — same as `Transfer.ActorNotResolved` in S4).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2218,47 +2647,123 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The refused request — terminal.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StockRequestDetailResponseApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The refused request.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 22,
+                        "tenantId": 42,
+                        "requestingBranchId": 9,
+                        "requestingBranchName": "Airport Branch",
+                        "requestStatus": 2,
+                        "requestDateTime": "2026-08-09T08:00:00Z",
+                        "actionTakenByTenantId": 42,
+                        "actionTakenAt": "2026-08-09T09:30:00Z",
+                        "actionNotes": "Product discontinued; requesting branch notified to substitute.",
+                        "rowVersion": "AAAAAAAACAQ=",
+                        "items": [
+                          {
+                            "productId": 18,
+                            "productName": "Legacy Prepaid Card",
+                            "askedQuantity": 30,
+                            "dispatchedQuantity": 0,
+                            "receivedQuantity": 0,
+                            "outstandingQuantity": 30,
+                            "productTransactionWay": 1
+                          }
+                        ],
+                        "unrequestedProducts": [ ],
+                        "transferIds": [ ]
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "403": {
-            "description": "Forbidden",
+            "description": "A system-admin token attempted this.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "systemAdminNotAllowed": {
+                    "summary": "A system-admin token attempted to refuse a request.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "BranchRequest.SystemAdminNotAllowed",
+                        "message": "A system administrator cannot create, confirm, refuse, or cancel branch requests.",
+                        "category": "Forbidden"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No branch request exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No branch request exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "BranchRequest.NotFound",
+                        "message": "No branch request was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "The request is not InProgress or PartiallyConfirmed — once anything has been received it can't be walked back by refusing (decision D-06); settle the generated transfers instead.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notOpenForClosure": {
+                    "summary": "Something has already been received against this request — once fulfilment has started it can't be walked back by refusing; settle the generated transfers instead.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "BranchRequest.NotOpenForClosure",
+                        "message": "Branch request 21 is not open for refusal or cancellation.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "The request body failed validation.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2305,6 +2810,14 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CancelStockRequest"
+              },
+              "examples": {
+                "withNote": {
+                  "summary": "The requester withdrawing its own request before it's confirmed.",
+                  "value": {
+                    "actionNotes": "No longer needed — branch received stock through a different request."
+                  }
+                }
               }
             },
             "text/json": {
@@ -2321,7 +2834,7 @@
         },
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs (`BranchRequest.ActorNotResolved` exists in the\r\ncatalogue but, per its own doc comment, is unreachable behind `[Authorize]` with a\r\nvalid tenant token — same as `Transfer.ActorNotResolved` in S4).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2341,47 +2854,123 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The cancelled request — terminal.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StockRequestDetailResponseApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The cancelled request.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 23,
+                        "tenantId": 42,
+                        "requestingBranchId": 9,
+                        "requestingBranchName": "Airport Branch",
+                        "requestStatus": 3,
+                        "requestDateTime": "2026-08-09T08:00:00Z",
+                        "actionTakenByTenantId": 42,
+                        "actionTakenAt": "2026-08-09T08:15:00Z",
+                        "actionNotes": "No longer needed — branch received stock through a different request.",
+                        "rowVersion": "AAAAAAAACAU=",
+                        "items": [
+                          {
+                            "productId": 15,
+                            "productName": "Gold Debit Card",
+                            "askedQuantity": 50,
+                            "dispatchedQuantity": 0,
+                            "receivedQuantity": 0,
+                            "outstandingQuantity": 50,
+                            "productTransactionWay": 0
+                          }
+                        ],
+                        "unrequestedProducts": [ ],
+                        "transferIds": [ ]
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "403": {
-            "description": "Forbidden",
+            "description": "A system-admin token attempted this.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "systemAdminNotAllowed": {
+                    "summary": "A system-admin token attempted to cancel a request.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "BranchRequest.SystemAdminNotAllowed",
+                        "message": "A system administrator cannot create, confirm, refuse, or cancel branch requests.",
+                        "category": "Forbidden"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No branch request exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No branch request exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "BranchRequest.NotFound",
+                        "message": "No branch request was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "The request is not InProgress or PartiallyConfirmed — same rule as Refuse (decision D-06).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notOpenForClosure": {
+                    "summary": "Something has already been received against this request.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "BranchRequest.NotOpenForClosure",
+                        "message": "Branch request 21 is not open for refusal or cancellation.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "The request body failed validation.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2419,6 +3008,34 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/DisposeCardsRequest"
+              },
+              "examples": {
+                "byExplicitCards": {
+                  "summary": "Writing off specific, named cards.",
+                  "value": {
+                    "branchId": 7,
+                    "reason": "Water damage discovered during quarterly audit.",
+                    "productItemIds": [
+                      601,
+                      602
+                    ],
+                    "items": null
+                  }
+                },
+                "byQuantityFifo": {
+                  "summary": "Writing off a quantity per product — the system picks the oldest available cards first, but still records exactly which ones on the disposal.",
+                  "value": {
+                    "branchId": 7,
+                    "reason": "End-of-life stock, discontinued product line.",
+                    "productItemIds": null,
+                    "items": [
+                      {
+                        "productId": 15,
+                        "quantity": 10
+                      }
+                    ]
+                  }
+                }
               }
             },
             "text/json": {
@@ -2435,7 +3052,7 @@
         },
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs. M:InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.CardDisposalsController.Dispose(ApplicationLayer.DTOs.Disposals.DisposeCardsRequest,System.Threading.CancellationToken) can additionally return this code\r\nwith the standard envelope (`Disposal.ActorNotResolved`) in the rare edge case where a\r\ntoken passes authentication but the acting tenant identity can't be resolved from it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2455,51 +3072,164 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The disposal record, including every card written off under it.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DisposalDetailResponseApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The disposal record, including every card written off under it.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 12,
+                        "tenantId": 42,
+                        "branchId": 7,
+                        "branchName": "Downtown Branch",
+                        "cardTransferId": null,
+                        "disposedByTenantId": 42,
+                        "reason": "Water damage discovered during quarterly audit.",
+                        "disposedAt": "2026-08-12T10:00:00Z",
+                        "items": [
+                          {
+                            "productItemId": 601,
+                            "maskedPan": "**********112233",
+                            "productId": 15,
+                            "productName": "Gold Debit Card"
+                          },
+                          {
+                            "productItemId": 602,
+                            "maskedPan": "**********445566",
+                            "productId": 15,
+                            "productName": "Gold Debit Card"
+                          }
+                        ]
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "403": {
-            "description": "Forbidden",
+            "description": "A system-admin token attempted this — never permitted.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "systemAdminNotAllowed": {
+                    "summary": "A system-admin token attempted to dispose of cards — never permitted; disposal is a tenant-only concept end to end (unlike GetAll/GetById on this same controller, which do allow a read-only admin path).",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Disposal.SystemAdminNotAllowed",
+                        "message": "A system administrator cannot dispose of cards.",
+                        "category": "Forbidden"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "The disposing branch, or a named card, doesn't exist (or belongs to another tenant).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "branchNotFound": {
+                    "summary": "The disposing branch doesn't exist (or belongs to another tenant).",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Disposal.BranchNotFound",
+                        "message": "No branch was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "A named card is already disposed, already issued, or committed to an in-flight transfer; or the branch lacks enough available cards of a named product.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "alreadyDisposed": {
+                    "summary": "One of the named cards has already been written off.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Disposal.AlreadyDisposed",
+                        "message": "Card **********112233 has already been disposed.",
+                        "category": "Conflict"
+                      }
+                    }
+                  },
+                  "cardInTransfer": {
+                    "summary": "One of the named cards is committed to an in-flight transfer — it must be disposed of when that transfer is settled, not standalone.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Disposal.CardInTransfer",
+                        "message": "Card **********112233 is part of an active transfer and must be disposed of when that transfer is settled.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "The request body failed validation — no reason, no cards identified, or both a card list and a quantity list supplied. See DisposalErrors.cs for the full catalogue.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "selectionAmbiguous": {
+                    "summary": "Both productItemIds and items were supplied — refused rather than resolved by precedence.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Disposal.SelectionAmbiguous",
+                        "message": "Specify either the cards to dispose of or the quantities per product, not both.",
+                        "category": "Validation"
+                      }
+                    }
+                  },
+                  "reasonRequired": {
+                    "summary": "The reason was empty or omitted — mandatory by design; disposal cannot be undone.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Disposal.ReasonRequired",
+                        "message": "A reason is required in order to dispose of cards.",
+                        "category": "Validation"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -2626,7 +3356,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs. M:InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.CardDisposalsController.Dispose(ApplicationLayer.DTOs.Disposals.DisposeCardsRequest,System.Threading.CancellationToken) can additionally return this code\r\nwith the standard envelope (`Disposal.ActorNotResolved`) in the rare edge case where a\r\ntoken passes authentication but the acting tenant identity can't be resolved from it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2646,11 +3376,40 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "A page of disposals, scoped to the caller's tenant (or any tenant, for a system admin).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DisposalListItemResponsePaginatedResponseApiResponse"
+                },
+                "examples": {
+                  "page": {
+                    "summary": "Newest-first disposal list.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "data": [
+                          {
+                            "id": 12,
+                            "tenantId": 42,
+                            "branchId": 7,
+                            "branchName": "Downtown Branch",
+                            "cardTransferId": null,
+                            "reason": "Water damage discovered during quarterly audit.",
+                            "cardCount": 2,
+                            "disposedAt": "2026-08-12T10:00:00Z"
+                          }
+                        ],
+                        "pageNumber": 1,
+                        "pageSize": 20,
+                        "totalCount": 1,
+                        "totalPages": 1,
+                        "hasNextPage": false,
+                        "hasPreviousPage": false
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
@@ -2690,7 +3449,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs. M:InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.CardDisposalsController.Dispose(ApplicationLayer.DTOs.Disposals.DisposeCardsRequest,System.Threading.CancellationToken) can additionally return this code\r\nwith the standard envelope (`Disposal.ActorNotResolved`) in the rare edge case where a\r\ntoken passes authentication but the acting tenant identity can't be resolved from it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2710,21 +3469,68 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The disposal.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DisposalDetailResponseApiResponse"
+                },
+                "examples": {
+                  "found": {
+                    "summary": "A standalone disposal (cardTransferId is null) with two cards written off.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 12,
+                        "tenantId": 42,
+                        "branchId": 7,
+                        "branchName": "Downtown Branch",
+                        "cardTransferId": null,
+                        "disposedByTenantId": 42,
+                        "reason": "Water damage discovered during quarterly audit.",
+                        "disposedAt": "2026-08-12T10:00:00Z",
+                        "items": [
+                          {
+                            "productItemId": 601,
+                            "maskedPan": "**********112233",
+                            "productId": 15,
+                            "productName": "Gold Debit Card"
+                          },
+                          {
+                            "productItemId": 602,
+                            "maskedPan": "**********445566",
+                            "productId": 15,
+                            "productName": "Gold Debit Card"
+                          }
+                        ]
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No disposal exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No disposal exists with that id (or it belongs to another tenant).",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Disposal.NotFound",
+                        "message": "No disposal was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -8776,7 +9582,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs — no action here has a service-level 401 path\r\n(`Transfer.ActorNotResolved` exists in the catalogue but is, per its own doc comment,\r\nunreachable behind `[Authorize]` with a valid tenant token).",
             "content": {
               "application/json": {
                 "schema": {
@@ -8796,11 +9602,46 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "A page of transfers, scoped to the caller's tenant (or any tenant, for a system admin).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TransferListItemResponsePaginatedResponseApiResponse"
+                },
+                "examples": {
+                  "page": {
+                    "summary": "Newest-first transfer list — identical shape/scope to InventoryHistoryController.GetAll.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "data": [
+                          {
+                            "id": 88,
+                            "tenantId": 42,
+                            "sourceBranchId": 7,
+                            "sourceBranchName": "Downtown Branch",
+                            "targetBranchId": 9,
+                            "targetBranchName": "Airport Branch",
+                            "transactionStatus": 0,
+                            "origin": 0,
+                            "parentTransferId": null,
+                            "branchRequestId": null,
+                            "productLineCount": 1,
+                            "totalTransactedQuantity": 50,
+                            "createdAt": "2026-08-10T09:00:00Z",
+                            "statusChangedAt": null
+                          }
+                        ],
+                        "pageNumber": 1,
+                        "pageSize": 20,
+                        "totalCount": 1,
+                        "totalPages": 1,
+                        "hasNextPage": false,
+                        "hasPreviousPage": false
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
@@ -8832,6 +9673,40 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CreateTransferRequest"
+              },
+              "examples": {
+                "knownWayLine": {
+                  "summary": "Moving two specific, individually-tracked cards — Known-way products must name the exact cards being sent, and the count must match TransactedQuantity.",
+                  "value": {
+                    "sourceBranchId": 7,
+                    "targetBranchId": 9,
+                    "items": [
+                      {
+                        "productId": 15,
+                        "transactedQuantity": 2,
+                        "productItemIds": [
+                          501,
+                          502
+                        ]
+                      }
+                    ],
+                    "actionNotes": "Restocking ahead of the holiday weekend."
+                  }
+                },
+                "unknownWayLine": {
+                  "summary": "Moving a quantity of an Unknown-way product — no card ids: the system selects which cards back the entitlement.",
+                  "value": {
+                    "sourceBranchId": 7,
+                    "targetBranchId": 9,
+                    "items": [
+                      {
+                        "productId": 16,
+                        "transactedQuantity": 100
+                      }
+                    ],
+                    "actionNotes": null
+                  }
+                }
               }
             },
             "text/json": {
@@ -8848,7 +9723,7 @@
         },
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs — no action here has a service-level 401 path\r\n(`Transfer.ActorNotResolved` exists in the catalogue but is, per its own doc comment,\r\nunreachable behind `[Authorize]` with a valid tenant token).",
             "content": {
               "application/json": {
                 "schema": {
@@ -8868,51 +9743,174 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The created transfer — opens InProgress; no stock has moved yet.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TransferDetailResponseApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The created transfer — opens InProgress; no stock has moved yet.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 88,
+                        "tenantId": 42,
+                        "sourceBranchId": 7,
+                        "sourceBranchName": "Downtown Branch",
+                        "targetBranchId": 9,
+                        "targetBranchName": "Airport Branch",
+                        "transactionStatus": 0,
+                        "origin": 0,
+                        "parentTransferId": null,
+                        "branchRequestId": null,
+                        "actionNotes": "Restocking ahead of the holiday weekend.",
+                        "createdAt": "2026-08-10T09:00:00Z",
+                        "createdByTenantId": 42,
+                        "createdByUsername": "acme-bank",
+                        "statusChangedAt": null,
+                        "checkedByUsername": null,
+                        "rowVersion": "AAAAAAAAB9E=",
+                        "products": [
+                          {
+                            "productId": 15,
+                            "productName": "Gold Debit Card",
+                            "transactedQuantity": 50,
+                            "realQuantityReceived": null,
+                            "disposedQuantity": null,
+                            "returnedQuantity": 0,
+                            "productTransactionWay": 0,
+                            "outcome": 0,
+                            "differenceAction": null
+                          }
+                        ],
+                        "items": [
+                          {
+                            "productItemId": 501,
+                            "maskedPan": "**********123456",
+                            "productId": 15,
+                            "receiveStatus": 0
+                          },
+                          {
+                            "productItemId": 502,
+                            "maskedPan": "**********654321",
+                            "productId": 15,
+                            "receiveStatus": 0
+                          }
+                        ]
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "403": {
-            "description": "Forbidden",
+            "description": "A system-admin token attempted this — admin access to this module is read-only (decision Q7).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "systemAdminNotAllowed": {
+                    "summary": "A system-admin token attempted to create a transfer — admin access to this module is read-only (decision Q7).",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Transfer.SystemAdminNotAllowed",
+                        "message": "A system administrator cannot create or settle transfers.",
+                        "category": "Forbidden"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "The source/target branch or a named product doesn't exist.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "branchNotFound": {
+                    "summary": "The source or target branch doesn't exist (or belongs to another tenant).",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Transfer.BranchNotFound",
+                        "message": "No branch was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "A named card isn't currently available to move (already in flight, printed, expired, spoiled, or disposed).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "itemNotAvailable": {
+                    "summary": "One of the named cards is already in flight, printed, expired, spoiled, or written off.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Transfer.ItemNotAvailable",
+                        "message": "Card **********123456 is not available to transfer.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "The request body failed validation — see TransferErrors.cs for the full catalogue (same/different branch, no lines, duplicate product, wrong card-id shape for the product's transaction way, etc.).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "itemIdsRequired": {
+                    "summary": "A Known-way line was submitted with no productItemIds — the exact cards must be named.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Transfer.ItemIdsRequired",
+                        "message": "Product 15 is tracked per card, so the specific cards being transferred must be listed.",
+                        "category": "Validation"
+                      }
+                    }
+                  },
+                  "itemIdsNotAllowedForUnknown": {
+                    "summary": "productItemIds were supplied for an Unknown-way line — rejected rather than silently ignored.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Transfer.ItemIdsNotAllowedForUnknown",
+                        "message": "Product 16 is not tracked per card, so individual cards cannot be selected for it.",
+                        "category": "Validation"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -8952,7 +9950,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs — no action here has a service-level 401 path\r\n(`Transfer.ActorNotResolved` exists in the catalogue but is, per its own doc comment,\r\nunreachable behind `[Authorize]` with a valid tenant token).",
             "content": {
               "application/json": {
                 "schema": {
@@ -8972,21 +9970,130 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The transfer. Items is empty for a transfer carrying only Unknown-way lines.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TransferDetailResponseApiResponse"
+                },
+                "examples": {
+                  "knownWay": {
+                    "summary": "A Known-way transfer, still in progress — items lists the exact cards in flight.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 88,
+                        "tenantId": 42,
+                        "sourceBranchId": 7,
+                        "sourceBranchName": "Downtown Branch",
+                        "targetBranchId": 9,
+                        "targetBranchName": "Airport Branch",
+                        "transactionStatus": 0,
+                        "origin": 0,
+                        "parentTransferId": null,
+                        "branchRequestId": null,
+                        "actionNotes": "Restocking ahead of the holiday weekend.",
+                        "createdAt": "2026-08-10T09:00:00Z",
+                        "createdByTenantId": 42,
+                        "createdByUsername": "acme-bank",
+                        "statusChangedAt": null,
+                        "checkedByUsername": null,
+                        "rowVersion": "AAAAAAAAB9E=",
+                        "products": [
+                          {
+                            "productId": 15,
+                            "productName": "Gold Debit Card",
+                            "transactedQuantity": 50,
+                            "realQuantityReceived": null,
+                            "disposedQuantity": null,
+                            "returnedQuantity": 0,
+                            "productTransactionWay": 0,
+                            "outcome": 0,
+                            "differenceAction": null
+                          }
+                        ],
+                        "items": [
+                          {
+                            "productItemId": 501,
+                            "maskedPan": "**********123456",
+                            "productId": 15,
+                            "receiveStatus": 0
+                          },
+                          {
+                            "productItemId": 502,
+                            "maskedPan": "**********654321",
+                            "productId": 15,
+                            "receiveStatus": 0
+                          }
+                        ]
+                      },
+                      "error": null
+                    }
+                  },
+                  "unknownWay": {
+                    "summary": "An Unknown-way transfer, still in progress — items is always empty for Unknown-way lines.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 90,
+                        "tenantId": 42,
+                        "sourceBranchId": 7,
+                        "sourceBranchName": "Downtown Branch",
+                        "targetBranchId": 9,
+                        "targetBranchName": "Airport Branch",
+                        "transactionStatus": 0,
+                        "origin": 0,
+                        "parentTransferId": null,
+                        "branchRequestId": null,
+                        "actionNotes": null,
+                        "createdAt": "2026-08-11T10:00:00Z",
+                        "createdByTenantId": 42,
+                        "createdByUsername": "acme-bank",
+                        "statusChangedAt": null,
+                        "checkedByUsername": null,
+                        "rowVersion": "AAAAAAAAB9F=",
+                        "products": [
+                          {
+                            "productId": 16,
+                            "productName": "Silver Prepaid Card",
+                            "transactedQuantity": 100,
+                            "realQuantityReceived": null,
+                            "disposedQuantity": null,
+                            "returnedQuantity": 0,
+                            "productTransactionWay": 1,
+                            "outcome": 0,
+                            "differenceAction": null
+                          }
+                        ],
+                        "items": [ ]
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No transfer exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No transfer exists with that id (or it belongs to another tenant).",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Transfer.NotFound",
+                        "message": "No transfer was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -9029,6 +10136,68 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ReceiveTransferRequest"
+              },
+              "examples": {
+                "knownWayFullyReceived": {
+                  "summary": "Every card on a Known-way line received cleanly.",
+                  "value": {
+                    "items": [
+                      {
+                        "productId": 15,
+                        "realQuantityReceived": 2,
+                        "disposedQuantity": 0,
+                        "itemDispositions": [
+                          {
+                            "productItemId": 501,
+                            "disposition": 1
+                          },
+                          {
+                            "productItemId": 502,
+                            "disposition": 1
+                          }
+                        ],
+                        "differenceAction": null
+                      }
+                    ],
+                    "disposeReason": null,
+                    "disposingBranchId": null,
+                    "actionNotes": "All cards received in good condition."
+                  }
+                },
+                "unknownWayReturnedToSource": {
+                  "summary": "An Unknown-way line partially received; the remainder is credited straight back to the source via an auto-generated return.",
+                  "value": {
+                    "items": [
+                      {
+                        "productId": 16,
+                        "realQuantityReceived": 80,
+                        "disposedQuantity": 0,
+                        "itemDispositions": null,
+                        "differenceAction": 0
+                      }
+                    ],
+                    "disposeReason": null,
+                    "disposingBranchId": null,
+                    "actionNotes": null
+                  }
+                },
+                "unknownWayKeptAtDestination": {
+                  "summary": "An Unknown-way line partially received; the target is credited in full anyway (e.g. the rest was verbally confirmed on-site) — the gap stays visible via differenceAction rather than being expressed as stock in transit.",
+                  "value": {
+                    "items": [
+                      {
+                        "productId": 16,
+                        "realQuantityReceived": 80,
+                        "disposedQuantity": 0,
+                        "itemDispositions": null,
+                        "differenceAction": 1
+                      }
+                    ],
+                    "disposeReason": null,
+                    "disposingBranchId": null,
+                    "actionNotes": "Remaining 20 confirmed by phone; kept at destination pending paperwork."
+                  }
+                }
               }
             },
             "text/json": {
@@ -9045,7 +10214,7 @@
         },
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs — no action here has a service-level 401 path\r\n(`Transfer.ActorNotResolved` exists in the catalogue but is, per its own doc comment,\r\nunreachable behind `[Authorize]` with a valid tenant token).",
             "content": {
               "application/json": {
                 "schema": {
@@ -9065,51 +10234,149 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "Settlement outcome — returnTransferId/disposalId are set only when a remainder actually moved/was written off.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SettleTransferResultApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "Settlement outcome — returnTransferId is set only when a remainder actually moved.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "transferId": 88,
+                        "transactionStatus": 1,
+                        "returnTransferId": null,
+                        "disposalId": null,
+                        "totalReceived": 2,
+                        "totalDisposed": 0,
+                        "totalReturned": 0
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "403": {
-            "description": "Forbidden",
+            "description": "A system-admin token attempted this.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "systemAdminNotAllowed": {
+                    "summary": "A system-admin token attempted to settle a transfer.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Transfer.SystemAdminNotAllowed",
+                        "message": "A system administrator cannot create or settle transfers.",
+                        "category": "Forbidden"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No transfer exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No transfer exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Transfer.NotFound",
+                        "message": "No transfer was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "The transfer was already settled — settlement cannot run twice.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notInProgress": {
+                    "summary": "The transfer was already settled — settlement cannot run twice.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Transfer.NotInProgress",
+                        "message": "Transfer 88 has already been settled.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "The request body failed validation — a product was omitted, a Known-way line is missing per-card dispositions, an Unknown-way line's remainder has no difference action, etc. See TransferErrors.cs for the full catalogue.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "missingProductInSettlement": {
+                    "summary": "A product carried by the transfer was left out of the settlement — omission is never read as an implicit zero.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Transfer.MissingProductInSettlement",
+                        "message": "Product 15 is part of this transfer and must be settled explicitly.",
+                        "category": "Validation"
+                      }
+                    }
+                  },
+                  "differenceActionRequired": {
+                    "summary": "An Unknown-way line has a remainder but no differenceAction was supplied.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Transfer.DifferenceActionRequired",
+                        "message": "Product 16 was not fully received, so a difference action must be specified.",
+                        "category": "Validation"
+                      }
+                    }
+                  },
+                  "dispositionsRequired": {
+                    "summary": "A Known-way line was settled without a per-card outcome for every card.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Transfer.DispositionsRequired",
+                        "message": "Product 15 is tracked per card, so every card must be settled individually.",
+                        "category": "Validation"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -9152,6 +10419,15 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/DisposeTransferRequest"
+              },
+              "examples": {
+                "writeOffRemainder": {
+                  "summary": "Writing off everything the transfer still carries, without receiving any of it.",
+                  "value": {
+                    "branchId": 9,
+                    "reason": "Cards damaged in transit; entire shipment written off."
+                  }
+                }
               }
             },
             "text/json": {
@@ -9168,7 +10444,7 @@
         },
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs — no action here has a service-level 401 path\r\n(`Transfer.ActorNotResolved` exists in the catalogue but is, per its own doc comment,\r\nunreachable behind `[Authorize]` with a valid tenant token).",
             "content": {
               "application/json": {
                 "schema": {
@@ -9188,51 +10464,125 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "Equivalent to Receive with every line fully disposed.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SettleTransferResultApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "Equivalent to Receive with every line fully disposed.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "transferId": 88,
+                        "transactionStatus": 4,
+                        "returnTransferId": null,
+                        "disposalId": 12,
+                        "totalReceived": 0,
+                        "totalDisposed": 2,
+                        "totalReturned": 0
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "403": {
-            "description": "Forbidden",
+            "description": "A system-admin token attempted this.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "systemAdminNotAllowed": {
+                    "summary": "A system-admin token attempted to dispose of a transfer's cards.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Transfer.SystemAdminNotAllowed",
+                        "message": "A system administrator cannot create or settle transfers.",
+                        "category": "Forbidden"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No transfer exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No transfer exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Transfer.NotFound",
+                        "message": "No transfer was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "The transfer was already settled.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notInProgress": {
+                    "summary": "The transfer was already settled.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Transfer.NotInProgress",
+                        "message": "Transfer 88 has already been settled.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "The disposing branch was omitted, or the request body otherwise failed validation.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "disposingBranchRequired": {
+                    "summary": "The branchId was omitted — required because settled cards sit at no branch of their own.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Transfer.DisposingBranchRequired",
+                        "message": "A disposing branch is required when any quantity is disposed of.",
+                        "category": "Validation"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -12339,7 +13689,7 @@
     },
     {
       "name": "CardDisposals",
-      "description": "Standalone card disposal endpoints (API §4.10, Addendum A). Writes off cards sitting at a\r\nbranch — damaged, spoiled, or discontinued — outside of any transfer. Disposal that happens\r\nwhile settling a transfer is `TransactionsController`'s\r\nM:InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.TransactionsController.Receive(System.Int64,ApplicationLayer.DTOs.Transfers.ReceiveTransferRequest,System.Threading.CancellationToken) and\r\nM:InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.TransactionsController.Dispose(System.Int64,ApplicationLayer.DTOs.Transfers.DisposeTransferRequest,System.Threading.CancellationToken), not this controller.\r\n\r\n\r\nTwo resources share this controller under the common `api/inventory` prefix: writing a\r\ndisposal is a card-level action (`cards/dispose`), while listing and reading disposals\r\nis its own resource (`disposals`). Routes are given in full on each action rather than\r\ncomposed from a single class-level prefix, since the two don't share a parent segment.\r\n<b>Never available to a system admin</b> — unlike `TransactionsController`, there is no\r\nread-only admin path here at all; disposal is a tenant-only concept end to end."
+      "description": "Standalone card disposal endpoints (API §4.10, Addendum A). Writes off cards sitting at a\r\nbranch — damaged, spoiled, or discontinued — outside of any transfer. Disposal that happens\r\nwhile settling a transfer is `TransactionsController`'s\r\nM:InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.TransactionsController.Receive(System.Int64,ApplicationLayer.DTOs.Transfers.ReceiveTransferRequest,System.Threading.CancellationToken) and\r\nM:InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.TransactionsController.Dispose(System.Int64,ApplicationLayer.DTOs.Transfers.DisposeTransferRequest,System.Threading.CancellationToken), not this controller.\r\n\r\n\r\nTwo resources share this controller under the common `api/inventory` prefix: writing a\r\ndisposal is a card-level action (`cards/dispose`), while listing and reading disposals\r\nis its own resource (`disposals`). Routes are given in full on each action rather than\r\ncomposed from a single class-level prefix, since the two don't share a parent segment.\r\n<b>Writing a disposal is never available to a system admin</b> — M:InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.CardDisposalsController.Dispose(ApplicationLayer.DTOs.Disposals.DisposeCardsRequest,System.Threading.CancellationToken)\r\nrejects an admin token outright, since disposal is a tenant-only concept end to end.\r\nM:InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.CardDisposalsController.GetAll(ApplicationLayer.DTOs.Disposals.DisposalListFilter,System.Threading.CancellationToken) and M:InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.CardDisposalsController.GetById(System.Int64,System.Threading.CancellationToken) are the exception: like\r\n`TransactionsController`'s reads, a system admin gets cross-tenant read access there\r\n(confirmed against `DisposalService.ResolveReadScope`, which returns no tenant filter\r\nfor an admin caller) — a correction to this doc comment's earlier claim that no read-only\r\nadmin path exists here at all."
     },
     {
       "name": "CardFiles",
