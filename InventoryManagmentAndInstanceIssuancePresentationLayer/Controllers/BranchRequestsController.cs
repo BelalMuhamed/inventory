@@ -15,7 +15,12 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
     /// confirms, refuses, and cancels its own tenant's requests; a system admin has read-only access
     /// across tenants (decision Q7) — create, confirm, refuse, and cancel all reject an admin token outright.
     /// </summary>
-    /// <response code="401">No valid bearer token was supplied.</response>
+    /// <response code="401">
+    /// No valid bearer token was supplied. Typically the authorization middleware's empty-body
+    /// rejection before this action runs (<c>BranchRequest.ActorNotResolved</c> exists in the
+    /// catalogue but, per its own doc comment, is unreachable behind <c>[Authorize]</c> with a
+    /// valid tenant token — same as <c>Transfer.ActorNotResolved</c> in S4).
+    /// </response>
     [ApiController]
     [Route("api/inventory/requests")]
     [Authorize]
@@ -29,12 +34,15 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         public BranchRequestsController(IServiceManager services) => _services = services;
 
         /// <summary>Lists branch stock requests with paging and filters.</summary>
+        /// <response code="200">A page of branch requests, scoped to the caller's tenant (or any tenant, for a system admin).</response>
         [HttpGet]
         [ProducesResponseType(typeof(ApiResponse<PaginatedResponse<StockRequestListItemResponse>>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetAll([FromQuery] StockRequestListFilter filter, CancellationToken cancellationToken)
             => (await _services.BranchRequests.GetAllAsync(filter, cancellationToken)).ToActionResult(this);
 
         /// <summary>Gets one branch stock request's full detail, including items, fulfilment counters, and linked transfers.</summary>
+        /// <response code="200">The request, including any products dispatched but never asked for (unrequestedProducts).</response>
+        /// <response code="404">No branch request exists with the supplied id.</response>
         [HttpGet("{id:long}")]
         [ProducesResponseType(typeof(ApiResponse<StockRequestDetailResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
@@ -44,6 +52,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// <summary>
         /// Creates a new branch stock request for a tenant-owned active branch.
         /// </summary>
+        /// <response code="200">The created request — opens InProgress; reserves nothing and moves no stock.</response>
+        /// <response code="403">A system-admin token attempted this — admin access to this module is read-only (decision Q7).</response>
+        /// <response code="404">The requesting branch doesn't exist.</response>
+        /// <response code="409">The requesting branch already has a non-terminal request covering one of the named products (decision Q-11 / D-08).</response>
+        /// <response code="422">The request body failed validation, or the requesting branch is inactive (a request from it could never be confirmed, so creation fails early).</response>
         [HttpPost]
         [ProducesResponseType(typeof(ApiResponse<StockRequestDetailResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
@@ -56,6 +69,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// <summary>
         /// Confirms a branch stock request, generating one or more inventory transfers to fulfil it.
         /// </summary>
+        /// <response code="200">Confirm succeeded — carries every generated transfer's full detail, not just its id. Callable repeatedly against the same request from any non-terminal status (decision Q-04, incremental fulfilment).</response>
+        /// <response code="403">A system-admin token attempted this.</response>
+        /// <response code="404">No branch request exists with the supplied id.</response>
+        /// <response code="409">The request is already Fulfilled, Refused, or Cancelled.</response>
+        /// <response code="422">The request body failed validation — no transfer plans, a plan's source is the request's own requesting branch, or the generated transfer itself fails validation (reuses TransferErrors — see TransactionsController.Create).</response>
         [HttpPost("{id:long}/confirm")]
         [ProducesResponseType(typeof(ApiResponse<ConfirmStockRequestResult>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
@@ -69,6 +87,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// <summary>
         /// Refuses an open branch stock request.
         /// </summary>
+        /// <response code="200">The refused request — terminal.</response>
+        /// <response code="403">A system-admin token attempted this.</response>
+        /// <response code="404">No branch request exists with the supplied id.</response>
+        /// <response code="409">The request is not InProgress or PartiallyConfirmed — once anything has been received it can't be walked back by refusing (decision D-06); settle the generated transfers instead.</response>
+        /// <response code="422">The request body failed validation.</response>
         [HttpPost("{id:long}/refuse")]
         [ProducesResponseType(typeof(ApiResponse<StockRequestDetailResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
@@ -82,6 +105,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// <summary>
         /// Cancels an open branch stock request.
         /// </summary>
+        /// <response code="200">The cancelled request — terminal.</response>
+        /// <response code="403">A system-admin token attempted this.</response>
+        /// <response code="404">No branch request exists with the supplied id.</response>
+        /// <response code="409">The request is not InProgress or PartiallyConfirmed — same rule as Refuse (decision D-06).</response>
+        /// <response code="422">The request body failed validation.</response>
         [HttpPost("{id:long}/cancel")]
         [ProducesResponseType(typeof(ApiResponse<StockRequestDetailResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]

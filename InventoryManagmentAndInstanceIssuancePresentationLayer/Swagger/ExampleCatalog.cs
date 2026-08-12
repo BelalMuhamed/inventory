@@ -48,6 +48,9 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger
             Merge(catalog, TransactionsExamples.Build());
             Merge(catalog, CardDisposalExamples.Build());
 
+            // Phase S5 — Branch Requests.
+            Merge(catalog, BranchRequestExamples.Build());
+
             return catalog;
         }
 
