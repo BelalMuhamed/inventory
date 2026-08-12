@@ -21,11 +21,13 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
         {
             var builder = WebApplication.CreateBuilder(args);
 
+
             LogFileOptions logOpts =
                 builder.Configuration.GetSection(LogFileOptions.SectionName).Get<LogFileOptions>()
                 ?? new LogFileOptions();
 
             string logDir = Path.Combine(builder.Environment.ContentRootPath, logOpts.Directory);
+            if (!Directory.Exists(logDir)) { Directory.CreateDirectory(logDir); }
             var formatter = new CompactJsonFormatter();
 
             Log.Logger = new LoggerConfiguration()
@@ -39,44 +41,47 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
                     .WriteTo.File(formatter, Path.Combine(logDir, logOpts.ExceptionFileName)))
                 // Error file: Warning+ with no exception.
                 .WriteTo.Logger(lc => lc
-                    .Filter.ByIncludingOnly(e => e.Exception is null && e.Level >= LogEventLevel.Warning)
+                    .Filter.ByIncludingOnly(e => e.Exception is null && e.Level >= LogEventLevel.Error)
                     .WriteTo.File(formatter, Path.Combine(logDir, logOpts.ErrorFileName)))
                 .CreateLogger();
 
             builder.Host.UseSerilog();
-
-            // Add services to the container.
-
-            // Program.cs — replace builder.Services.AddControllers();
-            builder.Services.AddControllers(options =>
+            try
             {
-                options.Filters.Add<LocalizeErrorResultFilter>();
-            });            // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-            // Replace the default [ApiController] 400 model-validation response with our 422 envelope.
-            builder.Services.Configure<ApiBehaviorOptions>(options =>
-            {
-                options.InvalidModelStateResponseFactory = ValidationResponseFactory.Build;
-            });
-            builder.Services.AddEndpointsApiExplorer();
-            builder.Services.AddSwaggerGen(op =>
-            {
-                
+               
 
-                op.OperationFilter<AcceptLanguageHeaderOperationFilter>();
+                // Add services to the container.
 
-                // PresentationServiceRegistration.AddPresentation — inside services.AddSwaggerGen(options => { ... })
-                op.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+                // Program.cs — replace builder.Services.AddControllers();
+                builder.Services.AddControllers(options =>
                 {
-                    Name = "Authorization",
-                    Type = SecuritySchemeType.Http,   // paste the raw token; Swagger adds the "Bearer " prefix
-                    Scheme = "bearer",
-                    BearerFormat = "JWT",
-                    In = ParameterLocation.Header,
-                    Description = "Paste your JWT access token below (without the 'Bearer ' prefix)."
+                    options.Filters.Add<LocalizeErrorResultFilter>();
+                });            // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+                               // Replace the default [ApiController] 400 model-validation response with our 422 envelope.
+                builder.Services.Configure<ApiBehaviorOptions>(options =>
+                {
+                    options.InvalidModelStateResponseFactory = ValidationResponseFactory.Build;
                 });
+                builder.Services.AddEndpointsApiExplorer();
+                builder.Services.AddSwaggerGen(op =>
+                {
 
-                op.AddSecurityRequirement(new OpenApiSecurityRequirement
-{
+
+                    op.OperationFilter<AcceptLanguageHeaderOperationFilter>();
+
+                    // PresentationServiceRegistration.AddPresentation — inside services.AddSwaggerGen(options => { ... })
+                    op.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+                    {
+                        Name = "Authorization",
+                        Type = SecuritySchemeType.Http,   // paste the raw token; Swagger adds the "Bearer " prefix
+                        Scheme = "bearer",
+                        BearerFormat = "JWT",
+                        In = ParameterLocation.Header,
+                        Description = "Paste your JWT access token below (without the 'Bearer ' prefix)."
+                    });
+
+                    op.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
     {
         new OpenApiSecurityScheme
         {
@@ -88,58 +93,68 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
         },
         Array.Empty<string>()
     }
-});
+    });
 
-                // PresentationServiceRegistration.AddPresentation — inside services.AddSwaggerGen(options => { ... })
-              
+                    // PresentationServiceRegistration.AddPresentation — inside services.AddSwaggerGen(options => { ... })
 
-               
-                
 
-            });
 
-            // Fail fast if the JWT signing key is missing: a misconfigured secret should surface
-            // as a clear startup error, not as confusing 401s at request time.
-            EnsureJwtSigningKeyPresent(builder.Configuration);
 
-            // Onion composition: inner layers are wired before the presentation concerns that depend on them.
-            builder.Services.AddInfrastructure(builder.Configuration);
-            builder.Services.AddPresentation(builder.Configuration);
-            // In Program.cs, where services are configured:
-            builder.Services.AddAuthorization(AuthorizationPolicies.Register);
-            var app = builder.Build();
 
-            // Apply migrations and seed the bootstrap system admin on startup (idempotent).
-            await DbSeeder.MigrateAndSeedAsync(app.Services);
+                });
 
-            // Global exception handling must sit first so it wraps the entire downstream pipeline.
-            app.UseMiddleware<GlobalExceptionMiddleware>();
+                // Fail fast if the JWT signing key is missing: a misconfigured secret should surface
+                // as a clear startup error, not as confusing 401s at request time.
+                EnsureJwtSigningKeyPresent(builder.Configuration);
 
-          
+                // Onion composition: inner layers are wired before the presentation concerns that depend on them.
+                builder.Services.AddInfrastructure(builder.Configuration);
+                builder.Services.AddPresentation(builder.Configuration);
+                // In Program.cs, where services are configured:
+                builder.Services.AddAuthorization(AuthorizationPolicies.Register);
+                var app = builder.Build();
+
+                // Apply migrations and seed the bootstrap system admin on startup (idempotent).
+                await DbSeeder.MigrateAndSeedAsync(app.Services);
+
+                // Global exception handling must sit first so it wraps the entire downstream pipeline.
+                app.UseMiddleware<GlobalExceptionMiddleware>();
+
+
                 app.UseSwagger();
                 app.UseSwaggerUI();
-            
 
-            app.UseHttpsRedirection();
 
-            // Revision, "Print Images & Product Print Configuration" change request: the
-            // unauthenticated static-file mount that used to serve print images here is removed.
-            // Folders are now named after the tenant's username and files keep their original
-            // names (points 2/3 of that change request), which makes physical paths guessable in
-            // a way the previous GUID-named/tenant-id-foldered scheme wasn't - serving them
-            // without an auth check was no longer safe. Every retrieval now goes through
-            // GET /api/print-images/{id} (PrintImagesController), which checks tenant ownership
-            // server-side before streaming a single byte.
+                app.UseHttpsRedirection();
 
-            // Authentication must run before authorization so the principal is established first.
-            app.UseAuthentication();
-            app.UseAuthorization();
+                // Revision, "Print Images & Product Print Configuration" change request: the
+                // unauthenticated static-file mount that used to serve print images here is removed.
+                // Folders are now named after the tenant's username and files keep their original
+                // names (points 2/3 of that change request), which makes physical paths guessable in
+                // a way the previous GUID-named/tenant-id-foldered scheme wasn't - serving them
+                // without an auth check was no longer safe. Every retrieval now goes through
+                // GET /api/print-images/{id} (PrintImagesController), which checks tenant ownership
+                // server-side before streaming a single byte.
 
-            // Program.cs — add the middleware BEFORE app.MapControllers() (and before auth is fine too)
-            app.UseRequestLocalization();
-            app.MapControllers();
+                // Authentication must run before authorization so the principal is established first.
+                app.UseAuthentication();
+                app.UseAuthorization();
 
-            await app.RunAsync();
+                // Program.cs — add the middleware BEFORE app.MapControllers() (and before auth is fine too)
+                app.UseRequestLocalization();
+                app.MapControllers();
+
+                await app.RunAsync();
+            }
+            catch (Exception ex)
+            {
+                Log.Fatal(ex, "Application terminated unexpectedly during startup or execution.");
+                throw;
+            }
+            finally
+            {
+                await Log.CloseAndFlushAsync();
+            }
         }
 
         private static void EnsureJwtSigningKeyPresent(IConfiguration configuration)
