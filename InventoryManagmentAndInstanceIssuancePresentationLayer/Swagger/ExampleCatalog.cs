@@ -44,6 +44,10 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger
             Merge(catalog, InventoryHistoryExamples.Build());
             Merge(catalog, CardFileExamples.Build());
 
+            // Phase S4 — Transfers & Disposal.
+            Merge(catalog, TransactionsExamples.Build());
+            Merge(catalog, CardDisposalExamples.Build());
+
             return catalog;
         }
 

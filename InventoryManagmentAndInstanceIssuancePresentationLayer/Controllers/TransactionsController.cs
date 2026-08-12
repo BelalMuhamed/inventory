@@ -30,7 +30,12 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
     /// physical card to write off.
     /// </para>
     /// </summary>
-    /// <response code="401">No valid bearer token was supplied.</response>
+    /// <response code="401">
+    /// No valid bearer token was supplied. Typically the authorization middleware's empty-body
+    /// rejection before this action runs — no action here has a service-level 401 path
+    /// (<c>Transfer.ActorNotResolved</c> exists in the catalogue but is, per its own doc comment,
+    /// unreachable behind <c>[Authorize]</c> with a valid tenant token).
+    /// </response>
     [ApiController]
     [Route("api/inventory/transactions")]
     [Authorize]
@@ -44,12 +49,15 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         public TransactionsController(IServiceManager services) => _services = services;
 
         /// <summary>Lists transfers with paging and filters.</summary>
+        /// <response code="200">A page of transfers, scoped to the caller's tenant (or any tenant, for a system admin).</response>
         [HttpGet]
         [ProducesResponseType(typeof(ApiResponse<PaginatedResponse<TransferListItemResponse>>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetAll([FromQuery] TransferListFilter filter, CancellationToken cancellationToken)
             => (await _services.Transfers.GetAllAsync(filter, cancellationToken)).ToActionResult(this);
 
         /// <summary>Gets one transfer's full detail, including product lines and card-level items.</summary>
+        /// <response code="200">The transfer. Items is empty for a transfer carrying only Unknown-way lines.</response>
+        /// <response code="404">No transfer exists with the supplied id.</response>
         [HttpGet("{id:long}")]
         [ProducesResponseType(typeof(ApiResponse<TransferDetailResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
@@ -60,6 +68,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// Creates a direct transfer between two branches of the caller's tenant. Known-way
         /// product lines must name the exact cards being sent; Unknown-way lines must not.
         /// </summary>
+        /// <response code="200">The created transfer — opens InProgress; no stock has moved yet.</response>
+        /// <response code="403">A system-admin token attempted this — admin access to this module is read-only (decision Q7).</response>
+        /// <response code="404">The source/target branch or a named product doesn't exist.</response>
+        /// <response code="409">A named card isn't currently available to move (already in flight, printed, expired, spoiled, or disposed).</response>
+        /// <response code="422">The request body failed validation — see TransferErrors.cs for the full catalogue (same/different branch, no lines, duplicate product, wrong card-id shape for the product's transaction way, etc.).</response>
         [HttpPost]
         [ProducesResponseType(typeof(ApiResponse<TransferDetailResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
@@ -77,6 +90,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// Known-way case, while <c>KeptAtDestination</c> credits the full quantity to the target
         /// immediately and spawns nothing.
         /// </summary>
+        /// <response code="200">Settlement outcome — returnTransferId/disposalId are set only when a remainder actually moved/was written off.</response>
+        /// <response code="403">A system-admin token attempted this.</response>
+        /// <response code="404">No transfer exists with the supplied id.</response>
+        /// <response code="409">The transfer was already settled — settlement cannot run twice.</response>
+        /// <response code="422">The request body failed validation — a product was omitted, a Known-way line is missing per-card dispositions, an Unknown-way line's remainder has no difference action, etc. See TransferErrors.cs for the full catalogue.</response>
         [HttpPost("{id:long}/receive")]
         [ProducesResponseType(typeof(ApiResponse<SettleTransferResult>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
@@ -91,6 +109,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// Writes off everything an in-progress transfer still carries, in one step, without
         /// receiving any of it. Equivalent to <see cref="Receive"/> with every line fully disposed.
         /// </summary>
+        /// <response code="200">Equivalent to Receive with every line fully disposed.</response>
+        /// <response code="403">A system-admin token attempted this.</response>
+        /// <response code="404">No transfer exists with the supplied id.</response>
+        /// <response code="409">The transfer was already settled.</response>
+        /// <response code="422">The disposing branch was omitted, or the request body otherwise failed validation.</response>
         [HttpPost("{id:long}/dispose")]
         [ProducesResponseType(typeof(ApiResponse<SettleTransferResult>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
