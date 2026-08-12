@@ -1,0 +1,1483 @@
+From 4d58255aa61728134cf63cd1ce7e8fae84990bb9 Mon Sep 17 00:00:00 2001
+From: AI Pairing <ai-pairing@calimly.local>
+Date: Wed, 12 Aug 2026 08:47:43 +0000
+Subject: [PATCH] S2: Full Swagger documentation for Catalog & Printing modules
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Covers BranchController, ProductController, ProductPrintConfigController,
+PrintersController, PrintImagesController (29 endpoints).
+
+- Add Swagger/Examples/BranchExamples.cs, ProductExamples.cs,
+  ProductPrintConfigExamples.cs, PrintersExamples.cs,
+  PrintImagesExamples.cs and register them in ExampleCatalog.
+- Backfill missing <response> XML doc tags on all 29 actions (same
+  gap flagged, but only partly closed, in S1).
+- Continue the 401/403 accuracy audit from S1, with the opposite
+  finding this time: the Printing module's admin-only writes enforce
+  'system-admin only' in the service (Forbidden category), not via an
+  authorization policy, so their 403 genuinely IS the enveloped
+  ApiResponse<T> body — documented explicitly, contrasted with
+  TenantsController's policy-driven empty-body 403 from S1.
+  BranchController/ProductController similarly have a rare
+  enveloped-401 edge case (ActorNotResolved) reachable from
+  Create/Delete/Restore.
+- Document PrintImagesController.Upload's 409: uniquely a SUCCESS
+  envelope (existing image's metadata) with status forced to 409, not
+  an ApiError — the only non-2xx-without-ApiError response found so
+  far.
+- Update Docs/PROJECT_KNOWLEDGE.md (§3, §18, metadata trailer) with
+  S2 coverage and both new findings.
+
+Remaining controllers land in S3 (Stock/ProductItems/Inventory
+upload/InventoryHistory/CardFiles), S4 (Transactions/CardDisposals),
+S5 (BranchRequests).
+---
+ Docs/PROJECT_KNOWLEDGE.md                     |  15 +-
+ .../Controllers/BranchController.cs           |  29 ++-
+ .../Controllers/PrintImagesController.cs      |  29 ++-
+ .../Controllers/PrintersController.cs         |  31 ++-
+ .../Controllers/ProductController.cs          |  29 ++-
+ .../ProductPrintConfigController.cs           |  20 +-
+ .../Swagger/ExampleCatalog.cs                 |   7 +
+ .../Swagger/Examples/BranchExamples.cs        | 193 ++++++++++++++++
+ .../Swagger/Examples/PrintImagesExamples.cs   | 127 +++++++++++
+ .../Swagger/Examples/PrintersExamples.cs      | 211 +++++++++++++++++
+ .../Swagger/Examples/ProductExamples.cs       | 213 ++++++++++++++++++
+ .../Examples/ProductPrintConfigExamples.cs    | 197 ++++++++++++++++
+ 12 files changed, 1091 insertions(+), 10 deletions(-)
+ create mode 100644 InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/BranchExamples.cs
+ create mode 100644 InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/PrintImagesExamples.cs
+ create mode 100644 InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/PrintersExamples.cs
+ create mode 100644 InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/ProductExamples.cs
+ create mode 100644 InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/ProductPrintConfigExamples.cs
+
+diff --git a/Docs/PROJECT_KNOWLEDGE.md b/Docs/PROJECT_KNOWLEDGE.md
+index be6b0b5..901b97a 100644
+--- a/Docs/PROJECT_KNOWLEDGE.md
++++ b/Docs/PROJECT_KNOWLEDGE.md
+@@ -77,7 +77,9 @@ InventoryManagmentAndInstanceIssuanceSolution.sln
+     ├── Security/             AuthorizationPolicies, CurrentTenant (ICurrentTenant impl from JWT claims)
+     ├── Filters/              LocalizeErrorResultFilter (Error.Code → IStringLocalizer message)
+     ├── Swagger/              AcceptLanguageHeaderOperationFilter, ExamplesOperationFilter,
+-    │                         EnumSchemaDescriptionsFilter, ExampleCatalog, Examples/*.cs (§3, "Swagger / API documentation")
++    │                         EnumSchemaDescriptionsFilter, ExampleCatalog, Examples/*.cs — one
++    │                         file per module (Auth/Tenant done S1; Branch/Product/
++    │                         ProductPrintConfig/Printers/PrintImages done S2) (§3, "Swagger / API documentation")
+     ├── Resources/Localization/ Messages.resx (EN) + Messages.ar.resx (AR), Messages.cs bundle
+     └── Program.cs            Composition root
+ ```
+@@ -119,8 +121,10 @@ Root of the repo also holds a sequence of `git format-patch` files (`R1..R6-*.pa
+   - `IncludeXmlComments` is now wired for all three XML-doc-producing assemblies (Presentation, ApplicationLayer, DomainLayer — the latter two had `GenerateDocumentationFile` enabled for the first time in this pass). Every layer's existing `<summary>`/`<param>`/`<response>` doc comments now reach Swagger UI; previously none of them did, regardless of how complete they were in source.
+   - `EnumSchemaDescriptionsFilter` (`ISchemaFilter`) appends each enum's numeric wire value + member doc to its schema description, reading the same XML doc files via `XmlDocIndex` — needed because no `JsonStringEnumConverter` is registered anywhere (enums serialize as plain integers; see §12 enum persistence decision) and Swashbuckle's built-in XML support documents the enum type, not each member.
+   - `ExamplesOperationFilter` attaches named, multi-scenario request/response examples per action, looked up from `ExampleCatalog.All` by `(Controller, Action)`. **To extend for a new controller:** add one `Swagger/Examples/{Module}Examples.cs` file (mirrors `Errors/{Module}Errors.cs` — one file per module) building an `EndpointExampleSet` per action via `EndpointExampleSetBuilder`, then add one `Merge(catalog, {Module}Examples.Build());` line in `ExampleCatalog.Build()`. Examples are plain C# objects (anonymous types), not hand-built `IOpenApiAny` graphs — `OpenApiAnyFactory` does that conversion.
+-  - **Coverage as of this pass:** foundation (XML comments, enum filter, examples filter/catalog) applies to every controller already. Full example content exists only for `AuthController` and `TenantsController` (Phase S1). Remaining controllers are planned in phases S2 (Branches/Products/PrintConfig/Printers/PrintImages), S3 (Stock/ProductItems/Inventory upload/InventoryHistory/CardFiles), S4 (Transactions/CardDisposals), S5 (BranchRequests) — same one-module-per-file convention.
+-  - **A genuine finding from this pass, not a bug fix:** `[Authorize]`/`[Authorize(Policy=...)]` failures (missing/invalid token, wrong policy) are handled by ASP.NET Core's authorization middleware *before* an action runs, and return an **empty body** — not the `ApiResponse<T>` envelope. Several controllers' `[ProducesResponseType]` on 401/403 previously claimed a typed envelope body for these regardless. `AuthController`/`TenantsController` were corrected in Phase S1 (untyped `[ProducesResponseType(StatusCodes.Status401Unauthorized)]` where the body really is empty, XML docs explaining which shape applies where — some actions/status codes can hit *either* shape depending on whether the failure is middleware-level or a `Result`-based service error, e.g. `Tenant.ActorNotResolved` on `TenantsController.SoftDelete`). **The same audit is still needed on every other controller** as S2-S5 land — check each 401/403 against its actual service code before trusting the existing `[ProducesResponseType]` type.
++  - **Coverage as of this pass:** foundation (XML comments, enum filter, examples filter/catalog) applies to every controller already. Full example content exists for `AuthController`, `TenantsController` (Phase S1), and `BranchController`, `ProductController`, `ProductPrintConfigController`, `PrintersController`, `PrintImagesController` (Phase S2). Remaining controllers are planned in phases S3 (Stock/ProductItems/Inventory upload/InventoryHistory/CardFiles), S4 (Transactions/CardDisposals), S5 (BranchRequests) — same one-module-per-file convention.
++  - **A genuine finding from this pass, not a bug fix:** `[Authorize]`/`[Authorize(Policy=...)]` failures (missing/invalid token, wrong policy) are handled by ASP.NET Core's authorization middleware *before* an action runs, and return an **empty body** — not the `ApiResponse<T>` envelope. Several controllers' `[ProducesResponseType]` on 401/403 previously claimed a typed envelope body for these regardless. `AuthController`/`TenantsController` were corrected in Phase S1, and `BranchController`/`ProductController`/`PrintersController`/`ProductPrintConfigController`/`PrintImagesController` in Phase S2 (XML docs, not `[ProducesResponseType]` types, since S2's admin-gated write actions genuinely *do* return the enveloped body — see next bullet). **The same audit is still needed on the remaining controllers** as S3-S5 land — check each 401/403 against its actual service code before trusting the existing `[ProducesResponseType]` type.
++  - **A second finding, S2:** the Printing module's admin-only write actions (`PrintersController`'s Create/Update/Delete/Restore, `ProductPrintConfigController`'s Update/GetFull, `PrintImagesController`'s Upload/Replace/MigrateLegacyStorage) enforce "system-admin only" in the *service* (`PrintingErrors.*OnlySystemAdmin()`, `ErrorCategory.Forbidden`), not via an authorization policy — so unlike `TenantsController`'s 403, these ones genuinely *are* the standard enveloped `ApiResponse<T>` body. `BranchController`/`ProductController` similarly have a rare enveloped-401 edge case (`Branch.ActorNotResolved` / reused `Auth.ActorNotResolved`) reachable from `Create`/`Delete`/`Restore` when a token passes authentication but the acting identity can't be resolved from its claims — same shape and same rarity as `Tenant.ActorNotResolved` from S1.
++  - **A third finding, S2:** `PrintImagesController.Upload`'s `409 Conflict` is not a failure envelope at all — on a duplicate file name it returns a normal *success* envelope (`ApiResponse<PrintImageResponse>.Ok(...)`) carrying the **existing** image's metadata, with the status code forced to 409. This is the only endpoint found so far where a non-2xx status doesn't carry an `ApiError`; documented explicitly in its Swagger example and XML doc so a client doesn't try to parse an `error` field that isn't there.
+ 
+ ---
+ 
+@@ -471,11 +475,12 @@ Keep this section SHORT — only major architectural or behavioral changes.
+ - **2026-08-10:** Initial creation of this document via full repository read (entities, DbContext, contracts, repositories, services, controllers, DI wiring, security, options/config, migrations, localization). Confirmed README's "not yet implemented" closing paragraph is stale — entities, DbContext, repositories, services, and controllers are all implemented; flagged for the repo owner to update or remove. Branch Requests module (API §4.9) confirmed fully implemented end-to-end (R1–R6 committed), superseding an earlier "service/controller pending" status.
+ - **2026-08-10 (same day, follow-up pass):** Unknown-way Maker-Checker workflow implemented (migration `U1-UnknownTransferMakerChecker`). Unknown-way transfer lines no longer settle immediately at creation/confirm — they now follow the same create → pending → settle lifecycle Known-way lines already had, with remainder resolution via a new per-line `DifferenceAction` (`ReturnedToSource`/`KeptAtDestination`) instead of per-card dispositions, and no disposal support. `CardTransfer.CreatedByUsername`/`.CheckedByUsername` record Maker/Checker identity on every transfer — same account for both is explicitly acceptable, since this system has one account per tenant (§7) and there is no per-user identity to compare. This also changes Branch Requests (§4.9) behavior: an Unknown-way line confirmed via a branch request no longer credits `ReceivedQuantity` inline at confirm time — `BranchRequestFulfilment.ApplyReceiptAsync` is now the credit path for every settled line, Known or Unknown. Corrected two pre-existing stale claims found during this pass: `CardTransferItem`'s doc comment and this document's own §4 previously (incorrectly) stated Unknown-way lines get item rows — they never have, in code. **Verification note:** this pass had no .NET SDK or NuGet access in the working sandbox, so changes were verified by careful manual re-read rather than the usual Roslyn semantic compile — a real build pass is recommended before merging.
+ - **2026-08-12 (Swagger documentation, Phase S1 of a 5-phase plan):** Wired `IncludeXmlComments` for the first time across all three XML-doc-producing assemblies (previously only the Presentation project had `GenerateDocumentationFile` enabled, and `IncludeXmlComments` was never called at all — no existing XML doc comment, however complete, ever reached Swagger UI). Added `EnumSchemaDescriptionsFilter` and `ExamplesOperationFilter`/`ExampleCatalog` (see §3, "Swagger / API documentation" — no new NuGet package, extends the existing hand-written-filter pattern). Full example content delivered for `AuthController` and `TenantsController` only; S2-S5 cover the remaining 13 controllers. Found and corrected a real inaccuracy while building this: several `[ProducesResponseType]` declarations for 401/403 claimed a typed `ApiResponse<T>` envelope body for responses that the ASP.NET Core authorization middleware actually returns empty — fixed on Auth/Tenants, flagged as an open per-controller audit item for S2-S5 (§3). Also fixed a stale `<param name="TenantId">` doc on `CurrentPrincipalResponse` (ApplicationLayer/DTOs/Auth/AuthDtos.cs) that documented a parameter the record doesn't have. **Verification note:** same sandbox constraint as the entry above — no .NET SDK/NuGet access, verified by manual cross-check of every new file (brace balance, using statements, cref resolution, exact codes/messages against the real `*Service`/`*Errors` source) rather than a real build; a real `dotnet build` is recommended before merging.
++- **2026-08-12 (same day, Swagger documentation Phase S2):** Full example content delivered for the Catalog & Printing modules: `BranchController`, `ProductController`, `ProductPrintConfigController`, `PrintersController`, `PrintImagesController` (29 endpoints). Continued the per-controller 401/403 accuracy audit from S1 (§3) — found the opposite issue this time: the Printing module's admin-only write actions enforce "system-admin only" in the service (`Forbidden` category), not via an authorization policy, so their 403 genuinely *is* the enveloped body (unlike `TenantsController`'s policy-driven empty-body 403 from S1) — documented explicitly so the distinction doesn't get flattened into a blanket rule. Also found and documented `PrintImagesController.Upload`'s 409, which uniquely returns a *success* envelope (the existing image's metadata) with the status forced to 409, not an `ApiError` — the only non-2xx-without-ApiError response found in the API so far. Backfilled missing `<response>` XML doc tags on all 29 actions across these 5 controllers (same "attributes present but no descriptive text" gap flagged, but not yet fully closed, in S1). **Verification note:** same sandbox constraint — no .NET SDK/NuGet access; every new/edited file was manually cross-checked (brace/paren balance via script, exact codes/messages against `BranchErrors`/`ProductErrors`/`PrintingErrors` and the corresponding `*Service` classes) rather than a real build.
+ 
+ ---
+ 
+ ## Documentation Metadata
+ 
+-- Last verified against code: 2026-08-12 (Swagger documentation Phase S1 pass — Auth/Tenants controllers and DTOs re-read; other modules not re-verified this pass, see 2026-08-10 entries for their last verification)
+-- Last significant update: 2026-08-12 (Swagger/API documentation foundation + Auth/Tenants full coverage)
++- Last verified against code: 2026-08-12 (Swagger documentation Phase S2 pass — Branch/Product/ProductPrintConfig/Printers/PrintImages controllers, DTOs, services, and error catalogues re-read; other modules not re-verified this pass, see 2026-08-10 entries for their last verification)
++- Last significant update: 2026-08-12 (Swagger/API documentation: S1 foundation + Auth/Tenants, S2 Catalog & Printing)
+ - Maintained by: AI + Project Developers
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/BranchController.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/BranchController.cs
+index 4bf751a..8d20e0f 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/BranchController.cs
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/BranchController.cs
+@@ -14,7 +14,14 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+     /// Branch management endpoints (API Spec §4.5). Requires authentication: tenant callers manage
+     /// their own branches; a system admin manages any tenant's branches. Hard delete is not exposed.
+     /// </summary>
+-    /// <response code="401">No valid bearer token was supplied.</response>
++    /// <response code="401">
++    /// No valid bearer token was supplied. Typically the authorization middleware's empty-body
++    /// rejection before this action runs. <c>Create</c>, <c>Delete</c>, and <c>Restore</c> can
++    /// additionally return this code with the standard envelope
++    /// (<c>Branch.ActorNotResolved</c>) in the rare edge case where a token passes authentication
++    /// but the acting tenant/admin identity can't be resolved from it — see <c>Create</c>'s own
++    /// example for that shape.
++    /// </response>
+     [ApiController]
+     [Route("api/branches")]
+     [Authorize]
+@@ -28,12 +35,15 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         public BranchController(IServiceManager services) => _services = services;
+ 
+         /// <summary>Lists branches with paging and filters.</summary>
++        /// <response code="200">A page of branches.</response>
+         [HttpGet]
+         [ProducesResponseType(typeof(ApiResponse<PaginatedResponse<BranchResponse>>), StatusCodes.Status200OK)]
+         public async Task<IActionResult> GetAll([FromQuery] BranchListFilter filter, CancellationToken cancellationToken)
+             => (await _services.Branches.GetAllAsync(filter, cancellationToken)).ToActionResult(this);
+ 
+         /// <summary>Gets a branch by id.</summary>
++        /// <response code="200">The branch.</response>
++        /// <response code="404">No branch exists with the supplied id.</response>
+         [HttpGet("{id:long}")]
+         [ProducesResponseType(typeof(ApiResponse<BranchResponse>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+@@ -41,6 +51,9 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+             => (await _services.Branches.GetByIdAsync(id, cancellationToken)).ToActionResult(this);
+ 
+         /// <summary>Creates a branch. Admin callers supply the target tenant id.</summary>
++        /// <response code="200">The created branch.</response>
++        /// <response code="409">A branch with this name already exists for the tenant.</response>
++        /// <response code="422">The request body failed validation, or (system-admin caller) the target tenant id is missing or doesn't exist.</response>
+         [HttpPost]
+         [ProducesResponseType(typeof(ApiResponse<BranchResponse>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
+@@ -49,6 +62,10 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+             => (await _services.Branches.CreateAsync(request, cancellationToken)).ToActionResult(this);
+ 
+         /// <summary>Updates a branch's name, location, and active state.</summary>
++        /// <response code="200">The updated branch.</response>
++        /// <response code="404">No branch exists with the supplied id.</response>
++        /// <response code="409">The new name is already used by another branch for this tenant.</response>
++        /// <response code="422">The request body failed validation.</response>
+         [HttpPut("{id:long}")]
+         [ProducesResponseType(typeof(ApiResponse<BranchResponse>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+@@ -58,6 +75,9 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+             => (await _services.Branches.UpdateAsync(id, request, cancellationToken)).ToActionResult(this);
+ 
+         /// <summary>Soft-deletes a branch.</summary>
++        /// <response code="200">The branch was soft-deleted; the payload is null.</response>
++        /// <response code="404">No branch exists with the supplied id.</response>
++        /// <response code="409">The branch is already deleted, holds non-zero stock, has an in-progress transfer, or has an open stock request — see BranchErrors for the specific code.</response>
+         [HttpDelete("{id:long}")]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+@@ -66,6 +86,9 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+             => (await _services.Branches.SoftDeleteAsync(id, cancellationToken)).ToActionResult(this);
+ 
+         /// <summary>Restores a soft-deleted branch.</summary>
++        /// <response code="200">The branch was restored; the payload is null.</response>
++        /// <response code="404">No branch exists with the supplied id.</response>
++        /// <response code="409">The branch is not currently deleted.</response>
+         [HttpPost("{id:long}/restore")]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+@@ -74,6 +97,8 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+             => (await _services.Branches.RestoreAsync(id, cancellationToken)).ToActionResult(this);
+ 
+         /// <summary>Activates a branch (idempotent).</summary>
++        /// <response code="200">The branch is now active.</response>
++        /// <response code="404">No branch exists with the supplied id.</response>
+         [HttpPost("{id:long}/activate")]
+         [ProducesResponseType(typeof(ApiResponse<BranchResponse>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+@@ -81,6 +106,8 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+             => (await _services.Branches.ActivateAsync(id, cancellationToken)).ToActionResult(this);
+ 
+         /// <summary>Deactivates a branch (idempotent).</summary>
++        /// <response code="200">The branch is now inactive.</response>
++        /// <response code="404">No branch exists with the supplied id.</response>
+         [HttpPost("{id:long}/deactivate")]
+         [ProducesResponseType(typeof(ApiResponse<BranchResponse>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/PrintImagesController.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/PrintImagesController.cs
+index 3770a79..33f0de0 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/PrintImagesController.cs
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/PrintImagesController.cs
+@@ -17,7 +17,16 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+     /// to the caller's own tenant for a tenant caller. Every image is served through
+     /// <see cref="Get"/>; there is no public static-file path for this content any more.
+     /// </summary>
+-    /// <response code="401">No valid bearer token was supplied.</response>
++    /// <response code="401">
++    /// No valid bearer token was supplied. Typically the authorization middleware's empty-body
++    /// rejection before this action runs.
++    /// </response>
++    /// <response code="403">
++    /// A tenant caller called <see cref="Upload"/>, <see cref="Replace"/>, or
++    /// <see cref="MigrateLegacyStorage"/> (all system-admin only). Enforced in the service and
++    /// returned as the standard <see cref="ApiResponse{T}"/> envelope
++    /// (<c>PrintImage.OnlySystemAdmin</c>), not an authorization-policy rejection.
++    /// </response>
+     [ApiController]
+     [Route("api/print-images")]
+     [Authorize]
+@@ -37,6 +46,15 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         /// <c>409 Conflict</c> carrying the <em>existing</em> image's metadata, so the caller can
+         /// choose to keep it as-is or call <see cref="Replace"/> explicitly.
+         /// </summary>
++        /// <response code="200">A new image was saved.</response>
++        /// <response code="409">
++        /// Create-only: a non-deleted image with this exact original file name already exists for
++        /// the target tenant, so nothing was saved. The body is a normal success envelope carrying
++        /// the EXISTING image's metadata (<see cref="PrintImageResponse"/>), not an ApiError —
++        /// this is the one 409 in this API that isn't a failure envelope.
++        /// </response>
++        /// <response code="403">A tenant caller attempted this — system-admin only.</response>
++        /// <response code="422">No file was supplied, the file is too large, its extension isn't allowed, or its actual content doesn't match a supported image format.</response>
+         [HttpPost]
+         [Consumes("multipart/form-data")]
+         [ProducesResponseType(typeof(ApiResponse<PrintImageResponse>), StatusCodes.Status200OK)]
+@@ -71,6 +89,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         /// id, new bytes. Any product print configuration already referencing this
+         /// <c>ImageId</c> is unaffected, since the id never changes.
+         /// </summary>
++        /// <response code="200">The image's content was replaced in place.</response>
++        /// <response code="403">A tenant caller attempted this — system-admin only.</response>
++        /// <response code="404">No print image exists with the supplied id.</response>
++        /// <response code="409">The replacement's file name collides with a different, existing image for the same tenant (a genuine ApiError, unlike Upload's 409).</response>
++        /// <response code="422">No file was supplied, the file is too large, its extension isn't allowed, or its actual content doesn't match a supported image format.</response>
+         [HttpPut("{id:long}")]
+         [Consumes("multipart/form-data")]
+         [ProducesResponseType(typeof(ApiResponse<PrintImageResponse>), StatusCodes.Status200OK)]
+@@ -87,6 +110,8 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         /// retrieve images belonging to their own tenant. This is the only way to fetch an
+         /// image's content — there is no public static-file URL for it any more.
+         /// </summary>
++        /// <response code="200">The raw image bytes (image/png or image/jpeg) — not a JSON envelope.</response>
++        /// <response code="404">No print image exists with the supplied id, or it belongs to another tenant.</response>
+         [HttpGet("{id:long}")]
+         [Produces("image/png", "image/jpeg")]
+         [ProducesResponseType(StatusCodes.Status200OK)]
+@@ -109,6 +134,8 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         /// name, tenant-username folder). Safe to run more than once — already-migrated rows are
+         /// left alone.
+         /// </summary>
++        /// <response code="200">Migration run summary. Safe to call more than once.</response>
++        /// <response code="403">A tenant caller attempted this — system-admin only.</response>
+         [HttpPost("migrate-legacy-storage")]
+         [ProducesResponseType(typeof(ApiResponse<MigrateLegacyImagesResult>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/PrintersController.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/PrintersController.cs
+index ec613c6..7477cad 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/PrintersController.cs
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/PrintersController.cs
+@@ -17,7 +17,16 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+     /// matching the locked "[Authorize] only, no permission attributes" convention. Hard delete
+     /// is not exposed.
+     /// </summary>
+-    /// <response code="401">No valid bearer token was supplied.</response>
++    /// <response code="401">
++    /// No valid bearer token was supplied. Typically the authorization middleware's empty-body
++    /// rejection before this action runs.
++    /// </response>
++    /// <response code="403">
++    /// A tenant caller attempted a write action (Create/Update/Delete/Restore). Unlike
++    /// <c>TenantsController</c>'s 403 (an authorization-policy rejection), this one is enforced in
++    /// the service and returned as the standard <see cref="ApiResponse{T}"/> envelope
++    /// (<c>Printer.OnlySystemAdmin</c>) — see each write action's example.
++    /// </response>
+     [ApiController]
+     [Route("api/printers")]
+     [Authorize]
+@@ -31,12 +40,15 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         public PrintersController(IServiceManager services) => _services = services;
+ 
+         /// <summary>Lists printers with paging and filters (type, branch).</summary>
++        /// <response code="200">A page of printers.</response>
+         [HttpGet]
+         [ProducesResponseType(typeof(ApiResponse<PaginatedResponse<PrinterResponse>>), StatusCodes.Status200OK)]
+         public async Task<IActionResult> GetAll([FromQuery] PrinterListFilter filter, CancellationToken cancellationToken)
+             => (await _services.Printers.GetAllAsync(filter, cancellationToken)).ToActionResult(this);
+ 
+         /// <summary>Gets a printer by id.</summary>
++        /// <response code="200">The printer.</response>
++        /// <response code="404">No printer exists with the supplied id.</response>
+         [HttpGet("{id:long}")]
+         [ProducesResponseType(typeof(ApiResponse<PrinterResponse>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+@@ -44,6 +56,10 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+             => (await _services.Printers.GetByIdAsync(id, cancellationToken)).ToActionResult(this);
+ 
+         /// <summary>Registers a new printer. System-admin only; admin callers supply the target tenant id.</summary>
++        /// <response code="200">The registered printer.</response>
++        /// <response code="403">A tenant caller (not a system admin) attempted this.</response>
++        /// <response code="409">Another non-deleted printer for this tenant already has this serial/IP.</response>
++        /// <response code="422">The request body failed validation (e.g. a Matica printer missing its machine configuration, or an Evolis printer supplying one).</response>
+         [HttpPost]
+         [ProducesResponseType(typeof(ApiResponse<PrinterResponse>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+@@ -53,6 +69,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+             => (await _services.Printers.CreateAsync(request, cancellationToken)).ToActionResult(this);
+ 
+         /// <summary>Updates a printer's branch, name, model, unique number, and Matica machine configuration. System-admin only.</summary>
++        /// <response code="200">The updated printer.</response>
++        /// <response code="403">A tenant caller attempted this.</response>
++        /// <response code="404">No printer exists with the supplied id.</response>
++        /// <response code="409">The new serial/IP is already used by another printer for this tenant.</response>
++        /// <response code="422">The request body failed validation (e.g. the target branch is soft-deleted).</response>
+         [HttpPut("{id:long}")]
+         [ProducesResponseType(typeof(ApiResponse<PrinterResponse>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+@@ -63,6 +84,10 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+             => (await _services.Printers.UpdateAsync(id, request, cancellationToken)).ToActionResult(this);
+ 
+         /// <summary>Soft-deletes a printer. System-admin only.</summary>
++        /// <response code="200">The printer was soft-deleted; the payload is null.</response>
++        /// <response code="403">A tenant caller attempted this.</response>
++        /// <response code="404">No printer exists with the supplied id.</response>
++        /// <response code="409">The printer is already deleted.</response>
+         [HttpDelete("{id:long}")]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+@@ -72,6 +97,10 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+             => (await _services.Printers.SoftDeleteAsync(id, cancellationToken)).ToActionResult(this);
+ 
+         /// <summary>Restores a soft-deleted printer. System-admin only.</summary>
++        /// <response code="200">The printer was restored; the payload is null.</response>
++        /// <response code="403">A tenant caller attempted this.</response>
++        /// <response code="404">No printer exists with the supplied id.</response>
++        /// <response code="409">The printer is not currently deleted.</response>
+         [HttpPost("{id:long}/restore")]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/ProductController.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/ProductController.cs
+index 8ca1e9c..b63e208 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/ProductController.cs
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/ProductController.cs
+@@ -15,7 +15,13 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+     /// manage their own products; a system admin manages any tenant's products. Hard delete is not
+     /// exposed (consistent with the Branch/Tenant modules and the locked soft-delete-only decision).
+     /// </summary>
+-    /// <response code="401">No valid bearer token was supplied.</response>
++    /// <response code="401">
++    /// No valid bearer token was supplied. Typically the authorization middleware's empty-body
++    /// rejection before this action runs. <c>Create</c> can additionally return this code with the
++    /// standard envelope (<c>Auth.ActorNotResolved</c> — reused from the auth module, not a
++    /// product-specific code) in the rare edge case where a token passes authentication but the
++    /// acting tenant identity can't be resolved from it.
++    /// </response>
+     [ApiController]
+     [Route("api/products")]
+     [Authorize]
+@@ -29,12 +35,15 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         public ProductController(IServiceManager services) => _services = services;
+ 
+         /// <summary>Lists products with paging and filters.</summary>
++        /// <response code="200">A page of products.</response>
+         [HttpGet]
+         [ProducesResponseType(typeof(ApiResponse<PaginatedResponse<ProductResponse>>), StatusCodes.Status200OK)]
+         public async Task<IActionResult> GetAll([FromQuery] ProductListFilter filter, CancellationToken cancellationToken)
+             => (await _services.Products.GetAllAsync(filter, cancellationToken)).ToActionResult(this);
+ 
+         /// <summary>Gets a product by id.</summary>
++        /// <response code="200">The product.</response>
++        /// <response code="404">No product exists with the supplied id.</response>
+         [HttpGet("{id:long}")]
+         [ProducesResponseType(typeof(ApiResponse<ProductResponse>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+@@ -46,6 +55,10 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         /// attach a print configuration in the same call (Printing Module, phase 7); a tenant
+         /// caller may still create a plain product without one.
+         /// </summary>
++        /// <response code="200">The created product.</response>
++        /// <response code="403">A tenant caller supplied a Matica/Evolis print-configuration payload — attaching one at creation time is system-admin only.</response>
++        /// <response code="409">A product with this name already exists for the tenant.</response>
++        /// <response code="422">The request body failed validation, or (system-admin caller) the target tenant id is missing or doesn't exist.</response>
+         [HttpPost]
+         [ProducesResponseType(typeof(ApiResponse<ProductResponse>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+@@ -58,6 +71,10 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         /// Updates a product's name, status, threshold, and transaction-way. Printer family is
+         /// not changeable here — use <c>PUT /api/products/{id}/print-config</c>.
+         /// </summary>
++        /// <response code="200">The updated product.</response>
++        /// <response code="404">No product exists with the supplied id.</response>
++        /// <response code="409">The new name is already taken, or ProductTransactionWay was changed on a product that already has cards in inventory (immutable once cards exist).</response>
++        /// <response code="422">The request body failed validation.</response>
+         [HttpPut("{id:long}")]
+         [ProducesResponseType(typeof(ApiResponse<ProductResponse>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+@@ -67,6 +84,9 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+             => (await _services.Products.UpdateAsync(id, request, cancellationToken)).ToActionResult(this);
+ 
+         /// <summary>Soft-deletes a product.</summary>
++        /// <response code="200">The product was soft-deleted; the payload is null.</response>
++        /// <response code="404">No product exists with the supplied id.</response>
++        /// <response code="409">The product is already deleted, or is part of an open branch stock request line.</response>
+         [HttpDelete("{id:long}")]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+@@ -75,6 +95,9 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+             => (await _services.Products.SoftDeleteAsync(id, cancellationToken)).ToActionResult(this);
+ 
+         /// <summary>Restores a soft-deleted product.</summary>
++        /// <response code="200">The product was restored; the payload is null.</response>
++        /// <response code="404">No product exists with the supplied id.</response>
++        /// <response code="409">The product is not currently deleted.</response>
+         [HttpPost("{id:long}/restore")]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+@@ -83,6 +106,8 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+             => (await _services.Products.RestoreAsync(id, cancellationToken)).ToActionResult(this);
+ 
+         /// <summary>Activates a product (idempotent).</summary>
++        /// <response code="200">The product is now active.</response>
++        /// <response code="404">No product exists with the supplied id.</response>
+         [HttpPost("{id:long}/activate")]
+         [ProducesResponseType(typeof(ApiResponse<ProductResponse>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+@@ -90,6 +115,8 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+             => (await _services.Products.ActivateAsync(id, cancellationToken)).ToActionResult(this);
+ 
+         /// <summary>Deactivates a product (idempotent).</summary>
++        /// <response code="200">The product is now inactive.</response>
++        /// <response code="404">No product exists with the supplied id.</response>
+         [HttpPost("{id:long}/deactivate")]
+         [ProducesResponseType(typeof(ApiResponse<ProductResponse>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/ProductPrintConfigController.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/ProductPrintConfigController.cs
+index 6d24902..809a342 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/ProductPrintConfigController.cs
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Controllers/ProductPrintConfigController.cs
+@@ -16,7 +16,16 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+     /// open to both roles; <see cref="Update"/> is system-admin only (decision Q-09, confirmed) —
+     /// <see cref="IProductPrintConfigurationService"/> enforces this itself, not this controller.
+     /// </summary>
+-    /// <response code="401">No valid bearer token was supplied.</response>
++    /// <response code="401">
++    /// No valid bearer token was supplied. Typically the authorization middleware's empty-body
++    /// rejection before this action runs.
++    /// </response>
++    /// <response code="403">
++    /// A tenant caller called <see cref="Update"/> or <see cref="GetFull"/> (system-admin only).
++    /// Enforced in the service and returned as the standard
++    /// <see cref="InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse{T}"/>
++    /// envelope (<c>ProductPrintConfig.OnlySystemAdmin</c>), not an authorization-policy rejection.
++    /// </response>
+     [ApiController]
+     [Route("api/products/{productId:long}/print-config")]
+     [Authorize]
+@@ -30,6 +39,8 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         public ProductPrintConfigController(IServiceManager services) => _services = services;
+ 
+         /// <summary>Gets a product's print configuration.</summary>
++        /// <response code="200">The configuration — exactly one of Matica/Evolis is populated, matching the product's UsingPrinterType.</response>
++        /// <response code="404">No product exists with the supplied id.</response>
+         [HttpGet]
+         [ProducesResponseType(typeof(ApiResponse<ProductPrintConfigResponse>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+@@ -40,6 +51,10 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         /// Replaces a product's print configuration. Supplying a different printer type than the
+         /// product currently has switches its printer family (decision Q-08). System-admin only.
+         /// </summary>
++        /// <response code="200">The saved configuration.</response>
++        /// <response code="403">A tenant caller attempted this — system-admin only.</response>
++        /// <response code="404">No product exists with the supplied id.</response>
++        /// <response code="422">The request body failed validation (wrong payload for the declared UsingPrinterType, an unknown ribbon type, an unknown ImageId, or an invalid hex color).</response>
+         [HttpPut]
+         [ProducesResponseType(typeof(ApiResponse<ProductPrintConfigResponse>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+@@ -55,6 +70,9 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
+         /// the product has no configuration yet — not an error, since this endpoint exists as an
+         /// administrative overview.
+         /// </summary>
++        /// <response code="200">Product plus configuration; printConfig is null when the product has none yet.</response>
++        /// <response code="403">A tenant caller attempted this — system-admin only.</response>
++        /// <response code="404">No product exists with the supplied id.</response>
+         [HttpGet("full")]
+         [ProducesResponseType(typeof(ApiResponse<ProductWithPrintConfigResponse>), StatusCodes.Status200OK)]
+         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/ExampleCatalog.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/ExampleCatalog.cs
+index e683091..47ed03d 100644
+--- a/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/ExampleCatalog.cs
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/ExampleCatalog.cs
+@@ -30,6 +30,13 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger
+             Merge(catalog, AuthExamples.Build());
+             Merge(catalog, TenantExamples.Build());
+ 
++            // Phase S2 — Catalog & Printing.
++            Merge(catalog, BranchExamples.Build());
++            Merge(catalog, ProductExamples.Build());
++            Merge(catalog, ProductPrintConfigExamples.Build());
++            Merge(catalog, PrintersExamples.Build());
++            Merge(catalog, PrintImagesExamples.Build());
++
+             return catalog;
+         }
+ 
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/BranchExamples.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/BranchExamples.cs
+new file mode 100644
+index 0000000..5b3b2df
+--- /dev/null
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/BranchExamples.cs
+@@ -0,0 +1,193 @@
++using System.Collections.Generic;
++
++namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger.Examples
++{
++    /// <summary>
++    /// Swagger examples for <c>BranchController</c> (<c>api/branches/*</c>). Bodies mirror
++    /// <c>BranchDtos.cs</c> and the outcomes actually returned by <c>BranchService</c>
++    /// (InfrastructureLayer/Services/BranchService.cs) and <c>BranchErrors</c>
++    /// (ApplicationLayer/Errors/BranchErrors.cs).
++    /// </summary>
++    internal static class BranchExamples
++    {
++        private static readonly object SampleBranch = new
++        {
++            id = 7,
++            tenantId = 42,
++            name = "Downtown Branch",
++            location = "12 Tahrir Square, Cairo",
++            isActive = true,
++            isDeleted = false,
++            createdAt = "2026-02-01T09:00:00Z",
++            updatedAt = (string?)null,
++            deletedAt = (string?)null
++        };
++
++        public static IReadOnlyDictionary<EndpointKey, EndpointExampleSet> Build() =>
++            new Dictionary<EndpointKey, EndpointExampleSet>
++            {
++                [new EndpointKey("BranchController", "GetAll")] = GetAll(),
++                [new EndpointKey("BranchController", "GetById")] = GetById(),
++                [new EndpointKey("BranchController", "Create")] = Create(),
++                [new EndpointKey("BranchController", "Update")] = Update(),
++                [new EndpointKey("BranchController", "Delete")] = Delete(),
++                [new EndpointKey("BranchController", "Restore")] = Restore(),
++                [new EndpointKey("BranchController", "Activate")] = Activate(),
++                [new EndpointKey("BranchController", "Deactivate")] = Deactivate()
++            };
++
++        private static EndpointExampleSet GetAll() => new EndpointExampleSetBuilder()
++            .Response(200, "page", "First page of branches for the caller's tenant.",
++                new
++                {
++                    success = true,
++                    data = new
++                    {
++                        data = new[] { SampleBranch },
++                        pageNumber = 1,
++                        pageSize = 20,
++                        totalCount = 1,
++                        totalPages = 1,
++                        hasNextPage = false,
++                        hasPreviousPage = false
++                    },
++                    error = (object?)null
++                })
++            .Build();
++
++        private static EndpointExampleSet GetById() => new EndpointExampleSetBuilder()
++            .Response(200, "found", "An active branch.",
++                new { success = true, data = SampleBranch, error = (object?)null })
++            .Response(404, "notFound", "No branch exists with that id (or it belongs to another tenant).",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Branch.NotFound", message = "No branch was found with id 999.", category = "NotFound" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Create() => new EndpointExampleSetBuilder()
++            .Request("tenantCaller", "A tenant creating one of its own branches — TenantId is ignored even if sent.",
++                new { name = "Downtown Branch", location = "12 Tahrir Square, Cairo", isActive = true })
++            .Request("systemAdminCaller", "A system admin creating a branch on behalf of a specific tenant.",
++                new { name = "Downtown Branch", location = "12 Tahrir Square, Cairo", isActive = true, tenantId = 42 })
++            .Response(200, "success", "The created branch.",
++                new { success = true, data = SampleBranch, error = (object?)null })
++            .Response(401, "actorNotResolved", "Rare edge case: the token passed authentication but " +
++                "the acting tenant/admin identity couldn't be resolved from its claims. Not an " +
++                "expected client-facing scenario — see the controller-level 401 doc for the far " +
++                "more common empty-body case (no/invalid token).",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Branch.ActorNotResolved", message = "The acting principal could not be resolved.", category = "Unauthorized" }
++                })
++            .Response(409, "nameTaken", "A branch with this name already exists for the tenant.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Branch.NameAlreadyExists", message = "A branch named 'Downtown Branch' already exists for this tenant.", category = "Conflict" }
++                })
++            .Response(422, "targetTenantNotFound", "A system-admin caller supplied a tenantId that doesn't exist.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Branch.TargetTenantNotFound", message = "No tenant exists with id 999.", category = "Validation" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Update() => new EndpointExampleSetBuilder()
++            .Request("rename", "Renaming a branch and updating its location.",
++                new { name = "Downtown Branch (Main)", location = "12 Tahrir Square, Cairo", isActive = true })
++            .Response(200, "success", "The updated branch.",
++                new { success = true, data = SampleBranch, error = (object?)null })
++            .Response(404, "notFound", "No branch exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Branch.NotFound", message = "No branch was found with id 999.", category = "NotFound" }
++                })
++            .Response(409, "nameTaken", "The new name is already used by a different branch for this tenant.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Branch.NameAlreadyExists", message = "A branch named 'Downtown Branch (Main)' already exists for this tenant.", category = "Conflict" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Delete() => new EndpointExampleSetBuilder()
++            .Response(200, "success", "The branch was soft-deleted; the payload is null.",
++                new { success = true, data = (object?)null, error = (object?)null })
++            .Response(404, "notFound", "No branch exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Branch.NotFound", message = "No branch was found with id 999.", category = "NotFound" }
++                })
++            .Response(409, "hasStock", "The branch holds non-zero stock — transfer or dispose of it first (API §4.5).",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Branch.HasStock", message = "Branch 7 holds non-zero stock and cannot be deleted. Transfer or dispose of it first.", category = "Conflict" }
++                })
++            .Response(409, "hasInProgressTransfer", "The branch is the source or target of a transfer that hasn't settled yet.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Branch.HasInProgressTransfer", message = "Branch 7 has a transfer in progress and cannot be deleted until it is settled.", category = "Conflict" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Restore() => new EndpointExampleSetBuilder()
++            .Response(200, "success", "The branch was restored; the payload is null.",
++                new { success = true, data = (object?)null, error = (object?)null })
++            .Response(404, "notFound", "No branch exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Branch.NotFound", message = "No branch was found with id 999.", category = "NotFound" }
++                })
++            .Response(409, "notDeleted", "The branch is not currently deleted, so it can't be restored.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Branch.NotDeleted", message = "Branch 7 is not deleted.", category = "Conflict" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Activate() => new EndpointExampleSetBuilder()
++            .Response(200, "success", "The branch is now active. Idempotent — calling this on an already-active branch also returns 200.",
++                new { success = true, data = SampleBranch, error = (object?)null })
++            .Response(404, "notFound", "No branch exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Branch.NotFound", message = "No branch was found with id 999.", category = "NotFound" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Deactivate() => new EndpointExampleSetBuilder()
++            .Response(200, "success", "The branch is now inactive. Idempotent.",
++                new { success = true, data = SampleBranch, error = (object?)null })
++            .Response(404, "notFound", "No branch exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Branch.NotFound", message = "No branch was found with id 999.", category = "NotFound" }
++                })
++            .Build();
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/PrintImagesExamples.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/PrintImagesExamples.cs
+new file mode 100644
+index 0000000..0978073
+--- /dev/null
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/PrintImagesExamples.cs
+@@ -0,0 +1,127 @@
++using System.Collections.Generic;
++
++namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger.Examples
++{
++    /// <summary>
++    /// Swagger examples for <c>PrintImagesController</c> (<c>api/print-images/*</c>). Bodies
++    /// mirror <c>PrintingDtos.cs</c>/<c>IPrintImageService.cs</c> and the outcomes actually
++    /// returned by <c>PrintImageService</c> (InfrastructureLayer/Services/PrintImageService.cs)
++    /// and <c>PrintingErrors</c>. <c>Upload</c> and <c>Replace</c> take
++    /// <c>multipart/form-data</c> (a file field plus, for Upload, a <c>TenantId</c> field) — no
++    /// request-body examples are registered for them, since a file field can't be meaningfully
++    /// represented as inline example data; Swagger UI already renders the form fields with a
++    /// native file picker for a <c>multipart/form-data</c> operation.
++    /// </summary>
++    internal static class PrintImagesExamples
++    {
++        private static readonly object SampleImage = new
++        {
++            id = 9,
++            tenantId = 42,
++            originalFileName = "gold-card-front.png",
++            contentType = "image/png",
++            sizeBytes = 184320,
++            uploadedAt = "2026-03-01T12:00:00Z"
++        };
++
++        public static IReadOnlyDictionary<EndpointKey, EndpointExampleSet> Build() =>
++            new Dictionary<EndpointKey, EndpointExampleSet>
++            {
++                [new EndpointKey("PrintImagesController", "Upload")] = Upload(),
++                [new EndpointKey("PrintImagesController", "Replace")] = Replace(),
++                [new EndpointKey("PrintImagesController", "Get")] = Get(),
++                [new EndpointKey("PrintImagesController", "MigrateLegacyStorage")] = MigrateLegacyStorage()
++            };
++
++        private static EndpointExampleSet Upload() => new EndpointExampleSetBuilder()
++            .Response(200, "created", "A new image was saved. Form fields: file (the image), tenantId (required — the admin caller has no tenant of its own to infer one from).",
++                new { success = true, data = SampleImage, error = (object?)null })
++            .Response(409, "alreadyExists", "Create-only behavior: a non-deleted image with this " +
++                "exact original file name already exists for the target tenant, so nothing was " +
++                "saved. Unusually for a 409 in this API, the body is a normal success envelope " +
++                "carrying the EXISTING image's metadata, not an ApiError — use the id in data to " +
++                "call PUT /api/print-images/{id} if you want to replace it explicitly.",
++                new { success = true, data = SampleImage, error = (object?)null })
++            .Response(403, "tenantAttempted", "A tenant caller attempted to upload an image — upload " +
++                "was reversed to system-admin-only in the Print Images revision.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "PrintImage.OnlySystemAdmin", message = "Only a system administrator can upload, replace, or migrate print images.", category = "Forbidden" }
++                })
++            .Response(422, "unsupportedContent", "The file's actual content (magic bytes) doesn't " +
++                "match a supported image format — the client-supplied extension/Content-Type alone isn't trusted.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "PrintImage.UnsupportedContent", message = "The uploaded file's content does not match a supported image format.", category = "Validation" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Replace() => new EndpointExampleSetBuilder()
++            .Response(200, "success", "The image's content was replaced in place — same id, new bytes. " +
++                "Any print configuration already referencing this ImageId is unaffected.",
++                new { success = true, data = SampleImage, error = (object?)null })
++            .Response(403, "tenantAttempted", "A tenant caller attempted to replace an image.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "PrintImage.OnlySystemAdmin", message = "Only a system administrator can upload, replace, or migrate print images.", category = "Forbidden" }
++                })
++            .Response(404, "notFound", "No print image exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "PrintImage.NotFound", message = "No print image was found with id 999.", category = "NotFound" }
++                })
++            .Response(409, "nameConflict", "The replacement file's name collides with a different, " +
++                "existing image for the same tenant (this is a genuine ApiError, unlike Upload's 409).",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "PrintImage.NameConflict", message = "Another image named 'gold-card-front.png' already exists for this tenant.", category = "Conflict" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Get() => new EndpointExampleSetBuilder()
++            // 200 is the raw image bytes (image/png or image/jpeg), not a JSON envelope — no
++            // example is registered for it; there's nothing meaningful to show as inline JSON.
++            .Response(404, "notFound", "No print image exists with that id, or it belongs to another tenant.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "PrintImage.NotFound", message = "No print image was found with id 999.", category = "NotFound" }
++                })
++            .Build();
++
++        private static EndpointExampleSet MigrateLegacyStorage() => new EndpointExampleSetBuilder()
++            .Response(200, "success", "Migration run summary. Safe to call more than once — " +
++                "already-migrated rows are left alone and counted under alreadyCurrent.",
++                new
++                {
++                    success = true,
++                    data = new
++                    {
++                        migrated = 12,
++                        alreadyCurrent = 340,
++                        failed = 0,
++                        notes = new[] { "Renamed 'front.png' to 'front (1).png' to avoid a collision for tenant 42." }
++                    },
++                    error = (object?)null
++                })
++            .Response(403, "tenantAttempted", "A tenant caller attempted to trigger the migration.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "PrintImage.OnlySystemAdmin", message = "Only a system administrator can upload, replace, or migrate print images.", category = "Forbidden" }
++                })
++            .Build();
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/PrintersExamples.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/PrintersExamples.cs
+new file mode 100644
+index 0000000..1ea0f57
+--- /dev/null
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/PrintersExamples.cs
+@@ -0,0 +1,211 @@
++using System.Collections.Generic;
++
++namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger.Examples
++{
++    /// <summary>
++    /// Swagger examples for <c>PrintersController</c> (<c>api/printers/*</c>). Bodies mirror
++    /// <c>PrintingDtos.cs</c> and the outcomes actually returned by
++    /// <c>PrinterConfigurationService</c> (InfrastructureLayer/Services/PrinterConfigurationService.cs)
++    /// and <c>PrintingErrors</c>. Every write here is system-admin only (decision Q-09), enforced
++    /// in the service (not via an authorization policy) — so unlike <c>TenantsController</c>, the
++    /// 403 on this module <em>is</em> the standard enveloped body, not an empty one.
++    /// </summary>
++    internal static class PrintersExamples
++    {
++        private static readonly object SampleMaticaPrinter = new
++        {
++            id = 3,
++            tenantId = 42,
++            branchId = 7,
++            branchName = "Downtown Branch",
++            usingPrinterType = 0,
++            name = "Matica XID8300 - Front Desk",
++            model = "XID8300",
++            uniqueNumber = "MTC-0007",
++            maticaConfig = new { feederId = 1, hopperId = 2, rejectedId = 3, port = "COM3" },
++            isDeleted = false,
++            createdAt = "2026-01-05T08:00:00Z",
++            updatedAt = (string?)null,
++            deletedAt = (string?)null
++        };
++
++        public static IReadOnlyDictionary<EndpointKey, EndpointExampleSet> Build() =>
++            new Dictionary<EndpointKey, EndpointExampleSet>
++            {
++                [new EndpointKey("PrintersController", "GetAll")] = GetAll(),
++                [new EndpointKey("PrintersController", "GetById")] = GetById(),
++                [new EndpointKey("PrintersController", "Create")] = Create(),
++                [new EndpointKey("PrintersController", "Update")] = Update(),
++                [new EndpointKey("PrintersController", "Delete")] = Delete(),
++                [new EndpointKey("PrintersController", "Restore")] = Restore()
++            };
++
++        private static EndpointExampleSet GetAll() => new EndpointExampleSetBuilder()
++            .Response(200, "page", "First page of printers, read-only for a tenant caller.",
++                new
++                {
++                    success = true,
++                    data = new
++                    {
++                        data = new[] { SampleMaticaPrinter },
++                        pageNumber = 1,
++                        pageSize = 20,
++                        totalCount = 1,
++                        totalPages = 1,
++                        hasNextPage = false,
++                        hasPreviousPage = false
++                    },
++                    error = (object?)null
++                })
++            .Build();
++
++        private static EndpointExampleSet GetById() => new EndpointExampleSetBuilder()
++            .Response(200, "found", "A Matica printer, including its machine configuration.",
++                new { success = true, data = SampleMaticaPrinter, error = (object?)null })
++            .Response(404, "notFound", "No printer exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Printer.NotFound", message = "No printer was found with id 999.", category = "NotFound" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Create() => new EndpointExampleSetBuilder()
++            .Request("matica", "Registering a Matica printer — the machine configuration is required.",
++                new
++                {
++                    branchId = 7,
++                    usingPrinterType = 0,
++                    name = "Matica XID8300 - Front Desk",
++                    model = "XID8300",
++                    uniqueNumber = "MTC-0007",
++                    maticaConfig = new { feederId = 1, hopperId = 2, rejectedId = 3, port = "COM3" },
++                    tenantId = 42
++                })
++            .Request("evolis", "Registering an Evolis printer — no machine configuration block; " +
++                "Evolis needs no server-side machine configuration.",
++                new
++                {
++                    branchId = 7,
++                    usingPrinterType = 1,
++                    name = "Evolis Primacy 2 - Back Office",
++                    model = "Primacy 2",
++                    uniqueNumber = "EVL-0012",
++                    maticaConfig = (object?)null,
++                    tenantId = 42
++                })
++            .Response(200, "success", "The registered printer.",
++                new { success = true, data = SampleMaticaPrinter, error = (object?)null })
++            .Response(403, "tenantAttempted", "A tenant caller (not a system admin) attempted to register a printer.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Printer.OnlySystemAdmin", message = "Only a system administrator can create, update, delete, or restore printers.", category = "Forbidden" }
++                })
++            .Response(409, "duplicateUniqueNumber", "Another non-deleted printer for this tenant already has this serial/IP.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Printer.DuplicateUniqueNumber", message = "A printer with serial/IP 'MTC-0007' is already registered for this tenant.", category = "Conflict" }
++                })
++            .Response(422, "maticaConfigRequired", "usingPrinterType is Matica but maticaConfig was omitted.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Printer.MaticaConfigRequired", message = "A Matica printer requires its machine configuration (feeder, hopper, reject bin, port).", category = "Validation" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Update() => new EndpointExampleSetBuilder()
++            .Request("relocate", "Moving a printer to a different branch and updating its model/serial. " +
++                "usingPrinterType is not editable here — a printer's hardware family doesn't change after registration.",
++                new
++                {
++                    branchId = 9,
++                    name = "Matica XID8300 - Relocated",
++                    model = "XID8300",
++                    uniqueNumber = "MTC-0007",
++                    maticaConfig = new { feederId = 1, hopperId = 2, rejectedId = 3, port = "COM4" }
++                })
++            .Response(200, "success", "The updated printer.",
++                new { success = true, data = SampleMaticaPrinter, error = (object?)null })
++            .Response(403, "tenantAttempted", "A tenant caller attempted to update a printer.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Printer.OnlySystemAdmin", message = "Only a system administrator can create, update, delete, or restore printers.", category = "Forbidden" }
++                })
++            .Response(404, "notFound", "No printer exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Printer.NotFound", message = "No printer was found with id 999.", category = "NotFound" }
++                })
++            .Response(422, "branchDeleted", "The target branch is soft-deleted and cannot have a printer registered to it.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Printer.BranchDeleted", message = "Branch 9 is deleted and cannot have a printer registered to it.", category = "Validation" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Delete() => new EndpointExampleSetBuilder()
++            .Response(200, "success", "The printer was soft-deleted; the payload is null.",
++                new { success = true, data = (object?)null, error = (object?)null })
++            .Response(403, "tenantAttempted", "A tenant caller attempted to delete a printer.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Printer.OnlySystemAdmin", message = "Only a system administrator can create, update, delete, or restore printers.", category = "Forbidden" }
++                })
++            .Response(404, "notFound", "No printer exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Printer.NotFound", message = "No printer was found with id 999.", category = "NotFound" }
++                })
++            .Response(409, "alreadyDeleted", "The printer is already soft-deleted.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Printer.AlreadyDeleted", message = "Printer 3 is already deleted.", category = "Conflict" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Restore() => new EndpointExampleSetBuilder()
++            .Response(200, "success", "The printer was restored; the payload is null.",
++                new { success = true, data = (object?)null, error = (object?)null })
++            .Response(403, "tenantAttempted", "A tenant caller attempted to restore a printer.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Printer.OnlySystemAdmin", message = "Only a system administrator can create, update, delete, or restore printers.", category = "Forbidden" }
++                })
++            .Response(404, "notFound", "No printer exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Printer.NotFound", message = "No printer was found with id 999.", category = "NotFound" }
++                })
++            .Response(409, "notDeleted", "The printer is not currently deleted, so it can't be restored.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Printer.NotDeleted", message = "Printer 3 is not deleted.", category = "Conflict" }
++                })
++            .Build();
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/ProductExamples.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/ProductExamples.cs
+new file mode 100644
+index 0000000..80c108c
+--- /dev/null
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/ProductExamples.cs
+@@ -0,0 +1,213 @@
++using System.Collections.Generic;
++
++namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger.Examples
++{
++    /// <summary>
++    /// Swagger examples for <c>ProductController</c> (<c>api/products/*</c>, excluding the
++    /// <c>print-config</c> sub-resource — see <c>ProductPrintConfigExamples</c>). Bodies mirror
++    /// <c>ProductDtos.cs</c> and the outcomes actually returned by <c>ProductService</c>
++    /// (InfrastructureLayer/Services/ProductService.cs) and <c>ProductErrors</c>/<c>PrintingErrors</c>.
++    /// </summary>
++    internal static class ProductExamples
++    {
++        private static readonly object SampleProduct = new
++        {
++            id = 15,
++            tenantId = 42,
++            name = "Gold Debit Card",
++            activationStatus = 0,
++            lowProductThreshold = 50,
++            productTransactionWay = 0,
++            usingPrinterType = 1,
++            isDeleted = false,
++            createdAt = "2026-01-20T10:00:00Z",
++            updatedAt = (string?)null,
++            deletedAt = (string?)null
++        };
++
++        public static IReadOnlyDictionary<EndpointKey, EndpointExampleSet> Build() =>
++            new Dictionary<EndpointKey, EndpointExampleSet>
++            {
++                [new EndpointKey("ProductController", "GetAll")] = GetAll(),
++                [new EndpointKey("ProductController", "GetById")] = GetById(),
++                [new EndpointKey("ProductController", "Create")] = Create(),
++                [new EndpointKey("ProductController", "Update")] = Update(),
++                [new EndpointKey("ProductController", "Delete")] = Delete(),
++                [new EndpointKey("ProductController", "Restore")] = Restore(),
++                [new EndpointKey("ProductController", "Activate")] = Activate(),
++                [new EndpointKey("ProductController", "Deactivate")] = Deactivate()
++            };
++
++        private static EndpointExampleSet GetAll() => new EndpointExampleSetBuilder()
++            .Response(200, "page", "First page of products for the caller's tenant.",
++                new
++                {
++                    success = true,
++                    data = new
++                    {
++                        data = new[] { SampleProduct },
++                        pageNumber = 1,
++                        pageSize = 20,
++                        totalCount = 1,
++                        totalPages = 1,
++                        hasNextPage = false,
++                        hasPreviousPage = false
++                    },
++                    error = (object?)null
++                })
++            .Build();
++
++        private static EndpointExampleSet GetById() => new EndpointExampleSetBuilder()
++            .Response(200, "found", "An active, Known-way product printed on an Evolis machine.",
++                new { success = true, data = SampleProduct, error = (object?)null })
++            .Response(404, "notFound", "No product exists with that id (or it belongs to another tenant).",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Product.NotFound", message = "No product was found with id 999.", category = "NotFound" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Create() => new EndpointExampleSetBuilder()
++            .Request("plainProduct", "A tenant creating a product with no print configuration attached.",
++                new { name = "Gold Debit Card", productTransactionWay = 0, usingPrinterType = 1, activationStatus = 0, lowProductThreshold = 50 })
++            .Request("systemAdminWithEvolisConfig", "A system admin creating a product and attaching its " +
++                "Evolis print configuration in the same call — only a system admin may supply Matica/Evolis here.",
++                new
++                {
++                    name = "Gold Debit Card",
++                    productTransactionWay = 0,
++                    usingPrinterType = 1,
++                    activationStatus = 0,
++                    lowProductThreshold = 50,
++                    tenantId = 42,
++                    evolis = new
++                    {
++                        ribbonTypeId = 3,
++                        printWay = 0,
++                        x = 10,
++                        y = 20,
++                        printedFace = 0,
++                        fontFamily = "Arial",
++                        fontSize = 12,
++                        printColor = "#000000",
++                        backgroundColor = "#FFFFFF",
++                        fontStyle = "Bold",
++                        imageId = (long?)null
++                    }
++                })
++            .Response(200, "success", "The created product.",
++                new { success = true, data = SampleProduct, error = (object?)null })
++            .Response(403, "printConfigNotAllowedForTenant", "A tenant caller (not a system admin) " +
++                "supplied a Matica or Evolis payload — only product creation itself is allowed for a " +
++                "tenant; attaching print configuration in the same call is system-admin only.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "ProductPrintConfig.OnlySystemAdmin", message = "Only a system administrator can create or update a product's print configuration.", category = "Forbidden" }
++                })
++            .Response(409, "nameTaken", "A product with this name already exists for the tenant.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Product.NameAlreadyExists", message = "A product named 'Gold Debit Card' already exists for this tenant.", category = "Conflict" }
++                })
++            .Response(422, "targetTenantNotFound", "A system-admin caller supplied a tenantId that doesn't exist.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Product.TargetTenantNotFound", message = "No tenant exists with id 999.", category = "Validation" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Update() => new EndpointExampleSetBuilder()
++            .Request("rename", "Adjusting a product's name, status, and low-stock threshold. " +
++                "Printer family is not editable here — use PUT /api/products/{id}/print-config.",
++                new { name = "Gold Debit Card (Premium)", productTransactionWay = 0, activationStatus = 0, lowProductThreshold = 75 })
++            .Response(200, "success", "The updated product.",
++                new { success = true, data = SampleProduct, error = (object?)null })
++            .Response(404, "notFound", "No product exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Product.NotFound", message = "No product was found with id 999.", category = "NotFound" }
++                })
++            .Response(409, "transactionWayImmutable", "Attempted to flip Known/Unknown on a product " +
++                "that already has cards in inventory — the value is snapshotted onto every transfer " +
++                "line and cannot change once cards exist.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Product.TransactionWayImmutable", message = "The transaction way of product 15 cannot be changed because cards already exist for it.", category = "Conflict" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Delete() => new EndpointExampleSetBuilder()
++            .Response(200, "success", "The product was soft-deleted; the payload is null.",
++                new { success = true, data = (object?)null, error = (object?)null })
++            .Response(404, "notFound", "No product exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Product.NotFound", message = "No product was found with id 999.", category = "NotFound" }
++                })
++            .Response(409, "hasOpenRequest", "The product is part of an open branch stock request line.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Product.HasOpenRequest", message = "Product 15 is part of an open stock request line and cannot be deleted.", category = "Conflict" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Restore() => new EndpointExampleSetBuilder()
++            .Response(200, "success", "The product was restored; the payload is null.",
++                new { success = true, data = (object?)null, error = (object?)null })
++            .Response(404, "notFound", "No product exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Product.NotFound", message = "No product was found with id 999.", category = "NotFound" }
++                })
++            .Response(409, "notDeleted", "The product is not currently deleted, so it can't be restored.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Product.NotDeleted", message = "Product 15 is not deleted.", category = "Conflict" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Activate() => new EndpointExampleSetBuilder()
++            .Response(200, "success", "The product is now active. Idempotent.",
++                new { success = true, data = SampleProduct, error = (object?)null })
++            .Response(404, "notFound", "No product exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Product.NotFound", message = "No product was found with id 999.", category = "NotFound" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Deactivate() => new EndpointExampleSetBuilder()
++            .Response(200, "success", "The product is now inactive. Idempotent.",
++                new { success = true, data = SampleProduct, error = (object?)null })
++            .Response(404, "notFound", "No product exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Product.NotFound", message = "No product was found with id 999.", category = "NotFound" }
++                })
++            .Build();
++    }
++}
+diff --git a/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/ProductPrintConfigExamples.cs b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/ProductPrintConfigExamples.cs
+new file mode 100644
+index 0000000..4f2b02f
+--- /dev/null
++++ b/InventoryManagmentAndInstanceIssuancePresentationLayer/Swagger/Examples/ProductPrintConfigExamples.cs
+@@ -0,0 +1,197 @@
++using System.Collections.Generic;
++
++namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Swagger.Examples
++{
++    /// <summary>
++    /// Swagger examples for <c>ProductPrintConfigController</c>
++    /// (<c>api/products/{productId}/print-config/*</c>). Bodies mirror <c>PrintingDtos.cs</c> and
++    /// the outcomes actually returned by <c>ProductPrintConfigurationService</c>
++    /// (InfrastructureLayer/Services/ProductPrintConfigurationService.cs) and
++    /// <c>PrintingErrors</c>. <c>Get</c> is open to both roles (tenant-scoped); <c>Update</c> and
++    /// <c>GetFull</c> are system-admin only (decision Q-09) — enforced in the service, so their
++    /// 403 is the standard enveloped body, not an empty one.
++    /// </summary>
++    internal static class ProductPrintConfigExamples
++    {
++        private static readonly object SampleEvolisConfig = new
++        {
++            productId = 15,
++            usingPrinterType = 1,
++            matica = (object?)null,
++            evolis = new
++            {
++                ribbonTypeId = 3,
++                ribbonTypeName = "YMCKO",
++                printWay = 0,
++                x = 10,
++                y = 20,
++                printedFace = 0,
++                fontFamily = "Arial",
++                fontSize = 12,
++                printColor = "#000000",
++                backgroundColor = "#FFFFFF",
++                fontStyle = "Bold",
++                imageId = (long?)null
++            }
++        };
++
++        private static readonly object SampleMaticaConfig = new
++        {
++            productId = 15,
++            usingPrinterType = 0,
++            matica = new { cpi = 10, fontSize = 12, offsetX = 5, offsetY = 5, imageId = (long?)null },
++            evolis = (object?)null
++        };
++
++        public static IReadOnlyDictionary<EndpointKey, EndpointExampleSet> Build() =>
++            new Dictionary<EndpointKey, EndpointExampleSet>
++            {
++                [new EndpointKey("ProductPrintConfigController", "Get")] = Get(),
++                [new EndpointKey("ProductPrintConfigController", "Update")] = Update(),
++                [new EndpointKey("ProductPrintConfigController", "GetFull")] = GetFull()
++            };
++
++        private static EndpointExampleSet Get() => new EndpointExampleSetBuilder()
++            .Response(200, "evolis", "The product prints via Evolis — only evolis is populated.",
++                new { success = true, data = SampleEvolisConfig, error = (object?)null })
++            .Response(200, "matica", "The product prints via Matica — only matica is populated.",
++                new { success = true, data = SampleMaticaConfig, error = (object?)null })
++            .Response(404, "productNotFound", "No product exists with that id (or it belongs to another tenant).",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Product.NotFound", message = "No product was found with id 999.", category = "NotFound" }
++                })
++            .Build();
++
++        private static EndpointExampleSet Update() => new EndpointExampleSetBuilder()
++            .Request("evolisConfig", "Setting/replacing an Evolis print configuration.",
++                new
++                {
++                    usingPrinterType = 1,
++                    matica = (object?)null,
++                    evolis = new
++                    {
++                        ribbonTypeId = 3,
++                        printWay = 0,
++                        x = 10,
++                        y = 20,
++                        printedFace = 0,
++                        fontFamily = "Arial",
++                        fontSize = 12,
++                        printColor = "#000000",
++                        backgroundColor = "#FFFFFF",
++                        fontStyle = "Bold",
++                        imageId = (long?)null
++                    }
++                })
++            .Request("switchToMatica", "Switching a product from Evolis to Matica (decision Q-08): " +
++                "supplying a different usingPrinterType than the product currently has hard-deletes " +
++                "the old configuration row and inserts the new one in the same transaction.",
++                new
++                {
++                    usingPrinterType = 0,
++                    matica = new { cpi = 10, fontSize = 12, offsetX = 5, offsetY = 5, imageId = (long?)null },
++                    evolis = (object?)null
++                })
++            .Response(200, "success", "The saved configuration.",
++                new { success = true, data = SampleEvolisConfig, error = (object?)null })
++            .Response(403, "tenantAttempted", "A tenant caller attempted to set a print configuration.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "ProductPrintConfig.OnlySystemAdmin", message = "Only a system administrator can create or update a product's print configuration.", category = "Forbidden" }
++                })
++            .Response(404, "productNotFound", "No product exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Product.NotFound", message = "No product was found with id 999.", category = "NotFound" }
++                })
++            .Response(422, "evolisPayloadRequired", "usingPrinterType is Evolis but the evolis payload was omitted.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "ProductPrintConfig.EvolisPayloadRequired", message = "An Evolis print configuration payload is required when the printer type is Evolis.", category = "Validation" }
++                })
++            .Response(422, "invalidHexColor", "printColor/backgroundColor is not a valid 6- or 8-digit hex value.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "ProductPrintConfig.InvalidHexColor", message = "'blue' is not a valid HEX color. Use the form #RRGGBB or #RRGGBBAA.", category = "Validation" }
++                })
++            .Build();
++
++        private static EndpointExampleSet GetFull() => new EndpointExampleSetBuilder()
++            .Response(200, "withConfig", "Product plus its print configuration.",
++                new
++                {
++                    success = true,
++                    data = new
++                    {
++                        product = new
++                        {
++                            id = 15,
++                            tenantId = 42,
++                            name = "Gold Debit Card",
++                            activationStatus = 0,
++                            lowProductThreshold = 50,
++                            productTransactionWay = 0,
++                            usingPrinterType = 1,
++                            isDeleted = false,
++                            createdAt = "2026-01-20T10:00:00Z",
++                            updatedAt = (string?)null,
++                            deletedAt = (string?)null
++                        },
++                        printConfig = SampleEvolisConfig
++                    },
++                    error = (object?)null
++                })
++            .Response(200, "withoutConfig", "The product has no print configuration yet — this is " +
++                "surfaced as printConfig: null, not an error, since this endpoint is an " +
++                "administrative overview.",
++                new
++                {
++                    success = true,
++                    data = new
++                    {
++                        product = new
++                        {
++                            id = 16,
++                            tenantId = 42,
++                            name = "Silver Prepaid Card",
++                            activationStatus = 0,
++                            lowProductThreshold = 25,
++                            productTransactionWay = 1,
++                            usingPrinterType = 0,
++                            isDeleted = false,
++                            createdAt = "2026-02-10T10:00:00Z",
++                            updatedAt = (string?)null,
++                            deletedAt = (string?)null
++                        },
++                        printConfig = (object?)null
++                    },
++                    error = (object?)null
++                })
++            .Response(403, "tenantAttempted", "A tenant caller attempted to use this administrative overview endpoint.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "ProductPrintConfig.OnlySystemAdmin", message = "Only a system administrator can create or update a product's print configuration.", category = "Forbidden" }
++                })
++            .Response(404, "productNotFound", "No product exists with that id.",
++                new
++                {
++                    success = false,
++                    data = (object?)null,
++                    error = new { code = "Product.NotFound", message = "No product was found with id 999.", category = "NotFound" }
++                })
++            .Build();
++    }
++}
+-- 
+2.43.0
+

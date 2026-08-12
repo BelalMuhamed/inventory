@@ -714,7 +714,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs. `Create`, `Delete`, and `Restore` can\r\nadditionally return this code with the standard envelope\r\n(`Branch.ActorNotResolved`) in the rare edge case where a token passes authentication\r\nbut the acting tenant/admin identity can't be resolved from it — see `Create`'s own\r\nexample for that shape.",
             "content": {
               "application/json": {
                 "schema": {
@@ -734,11 +734,41 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "A page of branches.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BranchResponsePaginatedResponseApiResponse"
+                },
+                "examples": {
+                  "page": {
+                    "summary": "First page of branches for the caller's tenant.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "data": [
+                          {
+                            "id": 7,
+                            "tenantId": 42,
+                            "name": "Downtown Branch",
+                            "location": "12 Tahrir Square, Cairo",
+                            "isActive": true,
+                            "isDeleted": false,
+                            "createdAt": "2026-02-01T09:00:00Z",
+                            "updatedAt": null,
+                            "deletedAt": null
+                          }
+                        ],
+                        "pageNumber": 1,
+                        "pageSize": 20,
+                        "totalCount": 1,
+                        "totalPages": 1,
+                        "hasNextPage": false,
+                        "hasPreviousPage": false
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
@@ -770,6 +800,25 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CreateBranchRequest"
+              },
+              "examples": {
+                "tenantCaller": {
+                  "summary": "A tenant creating one of its own branches — TenantId is ignored even if sent.",
+                  "value": {
+                    "name": "Downtown Branch",
+                    "location": "12 Tahrir Square, Cairo",
+                    "isActive": true
+                  }
+                },
+                "systemAdminCaller": {
+                  "summary": "A system admin creating a branch on behalf of a specific tenant.",
+                  "value": {
+                    "name": "Downtown Branch",
+                    "location": "12 Tahrir Square, Cairo",
+                    "isActive": true,
+                    "tenantId": 42
+                  }
+                }
               }
             },
             "text/json": {
@@ -786,11 +835,25 @@
         },
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs. `Create`, `Delete`, and `Restore` can\r\nadditionally return this code with the standard envelope\r\n(`Branch.ActorNotResolved`) in the rare edge case where a token passes authentication\r\nbut the acting tenant/admin identity can't be resolved from it — see `Create`'s own\r\nexample for that shape.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "actorNotResolved": {
+                    "summary": "Rare edge case: the token passed authentication but the acting tenant/admin identity couldn't be resolved from its claims. Not an expected client-facing scenario — see the controller-level 401 doc for the far more common empty-body case (no/invalid token).",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Branch.ActorNotResolved",
+                        "message": "The acting principal could not be resolved.",
+                        "category": "Unauthorized"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -806,31 +869,79 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The created branch.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BranchResponseApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The created branch.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 7,
+                        "tenantId": 42,
+                        "name": "Downtown Branch",
+                        "location": "12 Tahrir Square, Cairo",
+                        "isActive": true,
+                        "isDeleted": false,
+                        "createdAt": "2026-02-01T09:00:00Z",
+                        "updatedAt": null,
+                        "deletedAt": null
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "A branch with this name already exists for the tenant.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "nameTaken": {
+                    "summary": "A branch with this name already exists for the tenant.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Branch.NameAlreadyExists",
+                        "message": "A branch named 'Downtown Branch' already exists for this tenant.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "The request body failed validation, or (system-admin caller) the target tenant id is missing or doesn't exist.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "targetTenantNotFound": {
+                    "summary": "A system-admin caller supplied a tenantId that doesn't exist.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Branch.TargetTenantNotFound",
+                        "message": "No tenant exists with id 999.",
+                        "category": "Validation"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -870,7 +981,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs. `Create`, `Delete`, and `Restore` can\r\nadditionally return this code with the standard envelope\r\n(`Branch.ActorNotResolved`) in the rare edge case where a token passes authentication\r\nbut the acting tenant/admin identity can't be resolved from it — see `Create`'s own\r\nexample for that shape.",
             "content": {
               "application/json": {
                 "schema": {
@@ -890,21 +1001,55 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The branch.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BranchResponseApiResponse"
+                },
+                "examples": {
+                  "found": {
+                    "summary": "An active branch.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 7,
+                        "tenantId": 42,
+                        "name": "Downtown Branch",
+                        "location": "12 Tahrir Square, Cairo",
+                        "isActive": true,
+                        "isDeleted": false,
+                        "createdAt": "2026-02-01T09:00:00Z",
+                        "updatedAt": null,
+                        "deletedAt": null
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No branch exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No branch exists with that id (or it belongs to another tenant).",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Branch.NotFound",
+                        "message": "No branch was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -945,6 +1090,16 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/UpdateBranchRequest"
+              },
+              "examples": {
+                "rename": {
+                  "summary": "Renaming a branch and updating its location.",
+                  "value": {
+                    "name": "Downtown Branch (Main)",
+                    "location": "12 Tahrir Square, Cairo",
+                    "isActive": true
+                  }
+                }
               }
             },
             "text/json": {
@@ -961,7 +1116,7 @@
         },
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs. `Create`, `Delete`, and `Restore` can\r\nadditionally return this code with the standard envelope\r\n(`Branch.ActorNotResolved`) in the rare edge case where a token passes authentication\r\nbut the acting tenant/admin identity can't be resolved from it — see `Create`'s own\r\nexample for that shape.",
             "content": {
               "application/json": {
                 "schema": {
@@ -981,37 +1136,85 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The updated branch.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BranchResponseApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The updated branch.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 7,
+                        "tenantId": 42,
+                        "name": "Downtown Branch",
+                        "location": "12 Tahrir Square, Cairo",
+                        "isActive": true,
+                        "isDeleted": false,
+                        "createdAt": "2026-02-01T09:00:00Z",
+                        "updatedAt": null,
+                        "deletedAt": null
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No branch exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No branch exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Branch.NotFound",
+                        "message": "No branch was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "The new name is already used by another branch for this tenant.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "nameTaken": {
+                    "summary": "The new name is already used by a different branch for this tenant.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Branch.NameAlreadyExists",
+                        "message": "A branch named 'Downtown Branch (Main)' already exists for this tenant.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "The request body failed validation.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1053,7 +1256,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs. `Create`, `Delete`, and `Restore` can\r\nadditionally return this code with the standard envelope\r\n(`Branch.ActorNotResolved`) in the rare edge case where a token passes authentication\r\nbut the acting tenant/admin identity can't be resolved from it — see `Create`'s own\r\nexample for that shape.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1073,31 +1276,81 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The branch was soft-deleted; the payload is null.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The branch was soft-deleted; the payload is null.",
+                    "value": {
+                      "success": true,
+                      "data": null,
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No branch exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No branch exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Branch.NotFound",
+                        "message": "No branch was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "The branch is already deleted, holds non-zero stock, has an in-progress transfer, or has an open stock request — see BranchErrors for the specific code.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "hasStock": {
+                    "summary": "The branch holds non-zero stock — transfer or dispose of it first (API §4.5).",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Branch.HasStock",
+                        "message": "Branch 7 holds non-zero stock and cannot be deleted. Transfer or dispose of it first.",
+                        "category": "Conflict"
+                      }
+                    }
+                  },
+                  "hasInProgressTransfer": {
+                    "summary": "The branch is the source or target of a transfer that hasn't settled yet.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Branch.HasInProgressTransfer",
+                        "message": "Branch 7 has a transfer in progress and cannot be deleted until it is settled.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -1137,7 +1390,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs. `Create`, `Delete`, and `Restore` can\r\nadditionally return this code with the standard envelope\r\n(`Branch.ActorNotResolved`) in the rare edge case where a token passes authentication\r\nbut the acting tenant/admin identity can't be resolved from it — see `Create`'s own\r\nexample for that shape.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1157,31 +1410,69 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The branch was restored; the payload is null.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The branch was restored; the payload is null.",
+                    "value": {
+                      "success": true,
+                      "data": null,
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No branch exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No branch exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Branch.NotFound",
+                        "message": "No branch was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "The branch is not currently deleted.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notDeleted": {
+                    "summary": "The branch is not currently deleted, so it can't be restored.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Branch.NotDeleted",
+                        "message": "Branch 7 is not deleted.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -1221,7 +1512,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs. `Create`, `Delete`, and `Restore` can\r\nadditionally return this code with the standard envelope\r\n(`Branch.ActorNotResolved`) in the rare edge case where a token passes authentication\r\nbut the acting tenant/admin identity can't be resolved from it — see `Create`'s own\r\nexample for that shape.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1241,21 +1532,55 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The branch is now active.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BranchResponseApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The branch is now active. Idempotent — calling this on an already-active branch also returns 200.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 7,
+                        "tenantId": 42,
+                        "name": "Downtown Branch",
+                        "location": "12 Tahrir Square, Cairo",
+                        "isActive": true,
+                        "isDeleted": false,
+                        "createdAt": "2026-02-01T09:00:00Z",
+                        "updatedAt": null,
+                        "deletedAt": null
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No branch exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No branch exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Branch.NotFound",
+                        "message": "No branch was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -1295,7 +1620,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs. `Create`, `Delete`, and `Restore` can\r\nadditionally return this code with the standard envelope\r\n(`Branch.ActorNotResolved`) in the rare edge case where a token passes authentication\r\nbut the acting tenant/admin identity can't be resolved from it — see `Create`'s own\r\nexample for that shape.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1315,21 +1640,55 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The branch is now inactive.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BranchResponseApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The branch is now inactive. Idempotent.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 7,
+                        "tenantId": 42,
+                        "name": "Downtown Branch",
+                        "location": "12 Tahrir Square, Cairo",
+                        "isActive": true,
+                        "isDeleted": false,
+                        "createdAt": "2026-02-01T09:00:00Z",
+                        "updatedAt": null,
+                        "deletedAt": null
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No branch exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No branch exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Branch.NotFound",
+                        "message": "No branch was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -2878,7 +3237,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2898,14 +3257,56 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "A page of printers.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PrinterResponsePaginatedResponseApiResponse"
+                },
+                "examples": {
+                  "page": {
+                    "summary": "First page of printers, read-only for a tenant caller.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "data": [
+                          {
+                            "id": 3,
+                            "tenantId": 42,
+                            "branchId": 7,
+                            "branchName": "Downtown Branch",
+                            "usingPrinterType": 0,
+                            "name": "Matica XID8300 - Front Desk",
+                            "model": "XID8300",
+                            "uniqueNumber": "MTC-0007",
+                            "maticaConfig": {
+                              "feederId": 1,
+                              "hopperId": 2,
+                              "rejectedId": 3,
+                              "port": "COM3"
+                            },
+                            "isDeleted": false,
+                            "createdAt": "2026-01-05T08:00:00Z",
+                            "updatedAt": null,
+                            "deletedAt": null
+                          }
+                        ],
+                        "pageNumber": 1,
+                        "pageSize": 20,
+                        "totalCount": 1,
+                        "totalPages": 1,
+                        "hasNextPage": false,
+                        "hasPreviousPage": false
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
+          },
+          "403": {
+            "description": "A tenant caller attempted a write action (Create/Update/Delete/Restore). Unlike\r\n`TenantsController`'s 403 (an authorization-policy rejection), this one is enforced in\r\nthe service and returned as the standard InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1 envelope\r\n(`Printer.OnlySystemAdmin`) — see each write action's example."
           }
         }
       },
@@ -2934,6 +3335,37 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CreatePrinterRequest"
+              },
+              "examples": {
+                "matica": {
+                  "summary": "Registering a Matica printer — the machine configuration is required.",
+                  "value": {
+                    "branchId": 7,
+                    "usingPrinterType": 0,
+                    "name": "Matica XID8300 - Front Desk",
+                    "model": "XID8300",
+                    "uniqueNumber": "MTC-0007",
+                    "maticaConfig": {
+                      "feederId": 1,
+                      "hopperId": 2,
+                      "rejectedId": 3,
+                      "port": "COM3"
+                    },
+                    "tenantId": 42
+                  }
+                },
+                "evolis": {
+                  "summary": "Registering an Evolis printer — no machine configuration block; Evolis needs no server-side machine configuration.",
+                  "value": {
+                    "branchId": 7,
+                    "usingPrinterType": 1,
+                    "name": "Evolis Primacy 2 - Back Office",
+                    "model": "Primacy 2",
+                    "uniqueNumber": "EVL-0012",
+                    "maticaConfig": null,
+                    "tenantId": 42
+                  }
+                }
               }
             },
             "text/json": {
@@ -2950,7 +3382,7 @@
         },
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2970,41 +3402,112 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The registered printer.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PrinterResponseApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The registered printer.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 3,
+                        "tenantId": 42,
+                        "branchId": 7,
+                        "branchName": "Downtown Branch",
+                        "usingPrinterType": 0,
+                        "name": "Matica XID8300 - Front Desk",
+                        "model": "XID8300",
+                        "uniqueNumber": "MTC-0007",
+                        "maticaConfig": {
+                          "feederId": 1,
+                          "hopperId": 2,
+                          "rejectedId": 3,
+                          "port": "COM3"
+                        },
+                        "isDeleted": false,
+                        "createdAt": "2026-01-05T08:00:00Z",
+                        "updatedAt": null,
+                        "deletedAt": null
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "403": {
-            "description": "Forbidden",
+            "description": "A tenant caller (not a system admin) attempted this.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "tenantAttempted": {
+                    "summary": "A tenant caller (not a system admin) attempted to register a printer.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Printer.OnlySystemAdmin",
+                        "message": "Only a system administrator can create, update, delete, or restore printers.",
+                        "category": "Forbidden"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "Another non-deleted printer for this tenant already has this serial/IP.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "duplicateUniqueNumber": {
+                    "summary": "Another non-deleted printer for this tenant already has this serial/IP.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Printer.DuplicateUniqueNumber",
+                        "message": "A printer with serial/IP 'MTC-0007' is already registered for this tenant.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "The request body failed validation (e.g. a Matica printer missing its machine configuration, or an Evolis printer supplying one).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "maticaConfigRequired": {
+                    "summary": "usingPrinterType is Matica but maticaConfig was omitted.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Printer.MaticaConfigRequired",
+                        "message": "A Matica printer requires its machine configuration (feeder, hopper, reject bin, port).",
+                        "category": "Validation"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -3044,7 +3547,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3064,24 +3567,70 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The printer.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PrinterResponseApiResponse"
+                },
+                "examples": {
+                  "found": {
+                    "summary": "A Matica printer, including its machine configuration.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 3,
+                        "tenantId": 42,
+                        "branchId": 7,
+                        "branchName": "Downtown Branch",
+                        "usingPrinterType": 0,
+                        "name": "Matica XID8300 - Front Desk",
+                        "model": "XID8300",
+                        "uniqueNumber": "MTC-0007",
+                        "maticaConfig": {
+                          "feederId": 1,
+                          "hopperId": 2,
+                          "rejectedId": 3,
+                          "port": "COM3"
+                        },
+                        "isDeleted": false,
+                        "createdAt": "2026-01-05T08:00:00Z",
+                        "updatedAt": null,
+                        "deletedAt": null
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No printer exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No printer exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Printer.NotFound",
+                        "message": "No printer was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
+          },
+          "403": {
+            "description": "A tenant caller attempted a write action (Create/Update/Delete/Restore). Unlike\r\n`TenantsController`'s 403 (an authorization-policy rejection), this one is enforced in\r\nthe service and returned as the standard InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1 envelope\r\n(`Printer.OnlySystemAdmin`) — see each write action's example."
           }
         }
       },
@@ -3119,6 +3668,23 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/UpdatePrinterRequest"
+              },
+              "examples": {
+                "relocate": {
+                  "summary": "Moving a printer to a different branch and updating its model/serial. usingPrinterType is not editable here — a printer's hardware family doesn't change after registration.",
+                  "value": {
+                    "branchId": 9,
+                    "name": "Matica XID8300 - Relocated",
+                    "model": "XID8300",
+                    "uniqueNumber": "MTC-0007",
+                    "maticaConfig": {
+                      "feederId": 1,
+                      "hopperId": 2,
+                      "rejectedId": 3,
+                      "port": "COM4"
+                    }
+                  }
+                }
               }
             },
             "text/json": {
@@ -3135,7 +3701,7 @@
         },
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3155,37 +3721,94 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The updated printer.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PrinterResponseApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The updated printer.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 3,
+                        "tenantId": 42,
+                        "branchId": 7,
+                        "branchName": "Downtown Branch",
+                        "usingPrinterType": 0,
+                        "name": "Matica XID8300 - Front Desk",
+                        "model": "XID8300",
+                        "uniqueNumber": "MTC-0007",
+                        "maticaConfig": {
+                          "feederId": 1,
+                          "hopperId": 2,
+                          "rejectedId": 3,
+                          "port": "COM3"
+                        },
+                        "isDeleted": false,
+                        "createdAt": "2026-01-05T08:00:00Z",
+                        "updatedAt": null,
+                        "deletedAt": null
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "403": {
-            "description": "Forbidden",
+            "description": "A tenant caller attempted this.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "tenantAttempted": {
+                    "summary": "A tenant caller attempted to update a printer.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Printer.OnlySystemAdmin",
+                        "message": "Only a system administrator can create, update, delete, or restore printers.",
+                        "category": "Forbidden"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No printer exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No printer exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Printer.NotFound",
+                        "message": "No printer was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "The new serial/IP is already used by another printer for this tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3195,11 +3818,25 @@
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "The request body failed validation (e.g. the target branch is soft-deleted).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "branchDeleted": {
+                    "summary": "The target branch is soft-deleted and cannot have a printer registered to it.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Printer.BranchDeleted",
+                        "message": "Branch 9 is deleted and cannot have a printer registered to it.",
+                        "category": "Validation"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -3237,7 +3874,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3257,41 +3894,93 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The printer was soft-deleted; the payload is null.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The printer was soft-deleted; the payload is null.",
+                    "value": {
+                      "success": true,
+                      "data": null,
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "403": {
-            "description": "Forbidden",
+            "description": "A tenant caller attempted this.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "tenantAttempted": {
+                    "summary": "A tenant caller attempted to delete a printer.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Printer.OnlySystemAdmin",
+                        "message": "Only a system administrator can create, update, delete, or restore printers.",
+                        "category": "Forbidden"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No printer exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No printer exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Printer.NotFound",
+                        "message": "No printer was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "The printer is already deleted.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "alreadyDeleted": {
+                    "summary": "The printer is already soft-deleted.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Printer.AlreadyDeleted",
+                        "message": "Printer 3 is already deleted.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -3331,7 +4020,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3351,41 +4040,93 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The printer was restored; the payload is null.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The printer was restored; the payload is null.",
+                    "value": {
+                      "success": true,
+                      "data": null,
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "403": {
-            "description": "Forbidden",
+            "description": "A tenant caller attempted this.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "tenantAttempted": {
+                    "summary": "A tenant caller attempted to restore a printer.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Printer.OnlySystemAdmin",
+                        "message": "Only a system administrator can create, update, delete, or restore printers.",
+                        "category": "Forbidden"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No printer exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No printer exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Printer.NotFound",
+                        "message": "No printer was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "The printer is not currently deleted.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notDeleted": {
+                    "summary": "The printer is not currently deleted, so it can't be restored.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Printer.NotDeleted",
+                        "message": "Printer 3 is not deleted.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -3445,7 +4186,7 @@
         },
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3465,41 +4206,103 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "A new image was saved.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PrintImageResponseApiResponse"
+                },
+                "examples": {
+                  "created": {
+                    "summary": "A new image was saved. Form fields: file (the image), tenantId (required — the admin caller has no tenant of its own to infer one from).",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 9,
+                        "tenantId": 42,
+                        "originalFileName": "gold-card-front.png",
+                        "contentType": "image/png",
+                        "sizeBytes": 184320,
+                        "uploadedAt": "2026-03-01T12:00:00Z"
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "Create-only: a non-deleted image with this exact original file name already exists for\r\nthe target tenant, so nothing was saved. The body is a normal success envelope carrying\r\nthe EXISTING image's metadata (ApplicationLayer.DTOs.Printing.PrintImageResponse), not an ApiError —\r\nthis is the one 409 in this API that isn't a failure envelope.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PrintImageResponseApiResponse"
+                },
+                "examples": {
+                  "alreadyExists": {
+                    "summary": "Create-only behavior: a non-deleted image with this exact original file name already exists for the target tenant, so nothing was saved. Unusually for a 409 in this API, the body is a normal success envelope carrying the EXISTING image's metadata, not an ApiError — use the id in data to call PUT /api/print-images/{id} if you want to replace it explicitly.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 9,
+                        "tenantId": 42,
+                        "originalFileName": "gold-card-front.png",
+                        "contentType": "image/png",
+                        "sizeBytes": 184320,
+                        "uploadedAt": "2026-03-01T12:00:00Z"
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "403": {
-            "description": "Forbidden",
+            "description": "A tenant caller attempted this — system-admin only.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "tenantAttempted": {
+                    "summary": "A tenant caller attempted to upload an image — upload was reversed to system-admin-only in the Print Images revision.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "PrintImage.OnlySystemAdmin",
+                        "message": "Only a system administrator can upload, replace, or migrate print images.",
+                        "category": "Forbidden"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "No file was supplied, the file is too large, its extension isn't allowed, or its actual content doesn't match a supported image format.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "unsupportedContent": {
+                    "summary": "The file's actual content (magic bytes) doesn't match a supported image format — the client-supplied extension/Content-Type alone isn't trusted.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "PrintImage.UnsupportedContent",
+                        "message": "The uploaded file's content does not match a supported image format.",
+                        "category": "Validation"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -3560,7 +4363,7 @@
         },
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3580,47 +4383,106 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The image's content was replaced in place.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PrintImageResponseApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The image's content was replaced in place — same id, new bytes. Any print configuration already referencing this ImageId is unaffected.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 9,
+                        "tenantId": 42,
+                        "originalFileName": "gold-card-front.png",
+                        "contentType": "image/png",
+                        "sizeBytes": 184320,
+                        "uploadedAt": "2026-03-01T12:00:00Z"
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "403": {
-            "description": "Forbidden",
+            "description": "A tenant caller attempted this — system-admin only.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "tenantAttempted": {
+                    "summary": "A tenant caller attempted to replace an image.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "PrintImage.OnlySystemAdmin",
+                        "message": "Only a system administrator can upload, replace, or migrate print images.",
+                        "category": "Forbidden"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No print image exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No print image exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "PrintImage.NotFound",
+                        "message": "No print image was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "The replacement's file name collides with a different, existing image for the same tenant (a genuine ApiError, unlike Upload's 409).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "nameConflict": {
+                    "summary": "The replacement file's name collides with a different, existing image for the same tenant (this is a genuine ApiError, unlike Upload's 409).",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "PrintImage.NameConflict",
+                        "message": "Another image named 'gold-card-front.png' already exists for this tenant.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "No file was supplied, the file is too large, its extension isn't allowed, or its actual content doesn't match a supported image format.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3662,7 +4524,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs.",
             "content": {
               "image/png": {
                 "schema": {
@@ -3702,10 +4564,10 @@
             }
           },
           "200": {
-            "description": "OK"
+            "description": "The raw image bytes (image/png or image/jpeg) — not a JSON envelope."
           },
           "404": {
-            "description": "Not Found",
+            "description": "No print image exists with the supplied id, or it belongs to another tenant.",
             "content": {
               "image/png": {
                 "schema": {
@@ -3720,9 +4582,26 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No print image exists with that id, or it belongs to another tenant.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "PrintImage.NotFound",
+                        "message": "No print image was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
+          },
+          "403": {
+            "description": "A tenant caller called M:InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.PrintImagesController.Upload(ApplicationLayer.ServicesContracts.UploadPrintImageRequest,System.Threading.CancellationToken), M:InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.PrintImagesController.Replace(System.Int64,ApplicationLayer.ServicesContracts.ReplacePrintImageRequest,System.Threading.CancellationToken), or\r\nM:InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.PrintImagesController.MigrateLegacyStorage(System.Threading.CancellationToken) (all system-admin only). Enforced in the service and\r\nreturned as the standard InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1 envelope\r\n(`PrintImage.OnlySystemAdmin`), not an authorization-policy rejection."
           }
         }
       }
@@ -3750,7 +4629,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3770,21 +4649,52 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "Migration run summary. Safe to call more than once.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MigrateLegacyImagesResultApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "Migration run summary. Safe to call more than once — already-migrated rows are left alone and counted under alreadyCurrent.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "migrated": 12,
+                        "alreadyCurrent": 340,
+                        "failed": 0,
+                        "notes": [
+                          "Renamed 'front.png' to 'front (1).png' to avoid a collision for tenant 42."
+                        ]
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "403": {
-            "description": "Forbidden",
+            "description": "A tenant caller attempted this — system-admin only.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "tenantAttempted": {
+                    "summary": "A tenant caller attempted to trigger the migration.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "PrintImage.OnlySystemAdmin",
+                        "message": "Only a system administrator can upload, replace, or migrate print images.",
+                        "category": "Forbidden"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -3898,7 +4808,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs. `Create` can additionally return this code with the\r\nstandard envelope (`Auth.ActorNotResolved` — reused from the auth module, not a\r\nproduct-specific code) in the rare edge case where a token passes authentication but the\r\nacting tenant identity can't be resolved from it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3918,11 +4828,43 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "A page of products.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProductResponsePaginatedResponseApiResponse"
+                },
+                "examples": {
+                  "page": {
+                    "summary": "First page of products for the caller's tenant.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "data": [
+                          {
+                            "id": 15,
+                            "tenantId": 42,
+                            "name": "Gold Debit Card",
+                            "activationStatus": 0,
+                            "lowProductThreshold": 50,
+                            "productTransactionWay": 0,
+                            "usingPrinterType": 1,
+                            "isDeleted": false,
+                            "createdAt": "2026-01-20T10:00:00Z",
+                            "updatedAt": null,
+                            "deletedAt": null
+                          }
+                        ],
+                        "pageNumber": 1,
+                        "pageSize": 20,
+                        "totalCount": 1,
+                        "totalPages": 1,
+                        "hasNextPage": false,
+                        "hasPreviousPage": false
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
@@ -3954,6 +4896,42 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CreateProductRequest"
+              },
+              "examples": {
+                "plainProduct": {
+                  "summary": "A tenant creating a product with no print configuration attached.",
+                  "value": {
+                    "name": "Gold Debit Card",
+                    "productTransactionWay": 0,
+                    "usingPrinterType": 1,
+                    "activationStatus": 0,
+                    "lowProductThreshold": 50
+                  }
+                },
+                "systemAdminWithEvolisConfig": {
+                  "summary": "A system admin creating a product and attaching its Evolis print configuration in the same call — only a system admin may supply Matica/Evolis here.",
+                  "value": {
+                    "name": "Gold Debit Card",
+                    "productTransactionWay": 0,
+                    "usingPrinterType": 1,
+                    "activationStatus": 0,
+                    "lowProductThreshold": 50,
+                    "tenantId": 42,
+                    "evolis": {
+                      "ribbonTypeId": 3,
+                      "printWay": 0,
+                      "x": 10,
+                      "y": 20,
+                      "printedFace": 0,
+                      "fontFamily": "Arial",
+                      "fontSize": 12,
+                      "printColor": "#000000",
+                      "backgroundColor": "#FFFFFF",
+                      "fontStyle": "Bold",
+                      "imageId": null
+                    }
+                  }
+                }
               }
             },
             "text/json": {
@@ -3970,7 +4948,7 @@
         },
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs. `Create` can additionally return this code with the\r\nstandard envelope (`Auth.ActorNotResolved` — reused from the auth module, not a\r\nproduct-specific code) in the rare edge case where a token passes authentication but the\r\nacting tenant identity can't be resolved from it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3990,41 +4968,105 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The created product.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProductResponseApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The created product.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 15,
+                        "tenantId": 42,
+                        "name": "Gold Debit Card",
+                        "activationStatus": 0,
+                        "lowProductThreshold": 50,
+                        "productTransactionWay": 0,
+                        "usingPrinterType": 1,
+                        "isDeleted": false,
+                        "createdAt": "2026-01-20T10:00:00Z",
+                        "updatedAt": null,
+                        "deletedAt": null
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "403": {
-            "description": "Forbidden",
+            "description": "A tenant caller supplied a Matica/Evolis print-configuration payload — attaching one at creation time is system-admin only.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "printConfigNotAllowedForTenant": {
+                    "summary": "A tenant caller (not a system admin) supplied a Matica or Evolis payload — only product creation itself is allowed for a tenant; attaching print configuration in the same call is system-admin only.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "ProductPrintConfig.OnlySystemAdmin",
+                        "message": "Only a system administrator can create or update a product's print configuration.",
+                        "category": "Forbidden"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "A product with this name already exists for the tenant.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "nameTaken": {
+                    "summary": "A product with this name already exists for the tenant.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Product.NameAlreadyExists",
+                        "message": "A product named 'Gold Debit Card' already exists for this tenant.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "The request body failed validation, or (system-admin caller) the target tenant id is missing or doesn't exist.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "targetTenantNotFound": {
+                    "summary": "A system-admin caller supplied a tenantId that doesn't exist.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Product.TargetTenantNotFound",
+                        "message": "No tenant exists with id 999.",
+                        "category": "Validation"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -4064,7 +5106,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs. `Create` can additionally return this code with the\r\nstandard envelope (`Auth.ActorNotResolved` — reused from the auth module, not a\r\nproduct-specific code) in the rare edge case where a token passes authentication but the\r\nacting tenant identity can't be resolved from it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4084,21 +5126,57 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The product.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProductResponseApiResponse"
+                },
+                "examples": {
+                  "found": {
+                    "summary": "An active, Known-way product printed on an Evolis machine.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 15,
+                        "tenantId": 42,
+                        "name": "Gold Debit Card",
+                        "activationStatus": 0,
+                        "lowProductThreshold": 50,
+                        "productTransactionWay": 0,
+                        "usingPrinterType": 1,
+                        "isDeleted": false,
+                        "createdAt": "2026-01-20T10:00:00Z",
+                        "updatedAt": null,
+                        "deletedAt": null
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No product exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No product exists with that id (or it belongs to another tenant).",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Product.NotFound",
+                        "message": "No product was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -4139,6 +5217,17 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/UpdateProductRequest"
+              },
+              "examples": {
+                "rename": {
+                  "summary": "Adjusting a product's name, status, and low-stock threshold. Printer family is not editable here — use PUT /api/products/{id}/print-config.",
+                  "value": {
+                    "name": "Gold Debit Card (Premium)",
+                    "productTransactionWay": 0,
+                    "activationStatus": 0,
+                    "lowProductThreshold": 75
+                  }
+                }
               }
             },
             "text/json": {
@@ -4155,7 +5244,7 @@
         },
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs. `Create` can additionally return this code with the\r\nstandard envelope (`Auth.ActorNotResolved` — reused from the auth module, not a\r\nproduct-specific code) in the rare edge case where a token passes authentication but the\r\nacting tenant identity can't be resolved from it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4175,37 +5264,87 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The updated product.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProductResponseApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The updated product.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 15,
+                        "tenantId": 42,
+                        "name": "Gold Debit Card",
+                        "activationStatus": 0,
+                        "lowProductThreshold": 50,
+                        "productTransactionWay": 0,
+                        "usingPrinterType": 1,
+                        "isDeleted": false,
+                        "createdAt": "2026-01-20T10:00:00Z",
+                        "updatedAt": null,
+                        "deletedAt": null
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No product exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No product exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Product.NotFound",
+                        "message": "No product was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "The new name is already taken, or ProductTransactionWay was changed on a product that already has cards in inventory (immutable once cards exist).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "transactionWayImmutable": {
+                    "summary": "Attempted to flip Known/Unknown on a product that already has cards in inventory — the value is snapshotted onto every transfer line and cannot change once cards exist.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Product.TransactionWayImmutable",
+                        "message": "The transaction way of product 15 cannot be changed because cards already exist for it.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "The request body failed validation.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4247,7 +5386,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs. `Create` can additionally return this code with the\r\nstandard envelope (`Auth.ActorNotResolved` — reused from the auth module, not a\r\nproduct-specific code) in the rare edge case where a token passes authentication but the\r\nacting tenant identity can't be resolved from it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4267,31 +5406,69 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The product was soft-deleted; the payload is null.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The product was soft-deleted; the payload is null.",
+                    "value": {
+                      "success": true,
+                      "data": null,
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No product exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No product exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Product.NotFound",
+                        "message": "No product was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "The product is already deleted, or is part of an open branch stock request line.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "hasOpenRequest": {
+                    "summary": "The product is part of an open branch stock request line.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Product.HasOpenRequest",
+                        "message": "Product 15 is part of an open stock request line and cannot be deleted.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -4331,7 +5508,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs. `Create` can additionally return this code with the\r\nstandard envelope (`Auth.ActorNotResolved` — reused from the auth module, not a\r\nproduct-specific code) in the rare edge case where a token passes authentication but the\r\nacting tenant identity can't be resolved from it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4351,31 +5528,69 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The product was restored; the payload is null.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The product was restored; the payload is null.",
+                    "value": {
+                      "success": true,
+                      "data": null,
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No product exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No product exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Product.NotFound",
+                        "message": "No product was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "409": {
-            "description": "Conflict",
+            "description": "The product is not currently deleted.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notDeleted": {
+                    "summary": "The product is not currently deleted, so it can't be restored.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Product.NotDeleted",
+                        "message": "Product 15 is not deleted.",
+                        "category": "Conflict"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -4415,7 +5630,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs. `Create` can additionally return this code with the\r\nstandard envelope (`Auth.ActorNotResolved` — reused from the auth module, not a\r\nproduct-specific code) in the rare edge case where a token passes authentication but the\r\nacting tenant identity can't be resolved from it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4435,21 +5650,57 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The product is now active.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProductResponseApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The product is now active. Idempotent.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 15,
+                        "tenantId": 42,
+                        "name": "Gold Debit Card",
+                        "activationStatus": 0,
+                        "lowProductThreshold": 50,
+                        "productTransactionWay": 0,
+                        "usingPrinterType": 1,
+                        "isDeleted": false,
+                        "createdAt": "2026-01-20T10:00:00Z",
+                        "updatedAt": null,
+                        "deletedAt": null
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No product exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No product exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Product.NotFound",
+                        "message": "No product was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -4489,7 +5740,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs. `Create` can additionally return this code with the\r\nstandard envelope (`Auth.ActorNotResolved` — reused from the auth module, not a\r\nproduct-specific code) in the rare edge case where a token passes authentication but the\r\nacting tenant identity can't be resolved from it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4509,21 +5760,57 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The product is now inactive.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProductResponseApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The product is now inactive. Idempotent.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "id": 15,
+                        "tenantId": 42,
+                        "name": "Gold Debit Card",
+                        "activationStatus": 0,
+                        "lowProductThreshold": 50,
+                        "productTransactionWay": 0,
+                        "usingPrinterType": 1,
+                        "isDeleted": false,
+                        "createdAt": "2026-01-20T10:00:00Z",
+                        "updatedAt": null,
+                        "deletedAt": null
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No product exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "summary": "No product exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Product.NotFound",
+                        "message": "No product was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -4894,7 +6181,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4914,24 +6201,88 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The configuration — exactly one of Matica/Evolis is populated, matching the product's UsingPrinterType.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProductPrintConfigResponseApiResponse"
+                },
+                "examples": {
+                  "evolis": {
+                    "summary": "The product prints via Evolis — only evolis is populated.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "productId": 15,
+                        "usingPrinterType": 1,
+                        "matica": null,
+                        "evolis": {
+                          "ribbonTypeId": 3,
+                          "ribbonTypeName": "YMCKO",
+                          "printWay": 0,
+                          "x": 10,
+                          "y": 20,
+                          "printedFace": 0,
+                          "fontFamily": "Arial",
+                          "fontSize": 12,
+                          "printColor": "#000000",
+                          "backgroundColor": "#FFFFFF",
+                          "fontStyle": "Bold",
+                          "imageId": null
+                        }
+                      },
+                      "error": null
+                    }
+                  },
+                  "matica": {
+                    "summary": "The product prints via Matica — only matica is populated.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "productId": 15,
+                        "usingPrinterType": 0,
+                        "matica": {
+                          "cpi": 10,
+                          "fontSize": 12,
+                          "offsetX": 5,
+                          "offsetY": 5,
+                          "imageId": null
+                        },
+                        "evolis": null
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No product exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "productNotFound": {
+                    "summary": "No product exists with that id (or it belongs to another tenant).",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Product.NotFound",
+                        "message": "No product was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
+          },
+          "403": {
+            "description": "A tenant caller called M:InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.ProductPrintConfigController.Update(System.Int64,ApplicationLayer.DTOs.Printing.UpdateProductPrintConfigRequest,System.Threading.CancellationToken) or M:InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.ProductPrintConfigController.GetFull(System.Int64,System.Threading.CancellationToken) (system-admin only).\r\nEnforced in the service and returned as the standard\r\nInventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1\r\nenvelope (`ProductPrintConfig.OnlySystemAdmin`), not an authorization-policy rejection."
           }
         }
       },
@@ -4969,6 +6320,42 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/UpdateProductPrintConfigRequest"
+              },
+              "examples": {
+                "evolisConfig": {
+                  "summary": "Setting/replacing an Evolis print configuration.",
+                  "value": {
+                    "usingPrinterType": 1,
+                    "matica": null,
+                    "evolis": {
+                      "ribbonTypeId": 3,
+                      "printWay": 0,
+                      "x": 10,
+                      "y": 20,
+                      "printedFace": 0,
+                      "fontFamily": "Arial",
+                      "fontSize": 12,
+                      "printColor": "#000000",
+                      "backgroundColor": "#FFFFFF",
+                      "fontStyle": "Bold",
+                      "imageId": null
+                    }
+                  }
+                },
+                "switchToMatica": {
+                  "summary": "Switching a product from Evolis to Matica (decision Q-08): supplying a different usingPrinterType than the product currently has hard-deletes the old configuration row and inserts the new one in the same transaction.",
+                  "value": {
+                    "usingPrinterType": 0,
+                    "matica": {
+                      "cpi": 10,
+                      "fontSize": 12,
+                      "offsetX": 5,
+                      "offsetY": 5,
+                      "imageId": null
+                    },
+                    "evolis": null
+                  }
+                }
               }
             },
             "text/json": {
@@ -4985,7 +6372,7 @@
         },
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5005,41 +6392,123 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "The saved configuration.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProductPrintConfigResponseApiResponse"
+                },
+                "examples": {
+                  "success": {
+                    "summary": "The saved configuration.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "productId": 15,
+                        "usingPrinterType": 1,
+                        "matica": null,
+                        "evolis": {
+                          "ribbonTypeId": 3,
+                          "ribbonTypeName": "YMCKO",
+                          "printWay": 0,
+                          "x": 10,
+                          "y": 20,
+                          "printedFace": 0,
+                          "fontFamily": "Arial",
+                          "fontSize": 12,
+                          "printColor": "#000000",
+                          "backgroundColor": "#FFFFFF",
+                          "fontStyle": "Bold",
+                          "imageId": null
+                        }
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "403": {
-            "description": "Forbidden",
+            "description": "A tenant caller attempted this — system-admin only.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "tenantAttempted": {
+                    "summary": "A tenant caller attempted to set a print configuration.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "ProductPrintConfig.OnlySystemAdmin",
+                        "message": "Only a system administrator can create or update a product's print configuration.",
+                        "category": "Forbidden"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No product exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "productNotFound": {
+                    "summary": "No product exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Product.NotFound",
+                        "message": "No product was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "The request body failed validation (wrong payload for the declared UsingPrinterType, an unknown ribbon type, an unknown ImageId, or an invalid hex color).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "evolisPayloadRequired": {
+                    "summary": "usingPrinterType is Evolis but the evolis payload was omitted.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "ProductPrintConfig.EvolisPayloadRequired",
+                        "message": "An Evolis print configuration payload is required when the printer type is Evolis.",
+                        "category": "Validation"
+                      }
+                    }
+                  },
+                  "invalidHexColor": {
+                    "summary": "printColor/backgroundColor is not a valid 6- or 8-digit hex value.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "ProductPrintConfig.InvalidHexColor",
+                        "message": "'blue' is not a valid HEX color. Use the form #RRGGBB or #RRGGBBAA.",
+                        "category": "Validation"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -5079,7 +6548,7 @@
         ],
         "responses": {
           "401": {
-            "description": "No valid bearer token was supplied.",
+            "description": "No valid bearer token was supplied. Typically the authorization middleware's empty-body\r\nrejection before this action runs.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5099,31 +6568,125 @@
             }
           },
           "200": {
-            "description": "OK",
+            "description": "Product plus configuration; printConfig is null when the product has none yet.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProductWithPrintConfigResponseApiResponse"
+                },
+                "examples": {
+                  "withConfig": {
+                    "summary": "Product plus its print configuration.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "product": {
+                          "id": 15,
+                          "tenantId": 42,
+                          "name": "Gold Debit Card",
+                          "activationStatus": 0,
+                          "lowProductThreshold": 50,
+                          "productTransactionWay": 0,
+                          "usingPrinterType": 1,
+                          "isDeleted": false,
+                          "createdAt": "2026-01-20T10:00:00Z",
+                          "updatedAt": null,
+                          "deletedAt": null
+                        },
+                        "printConfig": {
+                          "productId": 15,
+                          "usingPrinterType": 1,
+                          "matica": null,
+                          "evolis": {
+                            "ribbonTypeId": 3,
+                            "ribbonTypeName": "YMCKO",
+                            "printWay": 0,
+                            "x": 10,
+                            "y": 20,
+                            "printedFace": 0,
+                            "fontFamily": "Arial",
+                            "fontSize": 12,
+                            "printColor": "#000000",
+                            "backgroundColor": "#FFFFFF",
+                            "fontStyle": "Bold",
+                            "imageId": null
+                          }
+                        }
+                      },
+                      "error": null
+                    }
+                  },
+                  "withoutConfig": {
+                    "summary": "The product has no print configuration yet — this is surfaced as printConfig: null, not an error, since this endpoint is an administrative overview.",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "product": {
+                          "id": 16,
+                          "tenantId": 42,
+                          "name": "Silver Prepaid Card",
+                          "activationStatus": 0,
+                          "lowProductThreshold": 25,
+                          "productTransactionWay": 1,
+                          "usingPrinterType": 0,
+                          "isDeleted": false,
+                          "createdAt": "2026-02-10T10:00:00Z",
+                          "updatedAt": null,
+                          "deletedAt": null
+                        },
+                        "printConfig": null
+                      },
+                      "error": null
+                    }
+                  }
                 }
               }
             }
           },
           "403": {
-            "description": "Forbidden",
+            "description": "A tenant caller attempted this — system-admin only.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "tenantAttempted": {
+                    "summary": "A tenant caller attempted to use this administrative overview endpoint.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "ProductPrintConfig.OnlySystemAdmin",
+                        "message": "Only a system administrator can create or update a product's print configuration.",
+                        "category": "Forbidden"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
           "404": {
-            "description": "Not Found",
+            "description": "No product exists with the supplied id.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ObjectApiResponse"
+                },
+                "examples": {
+                  "productNotFound": {
+                    "summary": "No product exists with that id.",
+                    "value": {
+                      "success": false,
+                      "data": null,
+                      "error": {
+                        "code": "Product.NotFound",
+                        "message": "No product was found with id 999.",
+                        "category": "NotFound"
+                      }
+                    }
+                  }
                 }
               }
             }
