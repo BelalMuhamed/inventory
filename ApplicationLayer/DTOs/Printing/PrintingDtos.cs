@@ -9,11 +9,20 @@ namespace ApplicationLayer.DTOs.Printing
     //  Printers (ERD §6, Printing Module Q-01/Q-09)
     // =====================================================================================
 
-    /// <summary>Matica-only machine configuration, nested under a printer payload (ERD §6.2).</summary>
-    public sealed record MaticaPrinterConfigRequest(int FeederId, int HopperId, int RejectedId, string Port);
+    /// <summary>
+    /// Matica-only machine configuration, nested under a printer payload (ERD §6.2). The four
+    /// tipper fields are printer-level hardware calibration (Matica Print Flow, tipper-parameter
+    /// phase) — optional, defaulting to 0 to match <see cref="DomainLayer.Entities.MaticaPrinterConfiguration"/>'s
+    /// own default-0 behavior for a printer that has never had them explicitly configured.
+    /// </summary>
+    public sealed record MaticaPrinterConfigRequest(
+        int FeederId, int HopperId, int RejectedId, string Port,
+        int TipperTemperature = 0, int TipperPressure = 0, int TipperConsumption = 0, int TipperTime = 0);
 
     /// <summary>Matica-only machine configuration as returned to clients (ERD §6.2).</summary>
-    public sealed record MaticaPrinterConfigResponse(int FeederId, int HopperId, int RejectedId, string Port);
+    public sealed record MaticaPrinterConfigResponse(
+        int FeederId, int HopperId, int RejectedId, string Port,
+        int TipperTemperature, int TipperPressure, int TipperConsumption, int TipperTime);
 
     /// <summary>
     /// Create payload for <c>POST /api/printers</c> (Printing Module Q-01/Q-09: system-admin
@@ -72,6 +81,12 @@ namespace ApplicationLayer.DTOs.Printing
     /// </summary>
     /// <param name="UsingPrinterType">Optional printer-family filter; null matches both.</param>
     /// <param name="BranchId">Optional branch filter.</param>
+    /// <param name="UniqueNumber">
+    /// Optional exact-match filter on the printer's serial (Evolis) or IP address (Matica) —
+    /// added for the Matica Print Flow, so a printer can be resolved by its known IP instead of
+    /// paging through a branch's full printer list client-side. Exact match, not substring, since
+    /// this is an identity lookup (find <em>this specific</em> device), not a browsing filter.
+    /// </param>
     /// <param name="IsDeleted">Optional soft-delete filter; null matches both.</param>
     /// <param name="TenantId">System-admin-only tenant filter; ignored for tenant callers.</param>
     /// <param name="Page">1-based page index. Defaults to 1.</param>
@@ -81,6 +96,7 @@ namespace ApplicationLayer.DTOs.Printing
     public sealed record PrinterListFilter(
         UsingPrinterType? UsingPrinterType = null,
         long? BranchId = null,
+        string? UniqueNumber = null,
         bool? IsDeleted = null,
         long? TenantId = null,
         int Page = 1,

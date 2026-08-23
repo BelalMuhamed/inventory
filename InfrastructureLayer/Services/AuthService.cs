@@ -27,6 +27,8 @@ namespace InfrastructureLayer.Services
         private readonly IJwtTokenGenerator _tokenGenerator;
         private readonly IAuditLogger _auditLogger;
         private readonly JwtOptions _jwtOptions;
+        private readonly ICurrentTenant _currentTenant;
+        private readonly IPrintAgentTokenGenerator _printAgentTokenGenerator;
 
         /// <summary>Creates the service with its collaborators (constructor injection only).</summary>
         public AuthService(
@@ -34,7 +36,9 @@ namespace InfrastructureLayer.Services
             IPasswordHasher passwordHasher,
             IJwtTokenGenerator tokenGenerator
           ,
-            IOptions<JwtOptions> jwtOptions,IAuditLogger auditLogger)
+            IOptions<JwtOptions> jwtOptions,IAuditLogger auditLogger,
+            ICurrentTenant currentTenant,
+            IPrintAgentTokenGenerator printAgentTokenGenerator)
         {
             _unitOfWork = unitOfWork;
             _passwordHasher = passwordHasher;
@@ -42,6 +46,8 @@ namespace InfrastructureLayer.Services
            
             _auditLogger = auditLogger;
             _jwtOptions = jwtOptions.Value;
+            _currentTenant = currentTenant;
+            _printAgentTokenGenerator = printAgentTokenGenerator;
         }
 
         /// <inheritdoc />
@@ -143,6 +149,34 @@ namespace InfrastructureLayer.Services
             }
 
             return Result.Success();
+        }
+
+        /// <inheritdoc />
+        public async Task<Result<PrintAgentTokenResponse>> CreatePrintAgentTokenAsync(
+            CreatePrintAgentTokenRequest request, CancellationToken cancellationToken = default)
+        {
+            // A Print Agent token is always scoped to one tenant's branch/printer; a system-admin
+            // caller has no tenant context to scope it to, so it is rejected outright rather than
+            // guessed at (no assumption about "which tenant" is ever made here).
+            if (_currentTenant.IsSystemAdmin || _currentTenant.TenantId is not long tenantId)
+            {
+                return Result.Failure<PrintAgentTokenResponse>(AuthErrors.PrintAgentTokenRequiresTenant());
+            }
+
+            Branch? branch = await _unitOfWork.Branches.GetByIdAsync(request.BranchId, cancellationToken);
+            if (branch is null || branch.TenantId != tenantId)
+            {
+                return Result.Failure<PrintAgentTokenResponse>(AuthErrors.PrintAgentBranchNotFound());
+            }
+
+            Printer? printer = await _unitOfWork.Printers.GetByIdAsync(request.PrinterId, cancellationToken);
+            if (printer is null || printer.TenantId != tenantId || printer.BranchId != request.BranchId)
+            {
+                return Result.Failure<PrintAgentTokenResponse>(AuthErrors.PrintAgentPrinterNotFound());
+            }
+
+            PrintAgentAccessToken token = _printAgentTokenGenerator.Create(tenantId, request.BranchId, request.PrinterId);
+            return Result.Success(new PrintAgentTokenResponse(token.Token, token.ExpiresAt));
         }
 
         private async Task<AuthResponse> IssueWithRefreshAsync(

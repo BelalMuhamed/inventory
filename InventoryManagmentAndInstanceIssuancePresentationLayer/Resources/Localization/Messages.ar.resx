@@ -123,6 +123,15 @@
   <data name="Auth.InvalidRefreshToken" xml:space="preserve">
     <value>التوكن مش صالح أو انتهت صلاحيته.</value>
   </data>
+  <data name="Auth.PrintAgentTokenRequiresTenant" xml:space="preserve">
+    <value>توكن جهاز الطباعة بيتاخد للمستأجر بس، مينفعش للأدمن.</value>
+  </data>
+  <data name="Auth.PrintAgentBranchNotFound" xml:space="preserve">
+    <value>مفيش فرع بالرقم ده تابع للمستأجر ده.</value>
+  </data>
+  <data name="Auth.PrintAgentPrinterNotFound" xml:space="preserve">
+    <value>مفيش طابعة بالرقم ده في الفرع ده تابعة للمستأجر ده.</value>
+  </data>
   <data name="Error.Unexpected" xml:space="preserve">
     <value>حصل خطأ غير متوقع.</value>
   </data>
@@ -221,6 +230,15 @@
   </data>
   <data name="ProductItem.DisposeNotAllowedHere" xml:space="preserve">
     <value>مينفعش تعدم الكروت من إندبوينت تغيير الحالة. استخدم إندبوينت الإعدام، وهو محتاج سبب والفرع اللي بيعدم.</value>
+  </data>
+  <data name="ProductItem.InvalidPan" xml:space="preserve">
+    <value>رقم الكارت اللي جه مش صح.</value>
+  </data>
+  <data name="ProductItem.NotFoundForPrint" xml:space="preserve">
+    <value>مفيش كارت قابل للطباعة مطابق لرقم الكارت ده للمنتج والفرع دول.</value>
+  </data>
+  <data name="ProductItem.PrintFlowScopeMismatch" xml:space="preserve">
+    <value>الفرع المطلوب مش مطابق لنطاق التوكن ده.</value>
   </data>
   <data name="Product.TransactionWayImmutable" xml:space="preserve">
     <value>مينفعش تغير طريقة تحويل المنتج رقم {0} لأن فيه كروت متسجلة عليه بالفعل.</value>

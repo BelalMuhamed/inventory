@@ -123,6 +123,51 @@
   },
   {
     "ContainingType": "InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.AuthController",
+    "Method": "CreatePrintAgentToken",
+    "RelativePath": "api/auth/print-agent-token",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "ApplicationLayer.DTOs.Auth.CreatePrintAgentTokenRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 500
+      },
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[ApplicationLayer.DTOs.Auth.PrintAgentTokenResponse, ApplicationLayer, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 200
+      },
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 403
+      },
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 404
+      }
+    ]
+  },
+  {
+    "ContainingType": "InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.AuthController",
     "Method": "Refresh",
     "RelativePath": "api/auth/refresh",
     "HttpMethod": "POST",
@@ -1843,6 +1888,136 @@
     ]
   },
   {
+    "ContainingType": "InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.PrintFlowController",
+    "Method": "RecordPrintResult",
+    "RelativePath": "api/print-flow/{productItemId}/print-result",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "productItemId",
+        "Type": "System.Int64",
+        "IsRequired": true
+      },
+      {
+        "Name": "request",
+        "Type": "ApplicationLayer.DTOs.ProductItems.RecordPrintResultRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 401
+      },
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 500
+      },
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[ApplicationLayer.DTOs.ProductItems.ProductItemResponse, ApplicationLayer, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 200
+      },
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 403
+      },
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 404
+      },
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 409
+      }
+    ]
+  },
+  {
+    "ContainingType": "InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.PrintFlowController",
+    "Method": "ResolveForPrint",
+    "RelativePath": "api/print-flow/resolve-for-print",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "ApplicationLayer.DTOs.ProductItems.ResolveForPrintRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 401
+      },
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 500
+      },
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[ApplicationLayer.DTOs.ProductItems.ResolveForPrintResponse, ApplicationLayer, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 200
+      },
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 403
+      },
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 404
+      },
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 409
+      },
+      {
+        "Type": "InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse\u00601[[System.Object, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 422
+      }
+    ]
+  },
+  {
     "ContainingType": "InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.PrintImagesController",
     "Method": "Upload",
     "RelativePath": "api/print-images",
@@ -2078,6 +2253,11 @@
       {
         "Name": "BranchId",
         "Type": "System.Nullable\u00601[[System.Int64, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "UniqueNumber",
+        "Type": "System.String",
         "IsRequired": false
       },
       {

@@ -139,6 +139,11 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
                 // as a clear startup error, not as confusing 401s at request time.
                 EnsureJwtSigningKeyPresent(builder.Configuration);
 
+                // Matica Print Flow: same fail-fast posture for the Print Agent token's own,
+                // deliberately separate signing key (PrintAgentTokenGenerator's doc comment
+                // explains why it must never be the same value as the JWT key above).
+                EnsurePrintAgentSigningKeyPresent(builder.Configuration);
+
                 // Onion composition: inner layers are wired before the presentation concerns that depend on them.
                 builder.Services.AddInfrastructure(builder.Configuration);
                 builder.Services.AddPresentation(builder.Configuration);
@@ -198,6 +203,21 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
                     $"JWT signing key is not configured. Set '{JwtOptions.SectionName}:{nameof(JwtOptions.SigningKey)}' " +
                     "via user-secrets (development) or an environment variable (production). " +
                     "It must never be committed to appsettings.json.");
+            }
+        }
+
+        private static void EnsurePrintAgentSigningKeyPresent(IConfiguration configuration)
+        {
+            string? signingKey = configuration[
+                $"{PrintAgentTokenOptions.SectionName}:{nameof(PrintAgentTokenOptions.SigningKey)}"];
+            if (string.IsNullOrWhiteSpace(signingKey))
+            {
+                throw new InvalidOperationException(
+                    "Print Agent token signing key is not configured. Set " +
+                    $"'{PrintAgentTokenOptions.SectionName}:{nameof(PrintAgentTokenOptions.SigningKey)}' via " +
+                    "user-secrets (development) or an environment variable (production), and keep it distinct " +
+                    $"from '{JwtOptions.SectionName}:{nameof(JwtOptions.SigningKey)}' — see " +
+                    "PrintAgentTokenGenerator's doc comment for why that separation matters.");
             }
         }
     }

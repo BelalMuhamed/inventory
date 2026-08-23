@@ -17,6 +17,29 @@ namespace ApplicationLayer.Errors
         public static Error ActorNotResolved() =>
             Error.Unauthorized("Product.ActorNotResolved", "The acting principal could not be resolved.");
 
+        /// <summary>
+        /// A system-admin token was presented to <c>POST /api/auth/print-agent-token</c> (→ 403).
+        /// A Print Agent token is always scoped to one tenant's branch/printer; a system admin has
+        /// no tenant context to scope it to.
+        /// </summary>
+        public static Error PrintAgentTokenRequiresTenant() =>
+            Error.Forbidden("Auth.PrintAgentTokenRequiresTenant",
+                "A Print Agent token can only be issued for a tenant caller.");
 
+        /// <summary>
+        /// The branch supplied to <c>POST /api/auth/print-agent-token</c> does not exist, or does
+        /// not belong to the caller's tenant (→ 404, no existence leak across tenants).
+        /// </summary>
+        public static Error PrintAgentBranchNotFound() =>
+            Error.NotFound("Auth.PrintAgentBranchNotFound",
+                "No branch was found with the supplied id for this tenant.");
+
+        /// <summary>
+        /// The printer supplied to <c>POST /api/auth/print-agent-token</c> does not exist, does not
+        /// belong to the caller's tenant, or is not registered at the supplied branch (→ 404).
+        /// </summary>
+        public static Error PrintAgentPrinterNotFound() =>
+            Error.NotFound("Auth.PrintAgentPrinterNotFound",
+                "No printer was found with the supplied id at the supplied branch for this tenant.");
     }
 }

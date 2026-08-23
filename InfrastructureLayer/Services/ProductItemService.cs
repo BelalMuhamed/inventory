@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using ApplicationLayer.BatchUpload;
 using ApplicationLayer.Common;
 using ApplicationLayer.Contracts;
 using ApplicationLayer.DTOs.ProductItems;
@@ -17,17 +18,23 @@ namespace InfrastructureLayer.Services
 {
     /// <summary>
     /// Product-item service (API Spec §4.7). Reads are scoped as for products; the update recomputes
-    /// the branch stock aggregate in the same transaction (ERD §3.1 invariant).
+    /// the branch stock aggregate in the same transaction (ERD §3.1 invariant). Also owns the two
+    /// Matica Print Flow backend calls (<see cref="ResolveForPrintAsync"/>/
+    /// <see cref="RecordPrintResultAsync"/>) — same resource, same stock-recompute discipline as
+    /// <see cref="UpdateAsync"/>, so they live here rather than in a separate service.
     /// </summary>
     public sealed class ProductItemService : IProductItemService
     {
         private readonly IUnitOfWork _unitOfWork;
         private readonly ICurrentTenant _currentTenant;
+        private readonly IPanFingerprintGenerator _panFingerprintGenerator;
 
-        public ProductItemService(IUnitOfWork unitOfWork, ICurrentTenant currentTenant)
+        public ProductItemService(
+            IUnitOfWork unitOfWork, ICurrentTenant currentTenant, IPanFingerprintGenerator panFingerprintGenerator)
         {
             _unitOfWork = unitOfWork;
             _currentTenant = currentTenant;
+            _panFingerprintGenerator = panFingerprintGenerator;
         }
 
         public async Task<Result<PaginatedResponse<ProductItemResponse>>> GetAllAsync(
@@ -98,6 +105,181 @@ namespace InfrastructureLayer.Services
             {
                 Error? stockError = await ApplyAvailableDeltaAsync(item, branchId, delta, cancellationToken);
                 if (stockError is not null) return Result.Failure<ProductItemResponse>(stockError);
+            }
+
+            try
+            {
+                await _unitOfWork.SaveChangesAsync(cancellationToken);   // one transaction; Stock.RowVersion guards concurrency
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return Result.Failure<ProductItemResponse>(StockErrors.ConcurrencyConflict());
+            }
+
+            return Map(item);
+        }
+
+        /// <inheritdoc />
+        public async Task<Result<ResolveForPrintResponse>> ResolveForPrintAsync(
+            ResolveForPrintRequest request, CancellationToken cancellationToken = default)
+        {
+            // The Print Agent token always carries a tenantId claim (PrintAgentTokenGenerator);
+            // a system-admin caller can never reach this endpoint at all (PrintAgentOnly policy),
+            // but this mirrors every other service's own scope resolution rather than assume that.
+            long? scope = ResolveScope(out Error? scopeError);
+            if (scopeError is not null) return Result.Failure<ResolveForPrintResponse>(scopeError);
+            if (scope is not long tenantId) return Result.Failure<ResolveForPrintResponse>(AuthErrors.ActorNotResolved());
+
+            // Raw PAN lives only in this local scope: normalized, fingerprinted, then never
+            // referenced again — never assigned to a field, logged, or returned.
+            string normalizedPan = BatchFileFormat.NormalizePan(request.Pan);
+            if (!BatchFileFormat.IsValidPan(normalizedPan))
+            {
+                return Result.Failure<ResolveForPrintResponse>(ProductItemErrors.InvalidPan());
+            }
+
+            byte[] fingerprint = _panFingerprintGenerator.Fingerprint(tenantId, normalizedPan);
+            IReadOnlyDictionary<string, ProductItem> found = await _unitOfWork.ProductItems
+                .GetExistingByFingerprintsAsync(tenantId, new[] { fingerprint }, cancellationToken);
+
+            if (!found.TryGetValue(Convert.ToHexString(fingerprint), out ProductItem? item) || item is null)
+            {
+                return Result.Failure<ResolveForPrintResponse>(ProductItemErrors.NotFoundForPrint());
+            }
+
+            if (item.ProductId != request.ProductId)
+            {
+                // Same outcome as "no match at all" — ProductItemErrors.NotFoundForPrint() is
+                // deliberately one generic code; see its doc comment for why splitting this into
+                // "wrong product" vs "not found" would leak more than a Print Agent token holder
+                // should be able to tell apart.
+                return Result.Failure<ResolveForPrintResponse>(ProductItemErrors.NotFoundForPrint());
+            }
+
+            Product? product = await _unitOfWork.Products.GetByIdAsync(item.ProductId, cancellationToken);
+            if (product is null)
+            {
+                return Result.Failure<ResolveForPrintResponse>(ProductItemErrors.NotFoundForPrint());
+            }
+
+            if (product.ProductTransactionWay == ProductTransactionWay.Known)
+            {
+                // Known-way: the card's own recorded branch and status are the source of truth,
+                // same invariant CardStatus.Available documents ("never valid while branch is null").
+                if (item.BranchID != request.BranchId || item.Status != CardStatus.Available)
+                {
+                    return Result.Failure<ResolveForPrintResponse>(ProductItemErrors.NotFoundForPrint());
+                }
+            }
+            else
+            {
+                // Unknown-way: per ProductItem.BranchID's own doc comment, an unassigned-pool card
+                // sits with a null branch and CardStatus.OnHold; its availability is already counted
+                // in the branch's Stock.AvailableQuantity aggregate, never in the item's own status.
+                // No FIFO selection here — the caller already identifies one specific physical card
+                // by its fingerprint; FIFO only applies when a caller supplies a bare quantity.
+                if (item.BranchID is not null || item.Status != CardStatus.OnHold)
+                {
+                    return Result.Failure<ResolveForPrintResponse>(ProductItemErrors.NotFoundForPrint());
+                }
+
+                Stock? stock = await _unitOfWork.Stocks.GetForUpdateAsync(
+                    tenantId, request.BranchId, item.ProductId, cancellationToken);
+                if (stock is null || stock.AvailableQuantity <= 0)
+                {
+                    return Result.Failure<ResolveForPrintResponse>(
+                        StockErrors.InsufficientAvailable(request.BranchId, item.ProductId));
+                }
+            }
+
+            return Result.Success(new ResolveForPrintResponse(item.ID, item.MaskedPan, item.CardHolderName));
+        }
+
+        /// <inheritdoc />
+        public async Task<Result<ProductItemResponse>> RecordPrintResultAsync(
+            long productItemId, RecordPrintResultRequest request, CancellationToken cancellationToken = default)
+        {
+            long? scope = ResolveScope(out Error? scopeError);
+            if (scopeError is not null) return Result.Failure<ProductItemResponse>(scopeError);
+
+            ProductItem? item = await _unitOfWork.ProductItems.GetForUpdateAsync(productItemId, cancellationToken);
+            if (item is null) return Result.Failure<ProductItemResponse>(ProductItemErrors.NotFound(productItemId));
+            if (scope is long s && item.TenantId != s)
+                return Result.Failure<ProductItemResponse>(ProductItemErrors.NotFound(productItemId));
+
+            if (item.Status == CardStatus.Disposed)
+                return Result.Failure<ProductItemResponse>(ProductItemErrors.Disposed(productItemId));
+
+            CardStatus targetStatus = request.Success ? CardStatus.SuccessPrinted : CardStatus.FailedPrinting;
+
+            // Lightweight idempotency (deliberately not a persisted idempotency-key table, per the
+            // agreed plan): a retried call that already landed — same branch, already at the
+            // requested target status — is a no-op success rather than re-applying the stock delta.
+            // This does not detect a retry that disagrees with the first attempt's own outcome
+            // (e.g. a second call for the same attempt claiming the opposite result); that residual
+            // gap was accepted explicitly rather than building a stronger, persisted check for it.
+            if (item.BranchID == request.BranchId && item.Status == targetStatus)
+            {
+                return Map(item);
+            }
+
+            Product? product = await _unitOfWork.Products.GetByIdAsync(item.ProductId, cancellationToken);
+            if (product is null) return Result.Failure<ProductItemResponse>(ProductItemErrors.NotFoundForPrint());
+
+            if (product.ProductTransactionWay == ProductTransactionWay.Known)
+            {
+                // Same shape as UpdateAsync's own guards, reusing the same private helpers below —
+                // this branch is nothing new, just reached from a different entry point.
+                if (item.BranchID != request.BranchId)
+                    return Result.Failure<ProductItemResponse>(ProductItemErrors.NotFoundForPrint());
+                if (item.Status != CardStatus.Available)
+                    return Result.Failure<ProductItemResponse>(ProductItemErrors.NotFoundForPrint());
+
+                CardStatus previousStatus = item.Status;
+                item.Status = targetStatus;
+                item.CardHolderName = request.HolderName ?? item.CardHolderName;
+                _unitOfWork.ProductItems.Update(item);
+
+                // Confirmed already correct for both outcomes without any new logic: Success and
+                // FailedPrinting both leave Available (delta -1) — a spoiled card is exactly as
+                // unissuable as a successfully printed one.
+                int delta = AvailableDelta(previousStatus, targetStatus);
+                if (delta != 0)
+                {
+                    Error? stockError = await ApplyAvailableDeltaAsync(item, request.BranchId, delta, cancellationToken);
+                    if (stockError is not null) return Result.Failure<ProductItemResponse>(stockError);
+                }
+            }
+            else
+            {
+                // Unknown-way: UpdateAsync's own InTransit guard refuses any item with a null
+                // branch, which is exactly the state every Unknown-way card sits in right up until
+                // this moment — so that guard, and AvailableDelta's before/after comparison (which
+                // never fires, since this item was never itself Available), cannot be reused here.
+                // This card's availability was already counted in the branch's Stock aggregate
+                // rather than in its own status, so printing it assigns the branch for the first
+                // time and decrements that aggregate directly instead.
+                if (item.BranchID is not null || item.Status != CardStatus.OnHold)
+                {
+                    return Result.Failure<ProductItemResponse>(ProductItemErrors.NotFoundForPrint());
+                }
+
+                Stock? stock = await _unitOfWork.Stocks.GetForUpdateAsync(
+                    item.TenantId, request.BranchId, item.ProductId, cancellationToken);
+                if (stock is null || stock.AvailableQuantity <= 0)
+                {
+                    return Result.Failure<ProductItemResponse>(
+                        StockErrors.InsufficientAvailable(request.BranchId, item.ProductId));
+                }
+
+                item.BranchID = request.BranchId;
+                item.Status = targetStatus;
+                item.CardHolderName = request.HolderName ?? item.CardHolderName;
+                _unitOfWork.ProductItems.Update(item);
+
+                stock.AvailableQuantity -= 1;
+                stock.UpdatedAt = DateTime.UtcNow;
+                _unitOfWork.Stocks.Update(stock);
             }
 
             try

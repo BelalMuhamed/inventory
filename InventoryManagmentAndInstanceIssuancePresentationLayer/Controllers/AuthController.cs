@@ -128,5 +128,26 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
             var profile = new CurrentPrincipalResponse(_currentTenant.Username, _currentTenant.IsSystemAdmin);
             return Result.Success(profile).ToActionResult(this);
         }
+
+        /// <summary>
+        /// Mints a short-lived, narrowly-scoped token for the Matica Printer Agent (Matica Print
+        /// Flow). The caller — Angular, holding its own normal session token — supplies the branch
+        /// and printer the Printer Agent will operate for; both are validated as belonging to the
+        /// caller's own tenant before a token is issued. The Printer Agent then uses the returned
+        /// token, not the caller's real bearer token, for its own two backend calls.
+        /// </summary>
+        /// <param name="request">The target branch and printer.</param>
+        /// <param name="cancellationToken">Request cancellation token.</param>
+        /// <response code="200">Token minted; returns the signed access token and its (short) expiry.</response>
+        /// <response code="403">The caller is a system admin (no tenant context to scope the token to).</response>
+        /// <response code="404">The supplied branch or printer does not exist, or does not belong to the caller's tenant.</response>
+        [HttpPost("print-agent-token")]
+        [Authorize]
+        [ProducesResponseType(typeof(ApiResponse<PrintAgentTokenResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> CreatePrintAgentToken(
+            [FromBody] CreatePrintAgentTokenRequest request, CancellationToken cancellationToken)
+            => (await _services.Auth.CreatePrintAgentTokenAsync(request, cancellationToken)).ToActionResult(this);
     }
 }

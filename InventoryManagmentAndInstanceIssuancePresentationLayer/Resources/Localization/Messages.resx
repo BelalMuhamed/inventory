@@ -123,6 +123,15 @@
   <data name="Auth.InvalidRefreshToken" xml:space="preserve">
     <value>The refresh token is invalid or expired.</value>
   </data>
+  <data name="Auth.PrintAgentTokenRequiresTenant" xml:space="preserve">
+    <value>A Print Agent token can only be issued for a tenant caller.</value>
+  </data>
+  <data name="Auth.PrintAgentBranchNotFound" xml:space="preserve">
+    <value>No branch was found with the supplied id for this tenant.</value>
+  </data>
+  <data name="Auth.PrintAgentPrinterNotFound" xml:space="preserve">
+    <value>No printer was found with the supplied id at the supplied branch for this tenant.</value>
+  </data>
   <data name="Error.Unexpected" xml:space="preserve">
     <value>An unexpected error occurred.</value>
   </data>
@@ -221,6 +230,15 @@
   </data>
   <data name="ProductItem.DisposeNotAllowedHere" xml:space="preserve">
     <value>Cards cannot be disposed through the status endpoint. Use the dispose endpoint, which requires a reason and a branch.</value>
+  </data>
+  <data name="ProductItem.InvalidPan" xml:space="preserve">
+    <value>The supplied card number is not valid.</value>
+  </data>
+  <data name="ProductItem.NotFoundForPrint" xml:space="preserve">
+    <value>No printable card was found matching the supplied card number for this product and branch.</value>
+  </data>
+  <data name="ProductItem.PrintFlowScopeMismatch" xml:space="preserve">
+    <value>The requested branch does not match this token's own scope.</value>
   </data>
   <data name="Product.TransactionWayImmutable" xml:space="preserve">
     <value>The transaction way of product {0} cannot be changed because cards already exist for it.</value>

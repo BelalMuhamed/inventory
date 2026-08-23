@@ -632,6 +632,91 @@
         }
       }
     },
+    "/api/auth/print-agent-token": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Mints a short-lived, narrowly-scoped token for the Matica Printer Agent (Matica Print\r\nFlow). The caller — Angular, holding its own normal session token — supplies the branch\r\nand printer the Printer Agent will operate for; both are validated as belonging to the\r\ncaller's own tenant before a token is issued. The Printer Agent then uses the returned\r\ntoken, not the caller's real bearer token, for its own two backend calls.",
+        "parameters": [
+          {
+            "name": "Accept-Language",
+            "in": "header",
+            "description": "Response language: 'en' (default) or 'ar'.",
+            "schema": {
+              "enum": [
+                "en",
+                "ar"
+              ],
+              "type": "string",
+              "default": "en"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The target branch and printer.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePrintAgentTokenRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePrintAgentTokenRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePrintAgentTokenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Token minted; returns the signed access token and its (short) expiry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrintAgentTokenResponseApiResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is a system admin (no tenant context to scope the token to).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The supplied branch or printer does not exist, or does not belong to the caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/branches": {
       "get": {
         "tags": [
@@ -4206,6 +4291,14 @@
             }
           },
           {
+            "name": "UniqueNumber",
+            "in": "query",
+            "description": "Optional exact-match filter on the printer's serial (Evolis) or IP address (Matica) —\r\nadded for the Matica Print Flow, so a printer can be resolved by its known IP instead of\r\npaging through a branch's full printer list client-side. Exact match, not substring, since\r\nthis is an identity lookup (find <em>this specific</em> device), not a browsing filter.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "IsDeleted",
             "in": "query",
             "description": "Optional soft-delete filter; null matches both.",
@@ -5162,6 +5255,236 @@
                       }
                     }
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/print-flow/resolve-for-print": {
+      "post": {
+        "tags": [
+          "PrintFlow"
+        ],
+        "summary": "Backend Call #1 (Matica Print Flow): resolves and validates exactly one physical card\r\nfor printing, called by the Printer Agent right after `ReadMAG`. The raw PAN\r\ntravels only in this request's body, over TLS, and is discarded server-side once\r\nfingerprinted — see M:ApplicationLayer.ServicesContracts.IProductItemService.ResolveForPrintAsync(ApplicationLayer.DTOs.ProductItems.ResolveForPrintRequest,System.Threading.CancellationToken).",
+        "parameters": [
+          {
+            "name": "Accept-Language",
+            "in": "header",
+            "description": "Response language: 'en' (default) or 'ar'.",
+            "schema": {
+              "enum": [
+                "en",
+                "ar"
+              ],
+              "type": "string",
+              "default": "en"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The raw PAN plus the product/branch this card is expected to match.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveForPrintRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveForPrintRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveForPrintRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "401": {
+            "description": "No valid Print Agent token was supplied.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The card is printable; returns its id for Backend Call #2.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveForPrintResponseApiResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The request's `BranchId` does not match the token's own scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No printable card matches the supplied PAN/product/branch.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The branch has insufficient Unknown-way stock for this product.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The supplied PAN is not well-formed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/print-flow/{productItemId}/print-result": {
+      "post": {
+        "tags": [
+          "PrintFlow"
+        ],
+        "summary": "Backend Call #2 (Matica Print Flow): records the physical outcome of one print attempt,\r\ncalled by the Printer Agent right after `EjectCard`. Safely retryable — see\r\nM:ApplicationLayer.ServicesContracts.IProductItemService.RecordPrintResultAsync(System.Int64,ApplicationLayer.DTOs.ProductItems.RecordPrintResultRequest,System.Threading.CancellationToken)\r\nfor the lightweight idempotency behavior.",
+        "parameters": [
+          {
+            "name": "productItemId",
+            "in": "path",
+            "description": "The card id returned by M:InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.PrintFlowController.ResolveForPrint(ApplicationLayer.DTOs.ProductItems.ResolveForPrintRequest,System.Threading.CancellationToken).",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "Accept-Language",
+            "in": "header",
+            "description": "Response language: 'en' (default) or 'ar'.",
+            "schema": {
+              "enum": [
+                "en",
+                "ar"
+              ],
+              "type": "string",
+              "default": "en"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The physical outcome, branch, cardholder name, and idempotency key.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordPrintResultRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordPrintResultRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordPrintResultRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "401": {
+            "description": "No valid Print Agent token was supplied.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The result was recorded (or the retry was recognized as already applied).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductItemResponseApiResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The request's `BranchId` does not match the token's own scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such card, or it no longer matches the expected branch/status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The card is already disposed, or the branch has insufficient Unknown-way stock.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
                 }
               }
             }
@@ -11099,6 +11422,23 @@
         "additionalProperties": false,
         "description": "Create payload (API Spec §4.5). TenantId is used only by a system-admin\r\ncaller to target a tenant; for a tenant caller it is ignored (the token's tenant is used)."
       },
+      "CreatePrintAgentTokenRequest": {
+        "type": "object",
+        "properties": {
+          "branchId": {
+            "type": "integer",
+            "description": "Branch the Printer Agent will operate at for this print session.",
+            "format": "int64"
+          },
+          "printerId": {
+            "type": "integer",
+            "description": "Printer the Printer Agent will drive for this print session.",
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Payload for `POST /api/auth/print-agent-token` (Matica Print Flow). Both ids are\r\nvalidated as belonging to the caller's own tenant before a token is minted."
+      },
       "CreatePrinterRequest": {
         "type": "object",
         "properties": {
@@ -11761,10 +12101,26 @@
           "port": {
             "type": "string",
             "nullable": true
+          },
+          "tipperTemperature": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tipperPressure": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tipperConsumption": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tipperTime": {
+            "type": "integer",
+            "format": "int32"
           }
         },
         "additionalProperties": false,
-        "description": "Matica-only machine configuration, nested under a printer payload (ERD §6.2)."
+        "description": "Matica-only machine configuration, nested under a printer payload (ERD §6.2). The four\r\ntipper fields are printer-level hardware calibration (Matica Print Flow, tipper-parameter\r\nphase) — optional, defaulting to 0 to match DomainLayer.Entities.MaticaPrinterConfiguration's\r\nown default-0 behavior for a printer that has never had them explicitly configured."
       },
       "MaticaPrinterConfigResponse": {
         "type": "object",
@@ -11784,6 +12140,22 @@
           "port": {
             "type": "string",
             "nullable": true
+          },
+          "tipperTemperature": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tipperPressure": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tipperConsumption": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tipperTime": {
+            "type": "integer",
+            "format": "int32"
           }
         },
         "additionalProperties": false,
@@ -11846,6 +12218,40 @@
           "data": {
             "description": "The payload on success; null on failure.",
             "nullable": true
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Uniform response envelope returned by every endpoint, on both success and failure.\r\nClients branch on InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Success: when true, InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Data holds the payload\r\nand InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Error is null; when false, InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Error describes the failure and\r\nInventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Data is null. !:TraceId correlates client reports with logs.\r\nImplements InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ILocalizableApiResponse so the central error-localization filter\r\ncan replace the message without knowing the payload type <typeparamref name=\"T\" />."
+      },
+      "PrintAgentTokenResponse": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string",
+            "description": "Signed JWT to present as `Authorization: Bearer` to the print-flow endpoints.",
+            "nullable": true
+          },
+          "expiresAt": {
+            "type": "string",
+            "description": "UTC expiry — deliberately short-lived (see `PrintAgentTokenOptions.AccessTokenMinutes`).",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Short-lived, narrowly-scoped token for the Matica Printer Agent, returned by\r\n`POST /api/auth/print-agent-token`. Signed with a dedicated key\r\n(see `PrintAgentTokenOptions`) distinct from the caller's own session token — the\r\nPrinter Agent never sees, and never needs, the caller's real bearer token."
+      },
+      "PrintAgentTokenResponseApiResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "True when the operation succeeded."
+          },
+          "data": {
+            "$ref": "#/components/schemas/PrintAgentTokenResponse"
           },
           "error": {
             "$ref": "#/components/schemas/ApiError"
@@ -12536,6 +12942,32 @@
         "additionalProperties": false,
         "description": "Payload for `POST /api/inventory/transactions/{id}/receive` (API §4.10, Addendum A\r\n§2.3). This single call expresses every settlement outcome — there is no separate refuse\r\nendpoint.\r\n\r\n\r\nPer line, `received + disposed` may not exceed what was sent; whatever is left over\r\nbecomes an auto-generated return transfer back to the source, which that branch must then\r\nsettle in its own right.\r\n\r\n\r\nEvery product carried by the transfer must appear in Items. An omitted\r\nline is an error, not an implicit zero: partial receipt moves real stock, so it is stated\r\nrather than inferred.\r\n"
       },
+      "RecordPrintResultRequest": {
+        "type": "object",
+        "properties": {
+          "branchId": {
+            "type": "integer",
+            "description": "The branch this card was printed at — must match the same value passed to Backend Call #1\r\n(and the Print Agent token's own `branchId` claim). For an Unknown-way card this is\r\nalso the branch it gets assigned to for the first time.",
+            "format": "int64"
+          },
+          "success": {
+            "type": "boolean",
+            "description": "True when the physical print/emboss succeeded; false when it failed and the card is spoiled."
+          },
+          "holderName": {
+            "type": "string",
+            "description": "Cardholder name to record, if applicable.",
+            "nullable": true
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Generated once by the Printer Agent per physical print attempt and reused on every retry of\r\nthis same attempt. Not persisted or compared against a stored table (deliberately\r\nlightweight, per the agreed plan) — carried through only for log/audit correlation.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Backend Call #2 payload (Matica Print Flow): records the physical outcome of a print\r\nattempt, after the Printer Agent's `EjectCard` step. Fired exactly once per physical\r\nattempt in the success/failure case, and safely retryable — see\r\n`ProductItemService.RecordPrintResultAsync`'s doc comment for the lightweight\r\nidempotency behavior this relies on."
+      },
       "RefreshRequest": {
         "type": "object",
         "properties": {
@@ -12559,6 +12991,67 @@
         },
         "additionalProperties": false,
         "description": "Payload for `POST /api/inventory/requests/{id}/refuse` (API §4.9). Closes the request\r\nwithout generating anything."
+      },
+      "ResolveForPrintRequest": {
+        "type": "object",
+        "properties": {
+          "pan": {
+            "type": "string",
+            "description": "Raw full PAN as read off the card's magnetic stripe. Never stored as-is.",
+            "nullable": true
+          },
+          "productId": {
+            "type": "integer",
+            "description": "The product/card type this card is expected to be.",
+            "format": "int64"
+          },
+          "branchId": {
+            "type": "integer",
+            "description": "The branch this card is being printed at — must match the Print Agent token's own `branchId` claim.",
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Backend Call #1 payload (Matica Print Flow): resolves and validates exactly one physical\r\ncard for printing, right after the Printer Agent's `ReadMAG` step. Pan\r\nis the raw, full PAN read off the magnetic stripe — used only transiently, within this one\r\nrequest, to compute the card's identity fingerprint; it is never persisted, logged, or\r\nechoed back."
+      },
+      "ResolveForPrintResponse": {
+        "type": "object",
+        "properties": {
+          "productItemId": {
+            "type": "integer",
+            "description": "Identity of the resolved card — pass this to Backend Call #2.",
+            "format": "int64"
+          },
+          "maskedPan": {
+            "type": "string",
+            "description": "The card's display-safe masked PAN.",
+            "nullable": true
+          },
+          "holderName": {
+            "type": "string",
+            "description": "Any cardholder name already on file for this card, or null.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Successful result of Backend Call #1. Carries only what the Printer Agent needs to identify\r\nthe card in Backend Call #2 — never the PAN in any form beyond the already-masked display\r\nvalue."
+      },
+      "ResolveForPrintResponseApiResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "True when the operation succeeded."
+          },
+          "data": {
+            "$ref": "#/components/schemas/ResolveForPrintResponse"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Uniform response envelope returned by every endpoint, on both success and failure.\r\nClients branch on InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Success: when true, InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Data holds the payload\r\nand InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Error is null; when false, InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Error describes the failure and\r\nInventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Data is null. !:TraceId correlates client reports with logs.\r\nImplements InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ILocalizableApiResponse so the central error-localization filter\r\ncan replace the message without knowing the payload type <typeparamref name=\"T\" />."
       },
       "SettleTransferResult": {
         "type": "object",
@@ -13706,6 +14199,10 @@
     {
       "name": "Printers",
       "description": "Printer registry endpoints (ERD §6, Printing Module decisions Q-01/Q-09). Requires\r\nauthentication: tenant callers get read-only access, scoped to their own tenant; only a\r\nsystem admin may create, update, delete, or restore a printer —\r\nApplicationLayer.ServicesContracts.IPrinterConfigurationService enforces this itself, not this controller,\r\nmatching the locked \"[Authorize] only, no permission attributes\" convention. Hard delete\r\nis not exposed."
+    },
+    {
+      "name": "PrintFlow",
+      "description": "The two Matica Print Flow backend calls, exposed only to the Printer Agent — never to\r\nAngular directly, never under the caller's own tenant/admin session token. Deliberately a\r\nseparate controller from InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.ProductItemsController, following the same reasoning\r\ndocumented on InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.CardFilesController: two authorization postures (a normal\r\ntenant/admin session vs. a Print Agent token, signed with an entirely different key) in one\r\ncontroller would be legal and confusing.\r\n\r\n\r\nBoth actions additionally cross-check the request body's `BranchId` against the Print\r\nAgent token's own `branchId` claim — the token already scopes what its holder is\r\nallowed to touch, so a leaked or reused token cannot be pointed at a different branch just\r\nby changing the request body.\r\n"
     },
     {
       "name": "PrintImages",

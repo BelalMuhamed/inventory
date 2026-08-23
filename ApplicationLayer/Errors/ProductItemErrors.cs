@@ -34,5 +34,32 @@ namespace ApplicationLayer.Errors
         public static Error DisposeNotAllowedHere() =>
             Error.Validation("ProductItem.DisposeNotAllowedHere",
                 "Cards cannot be disposed through the status endpoint. Use the dispose endpoint, which requires a reason and a branch.");
+
+        /// <summary>
+        /// The supplied PAN is not a well-formed card number after normalization (→ 422). Matica
+        /// Print Flow, Backend Call #1.
+        /// </summary>
+        public static Error InvalidPan() =>
+            Error.Validation("ProductItem.InvalidPan", "The supplied card number is not valid.");
+
+        /// <summary>
+        /// Matica Print Flow, Backend Call #1: no printable card matches the supplied PAN/product/
+        /// branch combination right now (→ 404). Deliberately a single generic outcome — not
+        /// "wrong branch" vs. "not available" vs. "not found" — for the same no-existence-leak
+        /// reasoning as <see cref="NotFound"/>: a caller holding a Print Agent token should not be
+        /// able to distinguish "this card exists elsewhere" from "this card doesn't exist at all."
+        /// </summary>
+        public static Error NotFoundForPrint() =>
+            Error.NotFound("ProductItem.NotFoundForPrint",
+                "No printable card was found matching the supplied card number for this product and branch.");
+
+        /// <summary>
+        /// Matica Print Flow: the request body's <c>BranchId</c> disagrees with the Print Agent
+        /// token's own <c>branchId</c> claim (→ 403). Defense in depth — a leaked or reused token
+        /// cannot be redirected to a different branch just by editing the payload.
+        /// </summary>
+        public static Error PrintFlowScopeMismatch() =>
+            Error.Forbidden("ProductItem.PrintFlowScopeMismatch",
+                "The requested branch does not match this token's own scope.");
     }
 }

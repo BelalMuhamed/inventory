@@ -45,6 +45,18 @@ namespace InfrastructureLayer
             .ValidateOnStart();
             services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
 
+            // Matica Print Flow: same fail-fast pattern as the shared JWT signing key above, but
+            // for the Print Agent token's own dedicated key — deliberately validated separately so
+            // a missing/blank PrintAgentToken key can never silently fall back to the shared one.
+            services.AddOptions<PrintAgentTokenOptions>()
+                .Bind(configuration.GetSection(PrintAgentTokenOptions.SectionName))
+                .Validate(o => !string.IsNullOrWhiteSpace(o.SigningKey), "PrintAgentToken SigningKey is required.")
+                .Validate(o => !string.IsNullOrWhiteSpace(o.Issuer), "PrintAgentToken Issuer is required.")
+                .Validate(o => !string.IsNullOrWhiteSpace(o.Audience), "PrintAgentToken Audience is required.")
+                .ValidateOnStart();
+            services.Configure<PrintAgentTokenOptions>(configuration.GetSection(PrintAgentTokenOptions.SectionName));
+            services.AddScoped<IPrintAgentTokenGenerator, PrintAgentTokenGenerator>();
+
             // Batch Upload Phased Plan, Phase 7: same fail-fast pattern as the JWT signing key —
             // a misconfigured master secret should surface as a clear startup error, not a
             // confusing decrypt failure on the first upload attempt.

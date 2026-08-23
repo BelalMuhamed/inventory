@@ -47,6 +47,14 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
 
             JwtOptions jwt = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
 
+            // Matica Print Flow: a second, dedicated key/audience for the Printer Agent's
+            // short-lived token — deliberately never validated against the shared tenant/admin
+            // key above. See PrintAgentTokenGenerator's doc comment for why this separation
+            // matters (a compromised branch machine must never be able to forge a real session).
+            PrintAgentTokenOptions printAgentJwt =
+                configuration.GetSection(PrintAgentTokenOptions.SectionName).Get<PrintAgentTokenOptions>()
+                ?? new PrintAgentTokenOptions();
+
             services
                 .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
@@ -62,6 +70,21 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
                         ValidAudience = jwt.Audience,
                         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SigningKey)),
                         NameClaimType = JwtTokenGenerator.UsernameClaim // User.Identity.Name resolves to username
+                    };
+                })
+                .AddJwtBearer(PrintAgentTokenGenerator.AuthenticationScheme, options =>
+                {
+                    options.MapInboundClaims = false;
+                    options.TokenValidationParameters = new TokenValidationParameters
+                    {
+                        ValidateIssuer = true,
+                        ValidateAudience = true,
+                        ValidateLifetime = true,
+                        ValidateIssuerSigningKey = true,
+                        ValidIssuer = printAgentJwt.Issuer,
+                        ValidAudience = printAgentJwt.Audience,
+                        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(printAgentJwt.SigningKey)),
+                        NameClaimType = PrintAgentTokenGenerator.PrinterIdClaim
                     };
                 });
 

@@ -42,4 +42,22 @@ namespace ApplicationLayer.DTOs.Auth
     /// <param name="Username">Login username of the authenticated principal.</param>
     /// <param name="IsSystemAdmin">True when the caller is the bootstrap system admin.</param>
     public sealed record CurrentPrincipalResponse(string Username, bool IsSystemAdmin);
+
+    /// <summary>
+    /// Payload for <c>POST /api/auth/print-agent-token</c> (Matica Print Flow). Both ids are
+    /// validated as belonging to the caller's own tenant before a token is minted.
+    /// </summary>
+    /// <param name="BranchId">Branch the Printer Agent will operate at for this print session.</param>
+    /// <param name="PrinterId">Printer the Printer Agent will drive for this print session.</param>
+    public sealed record CreatePrintAgentTokenRequest(long BranchId, long PrinterId);
+
+    /// <summary>
+    /// Short-lived, narrowly-scoped token for the Matica Printer Agent, returned by
+    /// <c>POST /api/auth/print-agent-token</c>. Signed with a dedicated key
+    /// (see <c>PrintAgentTokenOptions</c>) distinct from the caller's own session token — the
+    /// Printer Agent never sees, and never needs, the caller's real bearer token.
+    /// </summary>
+    /// <param name="AccessToken">Signed JWT to present as <c>Authorization: Bearer</c> to the print-flow endpoints.</param>
+    /// <param name="ExpiresAt">UTC expiry — deliberately short-lived (see <c>PrintAgentTokenOptions.AccessTokenMinutes</c>).</param>
+    public sealed record PrintAgentTokenResponse(string AccessToken, DateTime ExpiresAt);
 }

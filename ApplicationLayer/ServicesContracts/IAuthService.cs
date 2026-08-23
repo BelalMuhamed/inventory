@@ -44,5 +44,16 @@ namespace ApplicationLayer.ServicesContracts
         /// <param name="request">The logout request carrying the refresh token to revoke.</param>
         /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
         Task<Result> LogoutAsync(LogoutRequest request, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Mints a short-lived, narrowly-scoped token for the Matica Printer Agent (Matica Print
+        /// Flow), after confirming the target branch and printer both belong to the caller's own
+        /// tenant. Requires a tenant token — a system-admin caller has no tenant context to scope
+        /// the token to, and is rejected outright.
+        /// </summary>
+        /// <param name="request">The target branch and printer the Printer Agent will operate for.</param>
+        /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
+        Task<Result<PrintAgentTokenResponse>> CreatePrintAgentTokenAsync(
+            CreatePrintAgentTokenRequest request, CancellationToken cancellationToken = default);
     }
 }

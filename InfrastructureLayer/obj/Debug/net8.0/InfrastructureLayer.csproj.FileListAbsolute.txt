@@ -5,7 +5,9 @@ C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuan
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InfrastructureLayer\bin\Debug\net8.0\ApplicationLayer.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InfrastructureLayer\bin\Debug\net8.0\DomainLayer.dll
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InfrastructureLayer\bin\Debug\net8.0\ApplicationLayer.pdb
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InfrastructureLayer\bin\Debug\net8.0\ApplicationLayer.xml
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InfrastructureLayer\bin\Debug\net8.0\DomainLayer.pdb
+C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InfrastructureLayer\bin\Debug\net8.0\DomainLayer.xml
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InfrastructureLayer\obj\Debug\net8.0\InfrastructureLayer.csproj.AssemblyReference.cache
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InfrastructureLayer\obj\Debug\net8.0\InfrastructureLayer.GeneratedMSBuildEditorConfig.editorconfig
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InfrastructureLayer\obj\Debug\net8.0\InfrastructureLayer.AssemblyInfoInputs.cache
@@ -18,5 +20,3 @@ C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuan
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InfrastructureLayer\obj\Debug\net8.0\InfrastructureLayer.pdb
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InfrastructureLayer\obj\Debug\net8.0\InfrastructureLayer.genruntimeconfig.cache
 C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InfrastructureLayer\obj\Debug\net8.0\ref\InfrastructureLayer.dll
-C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InfrastructureLayer\bin\Debug\net8.0\ApplicationLayer.xml
-C:\Users\b.zakaria\Desktop\Inventory For MDP\InventoryManagmentAndInstanceIssuanceSolution\InfrastructureLayer\bin\Debug\net8.0\DomainLayer.xml

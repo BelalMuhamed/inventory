@@ -45,5 +45,25 @@ namespace DomainLayer.Entities
 
         /// <summary>Communication port (e.g. COM port or TCP port) the printer listens on.</summary>
         public string Port { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Tipper temperature, pressure, consumption and time settings sent with every Emboss
+        /// command by the Matica Printer Agent (Matica Print Flow, tipper-parameter phase).
+        /// Printer-level hardware calibration, not per-product — hence living here rather than on
+        /// <see cref="MaticaProductPrintConfiguration"/>. Default <c>0</c> when not explicitly
+        /// configured is intentional (approved decision): a Matica printer that has never had
+        /// these set should behave exactly as it did before this phase existed, not fail or
+        /// substitute an assumed value.
+        /// </summary>
+        public int TipperTemperature { get; set; }
+
+        /// <summary>Tipper pressure setting. See <see cref="TipperTemperature"/> for the default-0 rationale.</summary>
+        public int TipperPressure { get; set; }
+
+        /// <summary>Tipper consumption setting. See <see cref="TipperTemperature"/> for the default-0 rationale.</summary>
+        public int TipperConsumption { get; set; }
+
+        /// <summary>Tipper time setting. See <see cref="TipperTemperature"/> for the default-0 rationale.</summary>
+        public int TipperTime { get; set; }
     }
 }

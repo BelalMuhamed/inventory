@@ -137,6 +137,10 @@ namespace InfrastructureLayer.Services
                         HopperId = request.MaticaConfig.HopperId,
                         RejectedId = request.MaticaConfig.RejectedId,
                         Port = request.MaticaConfig.Port,
+                        TipperTemperature = request.MaticaConfig.TipperTemperature,
+                        TipperPressure = request.MaticaConfig.TipperPressure,
+                        TipperConsumption = request.MaticaConfig.TipperConsumption,
+                        TipperTime = request.MaticaConfig.TipperTime,
                     };
                     await _unitOfWork.MaticaPrinterConfigs.AddAsync(maticaConfig, cancellationToken);
                 }
@@ -224,6 +228,10 @@ namespace InfrastructureLayer.Services
                     maticaConfig.HopperId = request.MaticaConfig.HopperId;
                     maticaConfig.RejectedId = request.MaticaConfig.RejectedId;
                     maticaConfig.Port = request.MaticaConfig.Port;
+                    maticaConfig.TipperTemperature = request.MaticaConfig.TipperTemperature;
+                    maticaConfig.TipperPressure = request.MaticaConfig.TipperPressure;
+                    maticaConfig.TipperConsumption = request.MaticaConfig.TipperConsumption;
+                    maticaConfig.TipperTime = request.MaticaConfig.TipperTime;
                     _unitOfWork.MaticaPrinterConfigs.Update(maticaConfig);
                 }
 
@@ -382,7 +390,9 @@ namespace InfrastructureLayer.Services
             maticaConfig is null
                 ? null
                 : new MaticaPrinterConfigResponse(
-                    maticaConfig.FeederId, maticaConfig.HopperId, maticaConfig.RejectedId, maticaConfig.Port),
+                    maticaConfig.FeederId, maticaConfig.HopperId, maticaConfig.RejectedId, maticaConfig.Port,
+                    maticaConfig.TipperTemperature, maticaConfig.TipperPressure,
+                    maticaConfig.TipperConsumption, maticaConfig.TipperTime),
             p.IsDeleted,
             p.CreatedAt,
             p.UpdatedAt,

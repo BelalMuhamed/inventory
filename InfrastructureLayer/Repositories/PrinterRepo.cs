@@ -51,6 +51,14 @@ namespace InfrastructureLayer.Repositories
                 query = query.Where(p => p.BranchId == branch);
             }
 
+            // Exact match (not Contains, unlike Product/Branch's Name filters) — this is an
+            // identity lookup for one specific device by its known IP/serial, added for the
+            // Matica Print Flow, not a browsing filter.
+            if (!string.IsNullOrWhiteSpace(filter.UniqueNumber))
+            {
+                query = query.Where(p => p.UniqueNumber == filter.UniqueNumber);
+            }
+
             bool desc = string.Equals(filter.SortDir, "desc", StringComparison.OrdinalIgnoreCase);
             query = (filter.SortBy?.ToLowerInvariant()) switch
             {
