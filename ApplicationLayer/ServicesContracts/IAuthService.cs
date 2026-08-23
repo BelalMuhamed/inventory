@@ -55,5 +55,35 @@ namespace ApplicationLayer.ServicesContracts
         /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
         Task<Result<PrintAgentTokenResponse>> CreatePrintAgentTokenAsync(
             CreatePrintAgentTokenRequest request, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Exchanges a service account's client id/secret for a short-lived reconciliation access
+        /// token. Client-credentials style — no user session involved. Returns the same
+        /// <see cref="AuthErrors.ServiceCredentialInvalid"/> code whether the client id doesn't
+        /// exist or the secret is wrong, and a distinct <see cref="AuthErrors.ServiceCredentialRevoked"/>
+        /// when the account exists and the secret matches but has been revoked.
+        /// </summary>
+        /// <param name="request">The client id and secret.</param>
+        /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
+        Task<Result<ServiceTokenResponse>> CreateServiceTokenAsync(
+            ServiceTokenRequest request, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Provisions a new reconciliation service account for one Printer Agent instance
+        /// (system-admin only). The returned <see cref="CreateServiceAccountResponse.ClientSecret"/>
+        /// is shown exactly once; only its hash is persisted.
+        /// </summary>
+        /// <param name="request">The owning tenant, branch, and a human-readable label.</param>
+        /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
+        Task<Result<CreateServiceAccountResponse>> CreateServiceAccountAsync(
+            CreateServiceAccountRequest request, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Revokes a reconciliation service account (system-admin only). Idempotent: revoking an
+        /// already-revoked account still succeeds.
+        /// </summary>
+        /// <param name="id">The service account's id.</param>
+        /// <param name="cancellationToken">Token to observe while awaiting the operation.</param>
+        Task<Result> RevokeServiceAccountAsync(long id, CancellationToken cancellationToken = default);
     }
 }

@@ -63,6 +63,13 @@ namespace ApplicationLayer.Contracts
         IPrintImageRepo PrintImages { get; }
 
         /// <summary>
+        /// Repository for reconciliation service accounts (Matica Print Flow, reconciliation-
+        /// credential phase) — the dedicated, revocable credential the background outbox
+        /// reconciliation job authenticates with, distinct from any user-delegated token.
+        /// </summary>
+        IPrintAgentServiceAccountRepo ServiceAccounts { get; }
+
+        /// <summary>
         /// Runs <paramref name="work"/> inside an explicit DB transaction (ERD §3.1 invariant /
         /// Batch Upload Phased Plan §3.6 &amp; §4.8): <paramref name="work"/> stages changes via
         /// repository calls only — it must not call <see cref="SaveChangesAsync"/> itself. This

@@ -41,5 +41,35 @@ namespace ApplicationLayer.Errors
         public static Error PrintAgentPrinterNotFound() =>
             Error.NotFound("Auth.PrintAgentPrinterNotFound",
                 "No printer was found with the supplied id at the supplied branch for this tenant.");
+
+        /// <summary>
+        /// <c>POST /api/auth/service-token</c> was called with a <c>ClientId</c> that does not
+        /// exist, or a <c>ClientSecret</c> that does not match it (→ 401). One code for both cases,
+        /// deliberately — the same no-existence-leak discipline as <c>Auth.InvalidCredentials</c>,
+        /// so the response never reveals whether a given client id is even provisioned.
+        /// </summary>
+        public static Error ServiceCredentialInvalid() =>
+            Error.Unauthorized("Auth.ServiceCredentialInvalid", "Invalid service credential.");
+
+        /// <summary>
+        /// <c>POST /api/auth/service-token</c> was called with a <c>ClientId</c> that exists and a
+        /// matching secret, but the account has been revoked (→ 401). Deliberately a distinct code
+        /// from <see cref="ServiceCredentialInvalid"/> — an invalid secret and a revoked account
+        /// are different operational situations even though both refuse the mint.
+        /// </summary>
+        public static Error ServiceCredentialRevoked() =>
+            Error.Unauthorized("Auth.ServiceCredentialRevoked", "This service credential has been revoked.");
+
+        /// <summary>
+        /// The branch supplied to <c>POST /api/auth/service-accounts</c> does not exist, or does
+        /// not belong to the supplied tenant (→ 404).
+        /// </summary>
+        public static Error ServiceAccountBranchNotFound() =>
+            Error.NotFound("Auth.ServiceAccountBranchNotFound",
+                "No branch was found with the supplied id for the supplied tenant.");
+
+        /// <summary>No service account exists with the supplied id (→ 404), for revoke.</summary>
+        public static Error ServiceAccountNotFound() =>
+            Error.NotFound("Auth.ServiceAccountNotFound", "No service account was found with the supplied id.");
     }
 }

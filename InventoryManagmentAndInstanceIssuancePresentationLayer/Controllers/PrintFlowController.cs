@@ -22,16 +22,27 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
     /// tenant/admin session vs. a Print Agent token, signed with an entirely different key) in one
     /// controller would be legal and confusing.
     /// <para>
-    /// Both actions additionally cross-check the request body's <c>BranchId</c> against the Print
-    /// Agent token's own <c>branchId</c> claim — the token already scopes what its holder is
-    /// allowed to touch, so a leaked or reused token cannot be pointed at a different branch just
-    /// by changing the request body.
+    /// <c>[Authorize]</c> is applied per action, not at the class level (Matica Print Flow,
+    /// reconciliation-credential phase) — <see cref="ResolveForPrint"/> only ever runs during a
+    /// live print attempt, so it stays <see cref="AuthorizationPolicies.PrintAgentOnly"/>-only;
+    /// <see cref="RecordPrintResult"/> is also called by the background reconciliation job, so it
+    /// uses <see cref="AuthorizationPolicies.PrintResultAuthorized"/> instead, which accepts either
+    /// token type. Multiple <c>[Authorize]</c> attributes on a class and its methods combine with
+    /// AND semantics in ASP.NET Core, not "most specific wins" — a class-level
+    /// <c>PrintAgentOnly</c> attribute would have stacked with an action-level policy rather than
+    /// been replaced by it, which is why this controller has no class-level <c>[Authorize]</c> at
+    /// all and both actions declare their own.
+    /// </para>
+    /// <para>
+    /// Both actions additionally cross-check the request body's <c>BranchId</c> against the
+    /// authenticated token's own <c>branchId</c> claim — every token type here carries one, so a
+    /// leaked or reused token of either kind cannot be pointed at a different branch just by
+    /// changing the request body.
     /// </para>
     /// </summary>
-    /// <response code="401">No valid Print Agent token was supplied.</response>
+    /// <response code="401">No valid Print Agent or reconciliation service token was supplied.</response>
     [ApiController]
     [Route("api/print-flow")]
-    [Authorize(Policy = AuthorizationPolicies.PrintAgentOnly)]
     [Produces("application/json")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
@@ -56,6 +67,7 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// <response code="409">The branch has insufficient Unknown-way stock for this product.</response>
         /// <response code="422">The supplied PAN is not well-formed.</response>
         [HttpPost("resolve-for-print")]
+        [Authorize(Policy = AuthorizationPolicies.PrintAgentOnly)]
         [ProducesResponseType(typeof(ApiResponse<ResolveForPrintResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
@@ -87,6 +99,7 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         /// <response code="404">No such card, or it no longer matches the expected branch/status.</response>
         /// <response code="409">The card is already disposed, or the branch has insufficient Unknown-way stock.</response>
         [HttpPost("{productItemId:long}/print-result")]
+        [Authorize(Policy = AuthorizationPolicies.PrintResultAuthorized)]
         [ProducesResponseType(typeof(ApiResponse<ProductItemResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
@@ -105,11 +118,14 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         }
 
         /// <summary>
-        /// Defense in depth: the Print Agent token already scopes its holder to one branch (and
-        /// printer) via its own claims, set once at mint time by <c>AuthController.CreatePrintAgentToken</c>
-        /// after validating tenant ownership. This just confirms the request body cannot silently
-        /// disagree with the token's own claim — a leaked token can't be redirected to a different
-        /// branch by editing the payload alone.
+        /// Defense in depth: whichever token authenticated the caller — a live Print Agent token
+        /// or a background reconciliation service token — already scopes its holder to one branch
+        /// via a <c>branchId</c> claim, set once at mint time (by <c>AuthController.CreatePrintAgentToken</c>
+        /// or <c>AuthController.CreateServiceToken</c> respectively, both after validating tenant
+        /// ownership). Both token types use the same claim type name for this, so one check here
+        /// covers either; this just confirms the request body cannot silently disagree with
+        /// whichever one is actually present — a leaked token of either kind can't be redirected
+        /// to a different branch by editing the payload alone.
         /// </summary>
         private bool IsOutsideTokenScope(long requestedBranchId) =>
             User.FindFirstValue(PrintAgentTokenGenerator.BranchIdClaim) != requestedBranchId.ToString();

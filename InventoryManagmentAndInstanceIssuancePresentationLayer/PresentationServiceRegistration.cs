@@ -55,6 +55,15 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
                 configuration.GetSection(PrintAgentTokenOptions.SectionName).Get<PrintAgentTokenOptions>()
                 ?? new PrintAgentTokenOptions();
 
+            // Matica Print Flow, reconciliation-credential phase: a third dedicated key for the
+            // background reconciliation job's service token — same isolation reasoning as the
+            // print-agent-token scheme, one level further: this key authorizes exactly one thing
+            // (recording a print result during reconciliation), nothing a print-agent token or a
+            // tenant session can already do.
+            ReconciliationTokenOptions reconciliationJwt =
+                configuration.GetSection(ReconciliationTokenOptions.SectionName).Get<ReconciliationTokenOptions>()
+                ?? new ReconciliationTokenOptions();
+
             services
                 .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
@@ -85,6 +94,21 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer
                         ValidAudience = printAgentJwt.Audience,
                         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(printAgentJwt.SigningKey)),
                         NameClaimType = PrintAgentTokenGenerator.PrinterIdClaim
+                    };
+                })
+                .AddJwtBearer(ReconciliationTokenGenerator.AuthenticationScheme, options =>
+                {
+                    options.MapInboundClaims = false;
+                    options.TokenValidationParameters = new TokenValidationParameters
+                    {
+                        ValidateIssuer = true,
+                        ValidateAudience = true,
+                        ValidateLifetime = true,
+                        ValidateIssuerSigningKey = true,
+                        ValidIssuer = reconciliationJwt.Issuer,
+                        ValidAudience = reconciliationJwt.Audience,
+                        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(reconciliationJwt.SigningKey)),
+                        NameClaimType = ReconciliationTokenGenerator.BranchIdClaim
                     };
                 });
 

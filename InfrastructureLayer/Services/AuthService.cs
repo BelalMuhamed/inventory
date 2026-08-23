@@ -29,6 +29,7 @@ namespace InfrastructureLayer.Services
         private readonly JwtOptions _jwtOptions;
         private readonly ICurrentTenant _currentTenant;
         private readonly IPrintAgentTokenGenerator _printAgentTokenGenerator;
+        private readonly IReconciliationTokenGenerator _reconciliationTokenGenerator;
 
         /// <summary>Creates the service with its collaborators (constructor injection only).</summary>
         public AuthService(
@@ -38,7 +39,8 @@ namespace InfrastructureLayer.Services
           ,
             IOptions<JwtOptions> jwtOptions,IAuditLogger auditLogger,
             ICurrentTenant currentTenant,
-            IPrintAgentTokenGenerator printAgentTokenGenerator)
+            IPrintAgentTokenGenerator printAgentTokenGenerator,
+            IReconciliationTokenGenerator reconciliationTokenGenerator)
         {
             _unitOfWork = unitOfWork;
             _passwordHasher = passwordHasher;
@@ -48,6 +50,7 @@ namespace InfrastructureLayer.Services
             _jwtOptions = jwtOptions.Value;
             _currentTenant = currentTenant;
             _printAgentTokenGenerator = printAgentTokenGenerator;
+            _reconciliationTokenGenerator = reconciliationTokenGenerator;
         }
 
         /// <inheritdoc />
@@ -177,6 +180,86 @@ namespace InfrastructureLayer.Services
 
             PrintAgentAccessToken token = _printAgentTokenGenerator.Create(tenantId, request.BranchId, request.PrinterId);
             return Result.Success(new PrintAgentTokenResponse(token.Token, token.ExpiresAt));
+        }
+
+        /// <inheritdoc />
+        public async Task<Result<ServiceTokenResponse>> CreateServiceTokenAsync(
+            ServiceTokenRequest request, CancellationToken cancellationToken = default)
+        {
+            PrintAgentServiceAccount? account =
+                await _unitOfWork.ServiceAccounts.GetByClientIdAsync(request.ClientId, cancellationToken);
+
+            // One code whether the client id doesn't exist or the secret is wrong - the same
+            // no-existence-leak discipline as tenant/admin login, so this response never reveals
+            // whether a given client id is even provisioned.
+            if (account is null || !_passwordHasher.Verify(account.ClientSecretHash, request.ClientSecret))
+            {
+                return Result.Failure<ServiceTokenResponse>(AuthErrors.ServiceCredentialInvalid());
+            }
+
+            if (account.RevokedAt is not null)
+            {
+                return Result.Failure<ServiceTokenResponse>(AuthErrors.ServiceCredentialRevoked());
+            }
+
+            account.LastUsedAt = DateTime.UtcNow;
+            _unitOfWork.ServiceAccounts.Update(account);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            ReconciliationAccessToken token = _reconciliationTokenGenerator.Create(account.TenantId, account.BranchId);
+            return Result.Success(new ServiceTokenResponse(token.Token, token.ExpiresAt));
+        }
+
+        /// <inheritdoc />
+        public async Task<Result<CreateServiceAccountResponse>> CreateServiceAccountAsync(
+            CreateServiceAccountRequest request, CancellationToken cancellationToken = default)
+        {
+            // Authorization (system-admin only) is enforced by the SystemAdminOnly policy at the
+            // controller - not re-checked here, so it isn't duplicated across every method that
+            // policy already gates.
+            Branch? branch = await _unitOfWork.Branches.GetByIdAsync(request.BranchId, cancellationToken);
+            if (branch is null || branch.TenantId != request.TenantId)
+            {
+                return Result.Failure<CreateServiceAccountResponse>(AuthErrors.ServiceAccountBranchNotFound());
+            }
+
+            // The raw secret exists only in this method's local scope and the response returned
+            // to the caller - never persisted, never logged.
+            string rawSecret = GenerateOpaqueToken();
+            var account = new PrintAgentServiceAccount
+            {
+                TenantId = request.TenantId,
+                BranchId = request.BranchId,
+                ClientId = Guid.NewGuid(),
+                ClientSecretHash = _passwordHasher.Hash(rawSecret),
+                Label = request.Label,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _unitOfWork.ServiceAccounts.AddAsync(account, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            return Result.Success(new CreateServiceAccountResponse(account.Id, account.ClientId, rawSecret, account.Label));
+        }
+
+        /// <inheritdoc />
+        public async Task<Result> RevokeServiceAccountAsync(long id, CancellationToken cancellationToken = default)
+        {
+            PrintAgentServiceAccount? account = await _unitOfWork.ServiceAccounts.GetByIdAsync(id, cancellationToken);
+            if (account is null)
+            {
+                return Result.Failure(AuthErrors.ServiceAccountNotFound());
+            }
+
+            // Idempotent: revoking an already-revoked account still succeeds, same posture as logout.
+            if (account.RevokedAt is null)
+            {
+                account.RevokedAt = DateTime.UtcNow;
+                _unitOfWork.ServiceAccounts.Update(account);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+
+            return Result.Success();
         }
 
         private async Task<AuthResponse> IssueWithRefreshAsync(

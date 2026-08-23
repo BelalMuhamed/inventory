@@ -38,6 +38,7 @@ namespace InfrastructureLayer
             MaticaProductPrintConfigs = new MaticaProductPrintConfigRepo(context);
             EvolisProductPrintConfigs = new EvolisProductPrintConfigRepo(context);
             PrintImages = new PrintImageRepo(context);
+            ServiceAccounts = new PrintAgentServiceAccountRepo(context);
         }
 
         public ITenantRepo Tenants { get; }
@@ -57,6 +58,7 @@ namespace InfrastructureLayer
         public IMaticaProductPrintConfigRepo MaticaProductPrintConfigs { get; }
         public IEvolisProductPrintConfigRepo EvolisProductPrintConfigs { get; }
         public IPrintImageRepo PrintImages { get; }
+        public IPrintAgentServiceAccountRepo ServiceAccounts { get; }
 
 
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)

@@ -24,6 +24,23 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Security
         /// </summary>
         public const string PrintAgentOnly = "PrintAgentOnly";
 
+        /// <summary>
+        /// Policy name requiring a valid reconciliation service token (Matica Print Flow,
+        /// reconciliation-credential phase). Restricted to
+        /// <see cref="ReconciliationTokenGenerator.AuthenticationScheme"/> — used only by the
+        /// background outbox reconciliation job, never by a live print request.
+        /// </summary>
+        public const string ReconciliationOnly = "ReconciliationOnly";
+
+        /// <summary>
+        /// Policy name for <c>print-result</c> specifically: accepts either a live Print Agent
+        /// token or a reconciliation service token, since both a live request and a background
+        /// retry legitimately call that one action. Both schemes are listed so authentication is
+        /// attempted against each; <c>RequireClaim</c>'s built-in support for multiple allowed
+        /// values does the "either" check — no custom <c>IAuthorizationHandler</c> needed.
+        /// </summary>
+        public const string PrintResultAuthorized = "PrintResultAuthorized";
+
         /// <summary>Registers all application authorization policies.</summary>
         /// <param name="options">The authorization options being configured.</param>
         public static void Register(AuthorizationOptions options)
@@ -35,6 +52,22 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Security
             {
                 policy.AuthenticationSchemes.Add(PrintAgentTokenGenerator.AuthenticationScheme);
                 policy.RequireClaim(PrintAgentTokenGenerator.PurposeClaim, PrintAgentTokenGenerator.PurposeValue);
+            });
+
+            options.AddPolicy(ReconciliationOnly, policy =>
+            {
+                policy.AuthenticationSchemes.Add(ReconciliationTokenGenerator.AuthenticationScheme);
+                policy.RequireClaim(ReconciliationTokenGenerator.PurposeClaim, ReconciliationTokenGenerator.PurposeValue);
+            });
+
+            options.AddPolicy(PrintResultAuthorized, policy =>
+            {
+                policy.AuthenticationSchemes.Add(PrintAgentTokenGenerator.AuthenticationScheme);
+                policy.AuthenticationSchemes.Add(ReconciliationTokenGenerator.AuthenticationScheme);
+                policy.RequireClaim(
+                    PrintAgentTokenGenerator.PurposeClaim,
+                    PrintAgentTokenGenerator.PurposeValue,
+                    ReconciliationTokenGenerator.PurposeValue);
             });
         }
     }

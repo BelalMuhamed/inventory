@@ -132,6 +132,18 @@
   <data name="Auth.PrintAgentPrinterNotFound" xml:space="preserve">
     <value>No printer was found with the supplied id at the supplied branch for this tenant.</value>
   </data>
+  <data name="Auth.ServiceCredentialInvalid" xml:space="preserve">
+    <value>Invalid service credential.</value>
+  </data>
+  <data name="Auth.ServiceCredentialRevoked" xml:space="preserve">
+    <value>This service credential has been revoked.</value>
+  </data>
+  <data name="Auth.ServiceAccountBranchNotFound" xml:space="preserve">
+    <value>No branch was found with the supplied id for the supplied tenant.</value>
+  </data>
+  <data name="Auth.ServiceAccountNotFound" xml:space="preserve">
+    <value>No service account was found with the supplied id.</value>
+  </data>
   <data name="Error.Unexpected" xml:space="preserve">
     <value>An unexpected error occurred.</value>
   </data>

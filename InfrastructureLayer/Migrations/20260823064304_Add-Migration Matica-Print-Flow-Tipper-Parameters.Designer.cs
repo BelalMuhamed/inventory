@@ -4,6 +4,7 @@ using InfrastructureLayer.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace InfrastructureLayer.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260823064304_Add-Migration Matica-Print-Flow-Tipper-Parameters")]
+    partial class AddMigrationMaticaPrintFlowTipperParameters
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -789,57 +792,6 @@ namespace InfrastructureLayer.Migrations
                         {
                             t.HasCheckConstraint("CK_MaticaProductPrintConfigurations_FontSize_NonNegative", "[FontSize] >= 0");
                         });
-                });
-
-            modelBuilder.Entity("DomainLayer.Entities.PrintAgentServiceAccount", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<long>("BranchId")
-                        .HasColumnType("bigint");
-
-                    b.Property<Guid>("ClientId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("ClientSecretHash")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("nvarchar(256)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Label")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<DateTime?>("LastUsedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime?>("RevokedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<long>("TenantId")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BranchId")
-                        .HasDatabaseName("IX_PrintAgentServiceAccounts_BranchId");
-
-                    b.HasIndex("ClientId")
-                        .IsUnique()
-                        .HasDatabaseName("UX_PrintAgentServiceAccounts_ClientId");
-
-                    b.HasIndex("TenantId")
-                        .HasDatabaseName("IX_PrintAgentServiceAccounts_TenantId");
-
-                    b.ToTable("PrintAgentServiceAccounts", (string)null);
                 });
 
             modelBuilder.Entity("DomainLayer.Entities.PrintImage", b =>

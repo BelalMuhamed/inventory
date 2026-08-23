@@ -60,4 +60,43 @@ namespace ApplicationLayer.DTOs.Auth
     /// <param name="AccessToken">Signed JWT to present as <c>Authorization: Bearer</c> to the print-flow endpoints.</param>
     /// <param name="ExpiresAt">UTC expiry — deliberately short-lived (see <c>PrintAgentTokenOptions.AccessTokenMinutes</c>).</param>
     public sealed record PrintAgentTokenResponse(string AccessToken, DateTime ExpiresAt);
+
+    /// <summary>
+    /// Payload for <c>POST /api/auth/service-token</c> (Matica Print Flow, reconciliation
+    /// credential). Client-credentials style: no user session involved, the caller authenticates
+    /// entirely with its own standing <see cref="DomainLayer.Entities.PrintAgentServiceAccount"/>.
+    /// </summary>
+    /// <param name="ClientId">The service account's public identifier.</param>
+    /// <param name="ClientSecret">The service account's secret, verified against its stored hash and never logged.</param>
+    public sealed record ServiceTokenRequest(Guid ClientId, string ClientSecret);
+
+    /// <summary>
+    /// Short-lived token for the Matica Printer Agent's background reconciliation job, returned by
+    /// <c>POST /api/auth/service-token</c>. Signed with a third dedicated key
+    /// (see <c>ReconciliationTokenOptions</c>), distinct from both the tenant/admin key and the
+    /// print-agent-token key.
+    /// </summary>
+    /// <param name="AccessToken">Signed JWT to present as <c>Authorization: Bearer</c> to <c>print-result</c>.</param>
+    /// <param name="ExpiresAt">UTC expiry.</param>
+    public sealed record ServiceTokenResponse(string AccessToken, DateTime ExpiresAt);
+
+    /// <summary>
+    /// Payload for <c>POST /api/auth/service-accounts</c> (system-admin only) — provisions a new
+    /// reconciliation service account for one Printer Agent instance.
+    /// </summary>
+    /// <param name="TenantId">Owning tenant.</param>
+    /// <param name="BranchId">The single branch this service account is scoped to.</param>
+    /// <param name="Label">Human-readable label for operators (e.g. "Branch 12 Printer Agent").</param>
+    public sealed record CreateServiceAccountRequest(long TenantId, long BranchId, string Label);
+
+    /// <summary>
+    /// Result of provisioning a service account. <see cref="ClientSecret"/> is the raw secret,
+    /// shown exactly once — only its hash is persisted, so this is the only time it is ever
+    /// retrievable. Losing it means provisioning a new account; there is no recovery.
+    /// </summary>
+    /// <param name="Id">The service account's id, used to revoke it later.</param>
+    /// <param name="ClientId">The public identifier to configure into the Printer Agent.</param>
+    /// <param name="ClientSecret">The raw secret — shown once, never stored, never retrievable again.</param>
+    /// <param name="Label">Echoes the label supplied at creation.</param>
+    public sealed record CreateServiceAccountResponse(long Id, Guid ClientId, string ClientSecret, string Label);
 }

@@ -717,6 +717,221 @@
         }
       }
     },
+    "/api/auth/service-token": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Exchanges a reconciliation service account's client id/secret for a short-lived\r\nservice token (Matica Print Flow, reconciliation-credential phase). Client-credentials\r\nstyle — no user session involved, unlike every other endpoint in this controller except\r\nlogin itself. Called by the Printer Agent's background outbox reconciliation job, never\r\nduring a live print request.",
+        "parameters": [
+          {
+            "name": "Accept-Language",
+            "in": "header",
+            "description": "Response language: 'en' (default) or 'ar'.",
+            "schema": {
+              "enum": [
+                "en",
+                "ar"
+              ],
+              "type": "string",
+              "default": "en"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The service account's client id and secret.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceTokenRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceTokenRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceTokenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Token minted; returns the signed access token and its (short) expiry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceTokenResponseApiResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The client id/secret is invalid, or the account has been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/service-accounts": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Provisions a new reconciliation service account for one Printer Agent instance\r\n(Matica Print Flow, reconciliation-credential phase). System-admin only — provisioning\r\na standing credential is a more consequential operation than a tenant self-serving a\r\nshort-lived, already-scoped print-agent token.",
+        "parameters": [
+          {
+            "name": "Accept-Language",
+            "in": "header",
+            "description": "Response language: 'en' (default) or 'ar'.",
+            "schema": {
+              "enum": [
+                "en",
+                "ar"
+              ],
+              "type": "string",
+              "default": "en"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The owning tenant, branch, and a human-readable label.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateServiceAccountRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateServiceAccountRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateServiceAccountRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Account provisioned. `ClientSecret` in the response is shown exactly once — only\r\nits hash is persisted, so this is the only opportunity to record it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateServiceAccountResponseApiResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The supplied branch does not exist, or does not belong to the supplied tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/service-accounts/{id}/revoke": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Revokes a reconciliation service account (Matica Print Flow, reconciliation-credential\r\nphase). System-admin only. Idempotent — revoking an already-revoked account still\r\nsucceeds. Takes effect immediately for new token-mint attempts; an already-minted token\r\nremains valid until it naturally expires (a few minutes).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The service account's id.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "Accept-Language",
+            "in": "header",
+            "description": "Response language: 'en' (default) or 'ar'.",
+            "schema": {
+              "enum": [
+                "en",
+                "ar"
+              ],
+              "type": "string",
+              "default": "en"
+            }
+          }
+        ],
+        "responses": {
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Revoked (or already was).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No service account exists with the supplied id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/branches": {
       "get": {
         "tags": [
@@ -5305,7 +5520,7 @@
         },
         "responses": {
           "401": {
-            "description": "No valid Print Agent token was supplied.",
+            "description": "No valid Print Agent or reconciliation service token was supplied.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5430,7 +5645,7 @@
         },
         "responses": {
           "401": {
-            "description": "No valid Print Agent token was supplied.",
+            "description": "No valid Print Agent or reconciliation service token was supplied.",
             "content": {
               "application/json": {
                 "schema": {
@@ -11509,6 +11724,72 @@
         "additionalProperties": false,
         "description": "Create payload (API Spec §4.6). TenantId is used only by a system-admin\r\ncaller to target a tenant; for a tenant caller it is ignored (the token's tenant is used).\r\n\r\nMatica / Evolis (Printing Module, phase 7) let a\r\nsystem admin attach the product's print configuration in the same call — \"the product and\r\nits printing configuration should behave as a single aggregate.\" Supplying either one\r\nrequires a system-admin caller (decision Q-09, confirmed); a tenant caller supplying\r\neither fails with `PrintingErrors.ProductPrintConfigOnlySystemAdmin`. A tenant caller\r\nmay still create a plain product with neither supplied — only the combined\r\nproduct-plus-configuration action is admin-gated, not product creation itself. Exactly one\r\nof the two, matching ApplicationLayer.DTOs.Products.CreateProductRequest.UsingPrinterType, is required when either is supplied —\r\nenforced by `IProductPrintConfigComposer.ValidateAsync`, the same validation the\r\nstandalone `PUT /api/products/{id}/print-config` endpoint uses.\r\n"
       },
+      "CreateServiceAccountRequest": {
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": "integer",
+            "description": "Owning tenant.",
+            "format": "int64"
+          },
+          "branchId": {
+            "type": "integer",
+            "description": "The single branch this service account is scoped to.",
+            "format": "int64"
+          },
+          "label": {
+            "type": "string",
+            "description": "Human-readable label for operators (e.g. \"Branch 12 Printer Agent\").",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Payload for `POST /api/auth/service-accounts` (system-admin only) — provisions a new\r\nreconciliation service account for one Printer Agent instance."
+      },
+      "CreateServiceAccountResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "The service account's id, used to revoke it later.",
+            "format": "int64"
+          },
+          "clientId": {
+            "type": "string",
+            "description": "The public identifier to configure into the Printer Agent.",
+            "format": "uuid"
+          },
+          "clientSecret": {
+            "type": "string",
+            "description": "The raw secret — shown once, never stored, never retrievable again.",
+            "nullable": true
+          },
+          "label": {
+            "type": "string",
+            "description": "Echoes the label supplied at creation.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Result of provisioning a service account. ApplicationLayer.DTOs.Auth.CreateServiceAccountResponse.ClientSecret is the raw secret,\r\nshown exactly once — only its hash is persisted, so this is the only time it is ever\r\nretrievable. Losing it means provisioning a new account; there is no recovery."
+      },
+      "CreateServiceAccountResponseApiResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "True when the operation succeeded."
+          },
+          "data": {
+            "$ref": "#/components/schemas/CreateServiceAccountResponse"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Uniform response envelope returned by every endpoint, on both success and failure.\r\nClients branch on InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Success: when true, InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Data holds the payload\r\nand InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Error is null; when false, InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Error describes the failure and\r\nInventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Data is null. !:TraceId correlates client reports with logs.\r\nImplements InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ILocalizableApiResponse so the central error-localization filter\r\ncan replace the message without knowing the payload type <typeparamref name=\"T\" />."
+      },
       "CreateStockRequest": {
         "type": "object",
         "properties": {
@@ -13053,6 +13334,57 @@
         "additionalProperties": false,
         "description": "Uniform response envelope returned by every endpoint, on both success and failure.\r\nClients branch on InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Success: when true, InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Data holds the payload\r\nand InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Error is null; when false, InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Error describes the failure and\r\nInventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Data is null. !:TraceId correlates client reports with logs.\r\nImplements InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ILocalizableApiResponse so the central error-localization filter\r\ncan replace the message without knowing the payload type <typeparamref name=\"T\" />."
       },
+      "ServiceTokenRequest": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string",
+            "description": "The service account's public identifier.",
+            "format": "uuid"
+          },
+          "clientSecret": {
+            "type": "string",
+            "description": "The service account's secret, verified against its stored hash and never logged.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Payload for `POST /api/auth/service-token` (Matica Print Flow, reconciliation\r\ncredential). Client-credentials style: no user session involved, the caller authenticates\r\nentirely with its own standing DomainLayer.Entities.PrintAgentServiceAccount."
+      },
+      "ServiceTokenResponse": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string",
+            "description": "Signed JWT to present as `Authorization: Bearer` to `print-result`.",
+            "nullable": true
+          },
+          "expiresAt": {
+            "type": "string",
+            "description": "UTC expiry.",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Short-lived token for the Matica Printer Agent's background reconciliation job, returned by\r\n`POST /api/auth/service-token`. Signed with a third dedicated key\r\n(see `ReconciliationTokenOptions`), distinct from both the tenant/admin key and the\r\nprint-agent-token key."
+      },
+      "ServiceTokenResponseApiResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "True when the operation succeeded."
+          },
+          "data": {
+            "$ref": "#/components/schemas/ServiceTokenResponse"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Uniform response envelope returned by every endpoint, on both success and failure.\r\nClients branch on InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Success: when true, InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Data holds the payload\r\nand InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Error is null; when false, InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Error describes the failure and\r\nInventoryManagmentAndInstanceIssuancePresentationLayer.Common.ApiResponse`1.Data is null. !:TraceId correlates client reports with logs.\r\nImplements InventoryManagmentAndInstanceIssuancePresentationLayer.Common.ILocalizableApiResponse so the central error-localization filter\r\ncan replace the message without knowing the payload type <typeparamref name=\"T\" />."
+      },
       "SettleTransferResult": {
         "type": "object",
         "properties": {
@@ -14202,7 +14534,7 @@
     },
     {
       "name": "PrintFlow",
-      "description": "The two Matica Print Flow backend calls, exposed only to the Printer Agent — never to\r\nAngular directly, never under the caller's own tenant/admin session token. Deliberately a\r\nseparate controller from InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.ProductItemsController, following the same reasoning\r\ndocumented on InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.CardFilesController: two authorization postures (a normal\r\ntenant/admin session vs. a Print Agent token, signed with an entirely different key) in one\r\ncontroller would be legal and confusing.\r\n\r\n\r\nBoth actions additionally cross-check the request body's `BranchId` against the Print\r\nAgent token's own `branchId` claim — the token already scopes what its holder is\r\nallowed to touch, so a leaked or reused token cannot be pointed at a different branch just\r\nby changing the request body.\r\n"
+      "description": "The two Matica Print Flow backend calls, exposed only to the Printer Agent — never to\r\nAngular directly, never under the caller's own tenant/admin session token. Deliberately a\r\nseparate controller from InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.ProductItemsController, following the same reasoning\r\ndocumented on InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.CardFilesController: two authorization postures (a normal\r\ntenant/admin session vs. a Print Agent token, signed with an entirely different key) in one\r\ncontroller would be legal and confusing.\r\n\r\n`[Authorize]` is applied per action, not at the class level (Matica Print Flow,\r\nreconciliation-credential phase) — M:InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.PrintFlowController.ResolveForPrint(ApplicationLayer.DTOs.ProductItems.ResolveForPrintRequest,System.Threading.CancellationToken) only ever runs during a\r\nlive print attempt, so it stays InventoryManagmentAndInstanceIssuancePresentationLayer.Security.AuthorizationPolicies.PrintAgentOnly-only;\r\nM:InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.PrintFlowController.RecordPrintResult(System.Int64,ApplicationLayer.DTOs.ProductItems.RecordPrintResultRequest,System.Threading.CancellationToken) is also called by the background reconciliation job, so it\r\nuses InventoryManagmentAndInstanceIssuancePresentationLayer.Security.AuthorizationPolicies.PrintResultAuthorized instead, which accepts either\r\ntoken type. Multiple `[Authorize]` attributes on a class and its methods combine with\r\nAND semantics in ASP.NET Core, not \"most specific wins\" — a class-level\r\n`PrintAgentOnly` attribute would have stacked with an action-level policy rather than\r\nbeen replaced by it, which is why this controller has no class-level `[Authorize]` at\r\nall and both actions declare their own.\r\n\r\n\r\nBoth actions additionally cross-check the request body's `BranchId` against the\r\nauthenticated token's own `branchId` claim — every token type here carries one, so a\r\nleaked or reused token of either kind cannot be pointed at a different branch just by\r\nchanging the request body.\r\n"
     },
     {
       "name": "PrintImages",

@@ -90,6 +90,13 @@ namespace InfrastructureLayer.Data
         /// <summary>Uploaded print-configuration image metadata (module requirements §5–§7, Printing Module Q-10).</summary>
         public DbSet<PrintImage> PrintImages => Set<PrintImage>();
 
+        /// <summary>
+        /// Reconciliation service accounts (Matica Print Flow, reconciliation-credential phase) —
+        /// the dedicated, revocable credential the background outbox reconciliation job
+        /// authenticates with.
+        /// </summary>
+        public DbSet<PrintAgentServiceAccount> PrintAgentServiceAccounts => Set<PrintAgentServiceAccount>();
+
 
         /// <inheritdoc />
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -108,6 +115,7 @@ namespace InfrastructureLayer.Data
             ConfigureBranchRequests(modelBuilder);
             ConfigurePrinterRegistry(modelBuilder);
             ConfigureProductPrintConfigurations(modelBuilder);
+            ConfigureReconciliationCredentials(modelBuilder);
 
         }
 
@@ -214,6 +222,35 @@ namespace InfrastructureLayer.Data
 
                 entity.HasIndex(r => r.TokenHash).IsUnique();
                 entity.HasIndex(r => r.userName);
+            });
+        }
+
+        /// <summary>
+        /// Reconciliation service accounts (Matica Print Flow, reconciliation-credential phase) —
+        /// same shape as <see cref="ConfigureRefreshToken"/>'s treatment of a credential-adjacent
+        /// table: a unique index on the lookup key (<c>ClientId</c>, used at token-mint time), no
+        /// soft delete (revocation is the deletion-equivalent here, tracked via <c>RevokedAt</c>
+        /// so the audit trail — who was provisioned, when, and when revoked — is never lost).
+        /// </summary>
+        private static void ConfigureReconciliationCredentials(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<PrintAgentServiceAccount>(entity =>
+            {
+                entity.ToTable("PrintAgentServiceAccounts");
+                entity.HasKey(a => a.Id);
+
+                entity.Property(a => a.ClientSecretHash).IsRequired().HasMaxLength(256);
+                entity.Property(a => a.Label).IsRequired().HasMaxLength(200);
+
+                entity.HasIndex(a => a.ClientId)
+                      .IsUnique()
+                      .HasDatabaseName("UX_PrintAgentServiceAccounts_ClientId");
+
+                entity.HasIndex(a => a.TenantId)
+                      .HasDatabaseName("IX_PrintAgentServiceAccounts_TenantId");
+
+                entity.HasIndex(a => a.BranchId)
+                      .HasDatabaseName("IX_PrintAgentServiceAccounts_BranchId");
             });
         }
 

@@ -57,6 +57,18 @@ namespace InfrastructureLayer
             services.Configure<PrintAgentTokenOptions>(configuration.GetSection(PrintAgentTokenOptions.SectionName));
             services.AddScoped<IPrintAgentTokenGenerator, PrintAgentTokenGenerator>();
 
+            // Matica Print Flow, reconciliation-credential phase: a third dedicated key, same
+            // fail-fast pattern, for the background reconciliation job's service token — never the
+            // same value as either the shared JWT key or the print-agent-token key.
+            services.AddOptions<ReconciliationTokenOptions>()
+                .Bind(configuration.GetSection(ReconciliationTokenOptions.SectionName))
+                .Validate(o => !string.IsNullOrWhiteSpace(o.SigningKey), "ReconciliationToken SigningKey is required.")
+                .Validate(o => !string.IsNullOrWhiteSpace(o.Issuer), "ReconciliationToken Issuer is required.")
+                .Validate(o => !string.IsNullOrWhiteSpace(o.Audience), "ReconciliationToken Audience is required.")
+                .ValidateOnStart();
+            services.Configure<ReconciliationTokenOptions>(configuration.GetSection(ReconciliationTokenOptions.SectionName));
+            services.AddScoped<IReconciliationTokenGenerator, ReconciliationTokenGenerator>();
+
             // Batch Upload Phased Plan, Phase 7: same fail-fast pattern as the JWT signing key —
             // a misconfigured master secret should surface as a clear startup error, not a
             // confusing decrypt failure on the first upload attempt.

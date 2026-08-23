@@ -132,6 +132,18 @@
   <data name="Auth.PrintAgentPrinterNotFound" xml:space="preserve">
     <value>مفيش طابعة بالرقم ده في الفرع ده تابعة للمستأجر ده.</value>
   </data>
+  <data name="Auth.ServiceCredentialInvalid" xml:space="preserve">
+    <value>بيانات الاعتماد الخاصة بالخدمة غير صحيحة.</value>
+  </data>
+  <data name="Auth.ServiceCredentialRevoked" xml:space="preserve">
+    <value>بيانات الاعتماد الخاصة بالخدمة دي اتلغت.</value>
+  </data>
+  <data name="Auth.ServiceAccountBranchNotFound" xml:space="preserve">
+    <value>مفيش فرع بالرقم ده تابع للمستأجر ده.</value>
+  </data>
+  <data name="Auth.ServiceAccountNotFound" xml:space="preserve">
+    <value>مفيش حساب خدمة بالرقم ده.</value>
+  </data>
   <data name="Error.Unexpected" xml:space="preserve">
     <value>حصل خطأ غير متوقع.</value>
   </data>

@@ -149,5 +149,62 @@ namespace InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers
         public async Task<IActionResult> CreatePrintAgentToken(
             [FromBody] CreatePrintAgentTokenRequest request, CancellationToken cancellationToken)
             => (await _services.Auth.CreatePrintAgentTokenAsync(request, cancellationToken)).ToActionResult(this);
+
+        /// <summary>
+        /// Exchanges a reconciliation service account's client id/secret for a short-lived
+        /// service token (Matica Print Flow, reconciliation-credential phase). Client-credentials
+        /// style — no user session involved, unlike every other endpoint in this controller except
+        /// login itself. Called by the Printer Agent's background outbox reconciliation job, never
+        /// during a live print request.
+        /// </summary>
+        /// <param name="request">The service account's client id and secret.</param>
+        /// <param name="cancellationToken">Request cancellation token.</param>
+        /// <response code="200">Token minted; returns the signed access token and its (short) expiry.</response>
+        /// <response code="401">The client id/secret is invalid, or the account has been revoked.</response>
+        [HttpPost("service-token")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(ApiResponse<ServiceTokenResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+        public async Task<IActionResult> CreateServiceToken(
+            [FromBody] ServiceTokenRequest request, CancellationToken cancellationToken)
+            => (await _services.Auth.CreateServiceTokenAsync(request, cancellationToken)).ToActionResult(this);
+
+        /// <summary>
+        /// Provisions a new reconciliation service account for one Printer Agent instance
+        /// (Matica Print Flow, reconciliation-credential phase). System-admin only — provisioning
+        /// a standing credential is a more consequential operation than a tenant self-serving a
+        /// short-lived, already-scoped print-agent token.
+        /// </summary>
+        /// <param name="request">The owning tenant, branch, and a human-readable label.</param>
+        /// <param name="cancellationToken">Request cancellation token.</param>
+        /// <response code="200">
+        /// Account provisioned. <c>ClientSecret</c> in the response is shown exactly once — only
+        /// its hash is persisted, so this is the only opportunity to record it.
+        /// </response>
+        /// <response code="404">The supplied branch does not exist, or does not belong to the supplied tenant.</response>
+        [HttpPost("service-accounts")]
+        [Authorize(Policy = AuthorizationPolicies.SystemAdminOnly)]
+        [ProducesResponseType(typeof(ApiResponse<CreateServiceAccountResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> CreateServiceAccount(
+            [FromBody] CreateServiceAccountRequest request, CancellationToken cancellationToken)
+            => (await _services.Auth.CreateServiceAccountAsync(request, cancellationToken)).ToActionResult(this);
+
+        /// <summary>
+        /// Revokes a reconciliation service account (Matica Print Flow, reconciliation-credential
+        /// phase). System-admin only. Idempotent — revoking an already-revoked account still
+        /// succeeds. Takes effect immediately for new token-mint attempts; an already-minted token
+        /// remains valid until it naturally expires (a few minutes).
+        /// </summary>
+        /// <param name="id">The service account's id.</param>
+        /// <param name="cancellationToken">Request cancellation token.</param>
+        /// <response code="200">Revoked (or already was).</response>
+        /// <response code="404">No service account exists with the supplied id.</response>
+        [HttpPost("service-accounts/{id:long}/revoke")]
+        [Authorize(Policy = AuthorizationPolicies.SystemAdminOnly)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> RevokeServiceAccount(long id, CancellationToken cancellationToken)
+            => (await _services.Auth.RevokeServiceAccountAsync(id, cancellationToken)).ToActionResult(this);
     }
 }
