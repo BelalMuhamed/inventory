@@ -57,6 +57,22 @@ namespace InfrastructureLayer
             services.Configure<PrintAgentTokenOptions>(configuration.GetSection(PrintAgentTokenOptions.SectionName));
             services.AddScoped<IPrintAgentTokenGenerator, PrintAgentTokenGenerator>();
 
+            // Matica Print Flow, Super-Admin decryption phase: the matched-pair key that lets this
+            // API decrypt log/outbox files the Printer Agent already encrypted - see
+            // FileEncryptionOptions's own doc comment for why sharing this specific key (as
+            // opposed to the shared Jwt:SigningKey) does not expand a compromised branch machine's
+            // capabilities.
+            services.AddOptions<FileEncryptionOptions>()
+                .Bind(configuration.GetSection(FileEncryptionOptions.SectionName))
+                .Validate(o => !string.IsNullOrWhiteSpace(o.Key), "FileEncryption Key is required.")
+                .Validate(o =>
+                {
+                    try { return Convert.FromBase64String(o.Key).Length == 32; }
+                    catch (FormatException) { return false; }
+                }, "FileEncryption Key must be base64-encoded and decode to exactly 32 bytes (AES-256).")
+                .ValidateOnStart();
+            services.AddScoped<IPrintAgentFileDecryptionService, AesGcmPrintAgentFileDecryptionService>();
+
             // Matica Print Flow, reconciliation-credential phase: a third dedicated key, same
             // fail-fast pattern, for the background reconciliation job's service token — never the
             // same value as either the shared JWT key or the print-agent-token key.

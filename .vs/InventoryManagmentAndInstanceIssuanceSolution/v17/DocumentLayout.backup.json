@@ -3,6 +3,25 @@
   "WorkspaceRootPath": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\",
   "Documents": [
     {
+      "AbsoluteMoniker": "D:0:0:{F16A81A9-3E11-4D6B-B0F0-4C4F2397FF6F}|InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\inventorymanagmentandinstanceissuancepresentationlayer\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{F16A81A9-3E11-4D6B-B0F0-4C4F2397FF6F}|InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationLayer.csproj|solutionrelative:inventorymanagmentandinstanceissuancepresentationlayer\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64\\Microsoft.Common.CurrentVersion.targets||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{F16A81A9-3E11-4D6B-B0F0-4C4F2397FF6F}|InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\inventorymanagmentandinstanceissuancepresentationlayer\\controllers\\adminfiledecryptioncontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{F16A81A9-3E11-4D6B-B0F0-4C4F2397FF6F}|InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationLayer.csproj|solutionrelative:inventorymanagmentandinstanceissuancepresentationlayer\\controllers\\adminfiledecryptioncontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\infrastructurelayer\\security\\aesgcmprintagentfiledecryptionservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|solutionrelative:infrastructurelayer\\security\\aesgcmprintagentfiledecryptionservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260825065053_add ip_address column to matica configs .cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:InfrastructureLayer\\Migrations\\20260825065053_add ip_address column to matica configs .cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
       "AbsoluteMoniker": "D:0:0:{0DA6AE52-F73A-474A-84A2-F6109E2987AE}|DomainLayer\\DomainLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\domainlayer\\entities\\maticaprinterconfiguration.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{0DA6AE52-F73A-474A-84A2-F6109E2987AE}|DomainLayer\\DomainLayer.csproj|solutionrelative:domainlayer\\entities\\maticaprinterconfiguration.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
@@ -77,10 +96,6 @@
     {
       "AbsoluteMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\infrastructurelayer\\unitofwork.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|solutionrelative:infrastructurelayer\\unitofwork.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{F16A81A9-3E11-4D6B-B0F0-4C4F2397FF6F}|InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\inventorymanagmentandinstanceissuancepresentationlayer\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
-      "RelativeMoniker": "D:0:0:{F16A81A9-3E11-4D6B-B0F0-4C4F2397FF6F}|InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationLayer.csproj|solutionrelative:inventorymanagmentandinstanceissuancepresentationlayer\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{0DA6AE52-F73A-474A-84A2-F6109E2987AE}|DomainLayer\\DomainLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\domainlayer\\enums\\usingprintertype.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
@@ -278,11 +293,50 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 2,
+          "SelectedChildIndex": 7,
           "Children": [
             {
               "$type": "Bookmark",
               "Name": "ST:128:0:{75188d03-9892-4ae2-abf1-207126247ce5}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "Microsoft.Common.CurrentVersion.targets",
+              "DocumentMoniker": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64\\Microsoft.Common.CurrentVersion.targets",
+              "RelativeDocumentMoniker": "..\\..\\..\\..\\..\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64\\Microsoft.Common.CurrentVersion.targets",
+              "ToolTip": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64\\Microsoft.Common.CurrentVersion.targets",
+              "RelativeToolTip": "..\\..\\..\\..\\..\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64\\Microsoft.Common.CurrentVersion.targets",
+              "ViewState": "AgIAANATAAAAAAAAAAAgwOQTAAAEAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003801|",
+              "WhenOpened": "2026-08-25T10:05:02.408Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "AdminFileDecryptionController.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\AdminFileDecryptionController.cs",
+              "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\AdminFileDecryptionController.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\AdminFileDecryptionController.cs",
+              "RelativeToolTip": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\AdminFileDecryptionController.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-08-25T10:04:00.899Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "AesGcmPrintAgentFileDecryptionService.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Security\\AesGcmPrintAgentFileDecryptionService.cs",
+              "RelativeDocumentMoniker": "InfrastructureLayer\\Security\\AesGcmPrintAgentFileDecryptionService.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Security\\AesGcmPrintAgentFileDecryptionService.cs",
+              "RelativeToolTip": "InfrastructureLayer\\Security\\AesGcmPrintAgentFileDecryptionService.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-08-25T10:03:56.179Z",
+              "EditorCaption": ""
             },
             {
               "$type": "Bookmark",
@@ -290,7 +344,20 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 4,
+              "Title": "20260825065053_add ip_address column to matica configs .cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260825065053_add ip_address column to matica configs .cs",
+              "RelativeDocumentMoniker": "InfrastructureLayer\\Migrations\\20260825065053_add ip_address column to matica configs .cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260825065053_add ip_address column to matica configs .cs",
+              "RelativeToolTip": "InfrastructureLayer\\Migrations\\20260825065053_add ip_address column to matica configs .cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-08-25T06:50:53.729Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
               "Title": "MaticaPrinterConfiguration.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Entities\\MaticaPrinterConfiguration.cs",
               "RelativeDocumentMoniker": "DomainLayer\\Entities\\MaticaPrinterConfiguration.cs",
@@ -298,12 +365,24 @@
               "RelativeToolTip": "DomainLayer\\Entities\\MaticaPrinterConfiguration.cs",
               "ViewState": "AgIAACwAAAAAAAAAAAAswE4AAAAdAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-24T11:00:21.026Z",
+              "WhenOpened": "2026-08-24T11:00:21.026Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "appsettings.json",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\appsettings.json",
+              "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\appsettings.json",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\appsettings.json",
+              "RelativeToolTip": "InventoryManagmentAndInstanceIssuancePresentationLayer\\appsettings.json",
+              "ViewState": "AgIAAAwAAAAAAAAAAAAAABgAAAA4AAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2026-07-28T07:44:00.053Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 6,
               "Title": "20260823113732_inventory-api-reconciliation-credential.patch.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260823113732_inventory-api-reconciliation-credential.patch.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Migrations\\20260823113732_inventory-api-reconciliation-credential.patch.cs",
@@ -315,7 +394,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 66,
+              "DocumentIndex": 70,
               "Title": "20260823064304_Add-Migration Matica-Print-Flow-Tipper-Parameters.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260823064304_Add-Migration Matica-Print-Flow-Tipper-Parameters.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Migrations\\20260823064304_Add-Migration Matica-Print-Flow-Tipper-Parameters.cs",
@@ -327,7 +406,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 11,
+              "DocumentIndex": 16,
               "Title": "InventoryManagmentAndInstanceIssuancePresentationLayer.http",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\InventoryManagmentAndInstanceIssuancePresentationLayer.http",
               "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\InventoryManagmentAndInstanceIssuancePresentationLayer.http",
@@ -339,7 +418,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 65,
+              "DocumentIndex": 69,
               "Title": "20260811094318_last.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260811094318_last.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Migrations\\20260811094318_last.cs",
@@ -351,7 +430,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 4,
+              "DocumentIndex": 9,
               "Title": "Program.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Program.cs",
               "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Program.cs",
@@ -363,7 +442,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 3,
+              "DocumentIndex": 8,
               "Title": "ProductTransactionWay.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Enums\\ProductTransactionWay.cs",
               "RelativeDocumentMoniker": "DomainLayer\\Enums\\ProductTransactionWay.cs",
@@ -375,7 +454,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 2,
+              "DocumentIndex": 7,
               "Title": "CardStatus.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Enums\\CardStatus.cs",
               "RelativeDocumentMoniker": "DomainLayer\\Enums\\CardStatus.cs",
@@ -387,7 +466,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 9,
+              "DocumentIndex": 14,
               "Title": "swagger.json",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\swagger.json",
               "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\swagger.json",
@@ -399,7 +478,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 8,
+              "DocumentIndex": 13,
               "Title": "LocalDiskPrintImageStorage.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Storage\\LocalDiskPrintImageStorage.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Storage\\LocalDiskPrintImageStorage.cs",
@@ -411,7 +490,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 6,
+              "DocumentIndex": 11,
               "Title": "0002-S2-Full-Swagger-documentation-for-Catalog-Printing-modules.patch",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\0002-S2-Full-Swagger-documentation-for-Catalog-Printing-modules.patch",
               "RelativeDocumentMoniker": "0002-S2-Full-Swagger-documentation-for-Catalog-Printing-modules.patch",
@@ -423,7 +502,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 5,
+              "DocumentIndex": 10,
               "Title": "AuthController.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\AuthController.cs",
               "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\AuthController.cs",
@@ -435,7 +514,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 12,
+              "DocumentIndex": 17,
               "Title": "PrintImagesController.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\PrintImagesController.cs",
               "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\PrintImagesController.cs",
@@ -447,7 +526,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 7,
+              "DocumentIndex": 12,
               "Title": "PresentationServiceRegistration.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationServiceRegistration.cs",
               "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationServiceRegistration.cs",
@@ -459,7 +538,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 10,
+              "DocumentIndex": 15,
               "Title": "PresentationLayer.csproj",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationLayer.csproj",
               "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationLayer.csproj",
@@ -467,11 +546,12 @@
               "RelativeToolTip": "InventoryManagmentAndInstanceIssuancePresentationLayer\\PresentationLayer.csproj",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
-              "WhenOpened": "2026-07-28T07:43:53.583Z"
+              "WhenOpened": "2026-07-28T07:43:53.583Z",
+              "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 13,
+              "DocumentIndex": 18,
               "Title": "ProductPrintConfigController.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\ProductPrintConfigController.cs",
               "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\ProductPrintConfigController.cs",
@@ -483,7 +563,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 17,
+              "DocumentIndex": 22,
               "Title": "PrintImageService.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\PrintImageService.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Services\\PrintImageService.cs",
@@ -495,7 +575,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 15,
+              "DocumentIndex": 20,
               "Title": "ProductController.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\ProductController.cs",
               "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\ProductController.cs",
@@ -507,7 +587,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 14,
+              "DocumentIndex": 19,
               "Title": "ProductPrintConfigComposer.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\ProductPrintConfigComposer.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Services\\ProductPrintConfigComposer.cs",
@@ -519,7 +599,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 21,
+              "DocumentIndex": 25,
               "Title": "20260810170233_printing-module-domain-and-persistence.patch.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260810170233_printing-module-domain-and-persistence.patch.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Migrations\\20260810170233_printing-module-domain-and-persistence.patch.cs",
@@ -531,7 +611,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 30,
+              "DocumentIndex": 34,
               "Title": "BranchErrors.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Errors\\BranchErrors.cs",
               "RelativeDocumentMoniker": "ApplicationLayer\\Errors\\BranchErrors.cs",
@@ -543,7 +623,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 16,
+              "DocumentIndex": 21,
               "Title": "ProductService.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\ProductService.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Services\\ProductService.cs",
@@ -555,7 +635,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 25,
+              "DocumentIndex": 29,
               "Title": "BranchService.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\BranchService.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Services\\BranchService.cs",
@@ -567,7 +647,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 18,
+              "DocumentIndex": 23,
               "Title": "UnitOfWork.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\UnitOfWork.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\UnitOfWork.cs",
@@ -579,7 +659,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 24,
+              "DocumentIndex": 28,
               "Title": "TransferService.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\TransferService.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Services\\TransferService.cs",
@@ -591,7 +671,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 20,
+              "DocumentIndex": 24,
               "Title": "UsingPrinterType.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Enums\\UsingPrinterType.cs",
               "RelativeDocumentMoniker": "DomainLayer\\Enums\\UsingPrinterType.cs",
@@ -603,19 +683,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 19,
-              "Title": "appsettings.json",
-              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\appsettings.json",
-              "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\appsettings.json",
-              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\appsettings.json",
-              "RelativeToolTip": "InventoryManagmentAndInstanceIssuancePresentationLayer\\appsettings.json",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAIAAAA8AAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
-              "WhenOpened": "2026-07-28T07:44:00.053Z"
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 22,
+              "DocumentIndex": 26,
               "Title": "TransferDifferenceAction.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Enums\\TransferDifferenceAction.cs",
               "RelativeDocumentMoniker": "DomainLayer\\Enums\\TransferDifferenceAction.cs",
@@ -627,7 +695,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 29,
+              "DocumentIndex": 33,
               "Title": "ProductErrors.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Errors\\ProductErrors.cs",
               "RelativeDocumentMoniker": "ApplicationLayer\\Errors\\ProductErrors.cs",
@@ -639,7 +707,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 28,
+              "DocumentIndex": 32,
               "Title": "InfrastructureServiceRegistration.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\InfrastructureServiceRegistration.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\InfrastructureServiceRegistration.cs",
@@ -651,7 +719,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 23,
+              "DocumentIndex": 27,
               "Title": "TransactionStatus.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Enums\\TransactionStatus.cs",
               "RelativeDocumentMoniker": "DomainLayer\\Enums\\TransactionStatus.cs",
@@ -663,7 +731,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 27,
+              "DocumentIndex": 31,
               "Title": "BranchRequestsController.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\BranchRequestsController.cs",
               "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\BranchRequestsController.cs",
@@ -675,7 +743,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 26,
+              "DocumentIndex": 30,
               "Title": "BranchRequestStatus.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Enums\\BranchRequestStatus.cs",
               "RelativeDocumentMoniker": "DomainLayer\\Enums\\BranchRequestStatus.cs",
@@ -687,7 +755,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 31,
+              "DocumentIndex": 35,
               "Title": "BranchRequestFulfilment.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\BranchRequestFulfilment.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Services\\BranchRequestFulfilment.cs",
@@ -699,7 +767,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 64,
+              "DocumentIndex": 68,
               "Title": "20260809095643_R1-BranchRequests.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260809095643_R1-BranchRequests.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Migrations\\20260809095643_R1-BranchRequests.cs",
@@ -711,7 +779,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 35,
+              "DocumentIndex": 39,
               "Title": "apply-unknown-refactor-phase1.ps1",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\apply-unknown-refactor-phase1.ps1",
               "RelativeDocumentMoniker": "apply-unknown-refactor-phase1.ps1",
@@ -723,7 +791,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 34,
+              "DocumentIndex": 38,
               "Title": "TransactionsController.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\TransactionsController.cs",
               "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\TransactionsController.cs",
@@ -735,7 +803,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 63,
+              "DocumentIndex": 67,
               "Title": "20260805090617_T0-NullableCardBranch-DisposedStatus.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260805090617_T0-NullableCardBranch-DisposedStatus.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Migrations\\20260805090617_T0-NullableCardBranch-DisposedStatus.cs",
@@ -747,7 +815,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 33,
+              "DocumentIndex": 37,
               "Title": "InventoryController.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\InventoryController.cs",
               "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\InventoryController.cs",
@@ -759,7 +827,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 32,
+              "DocumentIndex": 36,
               "Title": "ServiceManager.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\ServiceManager.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Services\\ServiceManager.cs",
@@ -771,7 +839,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 38,
+              "DocumentIndex": 42,
               "Title": "20260805092550_T1-CardTransfers-CardDisposals.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260805092550_T1-CardTransfers-CardDisposals.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Migrations\\20260805092550_T1-CardTransfers-CardDisposals.cs",
@@ -783,7 +851,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 37,
+              "DocumentIndex": 41,
               "Title": "TransactionOrigin.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Enums\\TransactionOrigin.cs",
               "RelativeDocumentMoniker": "DomainLayer\\Enums\\TransactionOrigin.cs",
@@ -795,7 +863,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 36,
+              "DocumentIndex": 40,
               "Title": "ITransferService.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\ServicesContracts\\ITransferService.cs",
               "RelativeDocumentMoniker": "ApplicationLayer\\ServicesContracts\\ITransferService.cs",
@@ -807,7 +875,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 39,
+              "DocumentIndex": 43,
               "Title": "20260804111708_PanFingerprintRedesign.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260804111708_PanFingerprintRedesign.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Migrations\\20260804111708_PanFingerprintRedesign.cs",
@@ -819,7 +887,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 41,
+              "DocumentIndex": 45,
               "Title": "CardFilesController.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\CardFilesController.cs",
               "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\CardFilesController.cs",
@@ -831,7 +899,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 44,
+              "DocumentIndex": 48,
               "Title": "ActivationStatus.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Enums\\ActivationStatus.cs",
               "RelativeDocumentMoniker": "DomainLayer\\Enums\\ActivationStatus.cs",
@@ -843,7 +911,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 40,
+              "DocumentIndex": 44,
               "Title": "CardFileGenerationService.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Services\\CardFileGenerationService.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Services\\CardFileGenerationService.cs",
@@ -855,7 +923,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 43,
+              "DocumentIndex": 47,
               "Title": "BranchController.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\BranchController.cs",
               "RelativeDocumentMoniker": "InventoryManagmentAndInstanceIssuancePresentationLayer\\Controllers\\BranchController.cs",
@@ -867,7 +935,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 42,
+              "DocumentIndex": 46,
               "Title": "BatchFileFormat.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\BatchUpload\\BatchFileFormat.cs",
               "RelativeDocumentMoniker": "ApplicationLayer\\BatchUpload\\BatchFileFormat.cs",
@@ -879,7 +947,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 62,
+              "DocumentIndex": 66,
               "Title": "20260804075043_reback.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260804075043_reback.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Migrations\\20260804075043_reback.cs",
@@ -891,7 +959,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 45,
+              "DocumentIndex": 49,
               "Title": "20260728091651_apply phase1-batch-upload-hardening.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260728091651_apply phase1-batch-upload-hardening.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Migrations\\20260728091651_apply phase1-batch-upload-hardening.cs",
@@ -903,7 +971,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 52,
+              "DocumentIndex": 56,
               "Title": "BatchRepo.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Repositories\\BatchRepo.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Repositories\\BatchRepo.cs",
@@ -915,7 +983,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 54,
+              "DocumentIndex": 58,
               "Title": "IBatchRepo.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Contracts\\IBatchRepo.cs",
               "RelativeDocumentMoniker": "ApplicationLayer\\Contracts\\IBatchRepo.cs",
@@ -927,7 +995,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 48,
+              "DocumentIndex": 52,
               "Title": "ProductRepo.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Repositories\\ProductRepo.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Repositories\\ProductRepo.cs",
@@ -939,7 +1007,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 46,
+              "DocumentIndex": 50,
               "Title": "Batch.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Entities\\Batch.cs",
               "RelativeDocumentMoniker": "DomainLayer\\Entities\\Batch.cs",
@@ -951,7 +1019,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 51,
+              "DocumentIndex": 55,
               "Title": "IUnitOfWork.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Contracts\\IUnitOfWork.cs",
               "RelativeDocumentMoniker": "ApplicationLayer\\Contracts\\IUnitOfWork.cs",
@@ -963,7 +1031,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 50,
+              "DocumentIndex": 54,
               "Title": "IProductItemService.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\ServicesContracts\\IProductItemService.cs",
               "RelativeDocumentMoniker": "ApplicationLayer\\ServicesContracts\\IProductItemService.cs",
@@ -975,7 +1043,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 47,
+              "DocumentIndex": 51,
               "Title": "Tenant.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Entities\\Tenant.cs",
               "RelativeDocumentMoniker": "DomainLayer\\Entities\\Tenant.cs",
@@ -987,7 +1055,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 49,
+              "DocumentIndex": 53,
               "Title": "IProductRepo.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Contracts\\IProductRepo.cs",
               "RelativeDocumentMoniker": "ApplicationLayer\\Contracts\\IProductRepo.cs",
@@ -999,7 +1067,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 56,
+              "DocumentIndex": 60,
               "Title": "ProductItem.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Entities\\ProductItem.cs",
               "RelativeDocumentMoniker": "DomainLayer\\Entities\\ProductItem.cs",
@@ -1011,7 +1079,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 57,
+              "DocumentIndex": 61,
               "Title": "StockErrors.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Errors\\StockErrors.cs",
               "RelativeDocumentMoniker": "ApplicationLayer\\Errors\\StockErrors.cs",
@@ -1023,7 +1091,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 55,
+              "DocumentIndex": 59,
               "Title": "IBranchRepo.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Contracts\\IBranchRepo.cs",
               "RelativeDocumentMoniker": "ApplicationLayer\\Contracts\\IBranchRepo.cs",
@@ -1035,7 +1103,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 53,
+              "DocumentIndex": 57,
               "Title": "BranchRepo.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Repositories\\BranchRepo.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Repositories\\BranchRepo.cs",
@@ -1047,7 +1115,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 58,
+              "DocumentIndex": 62,
               "Title": "StockRepo.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Repositories\\StockRepo.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Repositories\\StockRepo.cs",
@@ -1059,7 +1127,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 59,
+              "DocumentIndex": 63,
               "Title": "IStockRepo.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\Contracts\\IStockRepo.cs",
               "RelativeDocumentMoniker": "ApplicationLayer\\Contracts\\IStockRepo.cs",
@@ -1071,7 +1139,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 60,
+              "DocumentIndex": 64,
               "Title": "PaginatedResponse.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\ApplicationLayer\\common\\PaginatedResponse.cs",
               "RelativeDocumentMoniker": "ApplicationLayer\\common\\PaginatedResponse.cs",
@@ -1083,7 +1151,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 61,
+              "DocumentIndex": 65,
               "Title": "Branch.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Entities\\Branch.cs",
               "RelativeDocumentMoniker": "DomainLayer\\Entities\\Branch.cs",

@@ -6,6 +6,134 @@
     "version": "v1"
   },
   "paths": {
+    "/api/admin/file-decryption/decrypt": {
+      "post": {
+        "tags": [
+          "AdminFileDecryption"
+        ],
+        "summary": "Decrypts an uploaded Printer Agent log or outbox file and returns the clear content as\r\na downloadable file. Auto-detects which of the two shapes was uploaded: an Outbox file\r\nis a single encrypted blob covering the whole file (Matica Print Flow,\r\nfile-encryption phase - `FileOutboxStore` encrypts the whole JSON payload per\r\nentry), while a log file is many independently-encrypted lines, each with a plaintext\r\ntimestamp/level prefix ahead of the cipher (`Logger.AppendLog`'s own format).",
+        "parameters": [
+          {
+            "name": "Accept-Language",
+            "in": "header",
+            "description": "Response language: 'en' (default) or 'ar'.",
+            "schema": {
+              "enum": [
+                "en",
+                "ar"
+              ],
+              "type": "string",
+              "default": "en"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              },
+              "encoding": {
+                "file": {
+                  "style": "form"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "401": {
+            "description": "No valid bearer token was supplied.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A non-system-admin caller attempted this - system-admin only.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Decrypted content, returned as a file download. For a log file, lines that could not be\r\ndecrypted (an old TripleDES-encrypted line from before this phase, or a genuinely\r\ntampered/corrupted line) are preserved with an inline marker rather than silently\r\ndropped or failing the whole file - see M:InventoryManagmentAndInstanceIssuancePresentationLayer.Controllers.AdminFileDecryptionController.DecryptLogLines(System.String)'s own doc comment."
+          },
+          "422": {
+            "description": "No file was supplied, or the file was empty or exceeded the size limit.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The upload was recognized as a single-blob (Outbox-style) encrypted file, but\r\ndecryption failed - either it was never produced by the Printer Agent's encryption\r\nservice (wrong format entirely) or it fails the AES-GCM authentication tag check\r\n(tampered or corrupted). Unlike a log file, there is nothing partial to return here, so\r\nthis is a hard failure rather than an inline marker.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/tenant": {
       "post": {
         "tags": [
@@ -14508,6 +14636,10 @@
     }
   ],
   "tags": [
+    {
+      "name": "AdminFileDecryption",
+      "description": "Matica Print Flow, Super-Admin decryption phase: decrypts a Printer Agent log or outbox\r\nfile that a Super Admin already has locally (retrieved from the branch machine by whatever\r\nmeans - out of scope for this endpoint) and uploads here. Nothing this endpoint touches is\r\never written to disk, a database, or any persistent store on this side - the uploaded bytes\r\nlive only in the request's memory for the duration of the call, and the decrypted result is\r\nstreamed straight back in the response body, never saved.\r\n\r\n\r\nDeliberately upload-based rather than reaching out to the Printer Agent for the file: this\r\nservice has no existing mechanism to access a remote Printer Agent's filesystem (confirmed\r\nby inspection before this endpoint was designed - see the accompanying design discussion),\r\nand building one would have meant either a new authenticated capability on the Printer\r\nAgent or a shared storage layer that doesn't currently exist. Upload avoids needing either.\r\nIt also means there is no server-side file path to validate at all - the path-traversal\r\nconcern that would normally apply to a \"decrypt this file the server looks up\" endpoint\r\ndoesn't arise here, because there's no path parameter in the first place.\r\n"
+    },
     {
       "name": "Auth",
       "description": "Authentication endpoints (API Spec §4.1), reconciled with the authoritative §2 model:\r\nsingle account per tenant, minimal JWT claims, no roles/permissions/branch."
