@@ -12383,6 +12383,10 @@
             "type": "string",
             "nullable": true
           },
+          "ipAddress": {
+            "type": "string",
+            "nullable": true
+          },
           "tipperTemperature": {
             "type": "integer",
             "format": "int32"
@@ -12419,6 +12423,10 @@
             "format": "int32"
           },
           "port": {
+            "type": "string",
+            "nullable": true
+          },
+          "ipAddress": {
             "type": "string",
             "nullable": true
           },

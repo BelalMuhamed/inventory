@@ -3,12 +3,12 @@
   "WorkspaceRootPath": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260823113732_inventory-api-reconciliation-credential.patch.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:InfrastructureLayer\\Migrations\\20260823113732_inventory-api-reconciliation-credential.patch.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{0DA6AE52-F73A-474A-84A2-F6109E2987AE}|DomainLayer\\DomainLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\domainlayer\\entities\\maticaprinterconfiguration.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{0DA6AE52-F73A-474A-84A2-F6109E2987AE}|DomainLayer\\DomainLayer.csproj|solutionrelative:domainlayer\\entities\\maticaprinterconfiguration.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260823064304_Add-Migration Matica-Print-Flow-Tipper-Parameters.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:InfrastructureLayer\\Migrations\\20260823064304_Add-Migration Matica-Print-Flow-Tipper-Parameters.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\infrastructurelayer\\migrations\\20260823113732_inventory-api-reconciliation-credential.patch.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|solutionrelative:infrastructurelayer\\migrations\\20260823113732_inventory-api-reconciliation-credential.patch.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{0DA6AE52-F73A-474A-84A2-F6109E2987AE}|DomainLayer\\DomainLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\domainlayer\\enums\\cardstatus.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
@@ -265,6 +265,10 @@
     {
       "AbsoluteMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\infrastructurelayer\\migrations\\20260811094318_last.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|solutionrelative:infrastructurelayer\\migrations\\20260811094318_last.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|c:\\users\\b.zakaria\\desktop\\inventory for mdp\\inventorymanagmentandinstanceissuancesolution\\infrastructurelayer\\migrations\\20260823064304_add-migration matica-print-flow-tipper-parameters.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{E1132EB0-3B5C-4687-9799-20C48F4148B1}|InfrastructureLayer\\InfrastructureLayer.csproj|solutionrelative:infrastructurelayer\\migrations\\20260823064304_add-migration matica-print-flow-tipper-parameters.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     }
   ],
   "DocumentGroupContainers": [
@@ -274,15 +278,32 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 1,
+          "SelectedChildIndex": 2,
           "Children": [
             {
               "$type": "Bookmark",
               "Name": "ST:128:0:{75188d03-9892-4ae2-abf1-207126247ce5}"
             },
             {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{0ad07096-bba9-4900-a651-0598d26f6d24}"
+            },
+            {
               "$type": "Document",
               "DocumentIndex": 0,
+              "Title": "MaticaPrinterConfiguration.cs",
+              "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Entities\\MaticaPrinterConfiguration.cs",
+              "RelativeDocumentMoniker": "DomainLayer\\Entities\\MaticaPrinterConfiguration.cs",
+              "ToolTip": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\DomainLayer\\Entities\\MaticaPrinterConfiguration.cs",
+              "RelativeToolTip": "DomainLayer\\Entities\\MaticaPrinterConfiguration.cs",
+              "ViewState": "AgIAACwAAAAAAAAAAAAswE4AAAAdAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-08-24T11:00:21.026Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
               "Title": "20260823113732_inventory-api-reconciliation-credential.patch.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260823113732_inventory-api-reconciliation-credential.patch.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Migrations\\20260823113732_inventory-api-reconciliation-credential.patch.cs",
@@ -290,12 +311,11 @@
               "RelativeToolTip": "InfrastructureLayer\\Migrations\\20260823113732_inventory-api-reconciliation-credential.patch.cs",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-23T11:37:32.54Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-23T11:37:32.54Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 66,
               "Title": "20260823064304_Add-Migration Matica-Print-Flow-Tipper-Parameters.cs",
               "DocumentMoniker": "C:\\Users\\b.zakaria\\Desktop\\Inventory For MDP\\InventoryManagmentAndInstanceIssuanceSolution\\InfrastructureLayer\\Migrations\\20260823064304_Add-Migration Matica-Print-Flow-Tipper-Parameters.cs",
               "RelativeDocumentMoniker": "InfrastructureLayer\\Migrations\\20260823064304_Add-Migration Matica-Print-Flow-Tipper-Parameters.cs",
@@ -303,8 +323,7 @@
               "RelativeToolTip": "InfrastructureLayer\\Migrations\\20260823064304_Add-Migration Matica-Print-Flow-Tipper-Parameters.cs",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-23T06:43:04.877Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-08-23T06:43:04.877Z"
             },
             {
               "$type": "Document",
@@ -364,12 +383,7 @@
               "RelativeToolTip": "DomainLayer\\Enums\\CardStatus.cs",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-04T09:39:57.624Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Bookmark",
-              "Name": "ST:0:0:{0ad07096-bba9-4900-a651-0598d26f6d24}"
+              "WhenOpened": "2026-08-04T09:39:57.624Z"
             },
             {
               "$type": "Document",

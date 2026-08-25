@@ -55,8 +55,16 @@ namespace DomainLayer.Entities
         public string Model { get; set; } = string.Empty;
 
         /// <summary>
-        /// Serial number for an Evolis printer, or IP address for a Matica printer (ERD §6.1:
-        /// "Serial for evolis / ip for matica"). Unique per tenant among non-deleted rows.
+        /// Serial number / unique hardware identifier for the printer, for both Evolis and Matica
+        /// printers alike. Unique per tenant among non-deleted rows.
+        /// <para>
+        /// Not a network address — a Matica printer's IP address lives on its own dedicated
+        /// <see cref="MaticaPrinterConfiguration.IpAddress"/> field instead. This field's doc
+        /// comment previously read "Serial number for an Evolis printer, or IP address for a
+        /// Matica printer" (matching the ERD's original wording), which conflated two different
+        /// facts about a Matica printer under one property; corrected once <c>IpAddress</c> was
+        /// introduced to hold the network address on its own.
+        /// </para>
         /// </summary>
         public string UniqueNumber { get; set; } = string.Empty;
     }

@@ -16,12 +16,12 @@ namespace ApplicationLayer.DTOs.Printing
     /// own default-0 behavior for a printer that has never had them explicitly configured.
     /// </summary>
     public sealed record MaticaPrinterConfigRequest(
-        int FeederId, int HopperId, int RejectedId, string Port,
+        int FeederId, int HopperId, int RejectedId, string Port, string IpAddress,
         int TipperTemperature = 0, int TipperPressure = 0, int TipperConsumption = 0, int TipperTime = 0);
 
     /// <summary>Matica-only machine configuration as returned to clients (ERD §6.2).</summary>
     public sealed record MaticaPrinterConfigResponse(
-        int FeederId, int HopperId, int RejectedId, string Port,
+        int FeederId, int HopperId, int RejectedId, string Port, string IpAddress,
         int TipperTemperature, int TipperPressure, int TipperConsumption, int TipperTime);
 
     /// <summary>

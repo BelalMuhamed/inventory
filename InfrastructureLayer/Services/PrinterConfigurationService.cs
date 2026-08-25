@@ -137,6 +137,7 @@ namespace InfrastructureLayer.Services
                         HopperId = request.MaticaConfig.HopperId,
                         RejectedId = request.MaticaConfig.RejectedId,
                         Port = request.MaticaConfig.Port,
+                        IpAddress = request.MaticaConfig.IpAddress,
                         TipperTemperature = request.MaticaConfig.TipperTemperature,
                         TipperPressure = request.MaticaConfig.TipperPressure,
                         TipperConsumption = request.MaticaConfig.TipperConsumption,
@@ -228,6 +229,7 @@ namespace InfrastructureLayer.Services
                     maticaConfig.HopperId = request.MaticaConfig.HopperId;
                     maticaConfig.RejectedId = request.MaticaConfig.RejectedId;
                     maticaConfig.Port = request.MaticaConfig.Port;
+                    maticaConfig.IpAddress = request.MaticaConfig.IpAddress;
                     maticaConfig.TipperTemperature = request.MaticaConfig.TipperTemperature;
                     maticaConfig.TipperPressure = request.MaticaConfig.TipperPressure;
                     maticaConfig.TipperConsumption = request.MaticaConfig.TipperConsumption;
@@ -391,7 +393,7 @@ namespace InfrastructureLayer.Services
                 ? null
                 : new MaticaPrinterConfigResponse(
                     maticaConfig.FeederId, maticaConfig.HopperId, maticaConfig.RejectedId, maticaConfig.Port,
-                    maticaConfig.TipperTemperature, maticaConfig.TipperPressure,
+                    maticaConfig.IpAddress, maticaConfig.TipperTemperature, maticaConfig.TipperPressure,
                     maticaConfig.TipperConsumption, maticaConfig.TipperTime),
             p.IsDeleted,
             p.CreatedAt,

@@ -878,6 +878,7 @@ namespace InfrastructureLayer.Data
                 entity.HasKey(m => m.Id);
 
                 entity.Property(m => m.Port).IsRequired().HasMaxLength(50);
+                entity.Property(m => m.IpAddress).IsRequired().HasMaxLength(45);
 
                 entity.HasOne(m => m.Printer)
                       .WithOne()

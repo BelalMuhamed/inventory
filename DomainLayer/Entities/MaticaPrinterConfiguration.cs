@@ -47,6 +47,18 @@ namespace DomainLayer.Entities
         public string Port { get; set; } = string.Empty;
 
         /// <summary>
+        /// The physical Matica machine's actual network IP address — the address used when the
+        /// backend (or, in practice today, the Matica Printer Agent it authorizes) needs to
+        /// communicate with the physical machine. Deliberately separate from
+        /// <see cref="Printer.UniqueNumber"/>, which is the machine's serial/unique identifier and
+        /// nothing else, for both printer families. Admin-managed only, same trust boundary as
+        /// every other field on this entity (<see cref="PrinterId"/>'s own doc comment) — no print
+        /// request, print result, or other runtime traffic writes to this table at all; confirmed
+        /// by inspection, not assumed, before this field was added.
+        /// </summary>
+        public string IpAddress { get; set; } = string.Empty;
+
+        /// <summary>
         /// Tipper temperature, pressure, consumption and time settings sent with every Emboss
         /// command by the Matica Printer Agent (Matica Print Flow, tipper-parameter phase).
         /// Printer-level hardware calibration, not per-product — hence living here rather than on
